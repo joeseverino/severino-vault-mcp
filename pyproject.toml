@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "severino-knowledge-router"
+version = "0.1.0"
+description = "Local MCP server that routes AI assistants to the right doc in the Severino Labs vault and Severino HQ."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Joseph Severino", email = "github@jseverino.com" }]
+keywords = ["mcp", "obsidian", "severino-hq", "knowledge-router"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "mcp>=1.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+severino-knowledge-router = "severino_knowledge_router.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/joeseverino/severino-knowledge-router"
+Issues = "https://github.com/joeseverino/severino-knowledge-router/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/severino_knowledge_router"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]  # line length is enforced softly
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
