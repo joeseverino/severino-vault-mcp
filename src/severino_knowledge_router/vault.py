@@ -6,11 +6,17 @@ Walks `<vault>/01 Projects/`, `<vault>/02 Infrastructure/`, `<vault>/03 Runbooks
 index for the configured `cache_seconds`. The frontmatter parser is hand-rolled
 to avoid a PyYAML dependency — it understands the constrained shape documented
 at `02 Infrastructure/Severino HQ/Frontmatter Schema.md` in the vault.
+
+If `fd` (https://github.com/sharkdp/fd) is on PATH, it's used to walk the vault
+because it's much faster than Python's pathlib at scale. Otherwise we fall
+back to `Path.rglob`.
 """
 
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +41,9 @@ class Doc:
     path: Path                 # absolute path on disk
     relative_path: str         # vault-root-relative
     body: str                  # markdown body (after frontmatter)
+    body_start_line: int = 1   # 1-indexed line in the source file where the body begins
+                               # (line after the closing `---`); ripgrep-based search
+                               # uses this to skip matches that fall inside frontmatter.
 
     def to_metadata(self) -> dict:
         """Lossless metadata view — never includes the body."""
@@ -114,25 +123,32 @@ def _parse_yaml_block(block: str) -> dict:
     return data
 
 
-def _split_frontmatter(text: str) -> tuple[dict | None, str]:
-    """Return (frontmatter_dict, body) or (None, full_text) if not present."""
+def _split_frontmatter(text: str) -> tuple[dict | None, str, int]:
+    """Return (frontmatter_dict, body, body_start_line) or (None, full_text, 1).
+
+    body_start_line is the 1-indexed line number in the original text where the
+    body begins (i.e. the line after the closing `---`). It's 1 when no
+    frontmatter is present, matching "the whole file is body."
+    """
     if not text.lstrip().startswith("---"):
-        return None, text
+        return None, text, 1
     lines = text.splitlines()
     # Find the first '---' (start)
     start = next((i for i, line in enumerate(lines) if line.strip() == "---"), None)
     if start is None:
-        return None, text
+        return None, text, 1
     # Find the next '---' (end)
     end = next(
         (i for i in range(start + 1, len(lines)) if lines[i].strip() == "---"),
         None,
     )
     if end is None:
-        return None, text
+        return None, text, 1
     fm = _parse_yaml_block("\n".join(lines[start + 1:end]))
     body = "\n".join(lines[end + 1:]).lstrip("\n")
-    return fm, body
+    # `end` is 0-indexed, body starts on the next line, 1-indexed.
+    body_start_line = end + 2
+    return fm, body, body_start_line
 
 
 def _coerce_list(value) -> list[str]:
@@ -181,7 +197,7 @@ class VaultLoader:
             root = self.config.vault_path / sub
             if not root.is_dir():
                 continue
-            for path in sorted(root.rglob("*.md")):
+            for path in self._walk(root):
                 if "00 Templates" in path.parts or "Templates" in path.parts:
                     continue
                 if path.name.startswith("_"):
@@ -190,13 +206,31 @@ class VaultLoader:
                     text = path.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                fm, body = _split_frontmatter(text)
+                fm, body, body_start_line = _split_frontmatter(text)
                 if not fm or not fm.get("doc_id"):
                     continue
-                idx.add(self._mk_doc(path, fm, body))
+                idx.add(self._mk_doc(path, fm, body, body_start_line))
         return idx
 
-    def _mk_doc(self, path: Path, fm: dict, body: str) -> Doc:
+    def _walk(self, root: Path) -> list[Path]:
+        """List `.md` files under `root`. Uses `fd` if available, else pathlib."""
+        fd = shutil.which("fd")
+        if fd:
+            try:
+                proc = subprocess.run(
+                    [fd, "--type", "f", "--extension", "md", ".", str(root)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                )
+                return sorted(Path(line) for line in proc.stdout.splitlines() if line)
+            except (subprocess.SubprocessError, OSError):
+                # Fall through to the pathlib fallback below.
+                pass
+        return sorted(root.rglob("*.md"))
+
+    def _mk_doc(self, path: Path, fm: dict, body: str, body_start_line: int) -> Doc:
         return Doc(
             doc_id=str(fm["doc_id"]),
             title=str(fm.get("title") or fm["doc_id"]),
@@ -212,4 +246,5 @@ class VaultLoader:
             path=path,
             relative_path=str(path.relative_to(self.config.vault_path)),
             body=body,
+            body_start_line=body_start_line,
         )

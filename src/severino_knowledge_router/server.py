@@ -14,6 +14,8 @@ metadata only.
 
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 from datetime import date
 from typing import Any
@@ -22,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import Config
 from .search import rank
-from .sensitivity import body_is_releasable, policy_note
+from .sensitivity import Sensitivity, advisory, body_is_releasable
 from .vault import VaultLoader, _split_frontmatter
 
 # Enum vocabularies — must match the Frontmatter Schema doc in the vault.
@@ -108,15 +110,20 @@ def lookup_system(name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def read_doc(doc_id: str) -> dict[str, Any]:
-    """Read a single vault doc by its `doc_id`, with sensitivity policy applied.
+def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, Any]:
+    """Read a single vault doc by its `doc_id`.
 
-    `public` and `internal` docs return the full markdown body. `sensitive` and
-    `secret_adjacent` docs return metadata only with a short policy note —
-    fetch them by opening the Obsidian vault directly on the Mac.
+    Returns the markdown body for `public`, `internal`, and `sensitive` docs.
+    `sensitive` docs come back with an `advisory` field reminding the caller
+    to handle the content carefully. `secret_adjacent` docs are withheld by
+    default; pass `include_secret_adjacent=True` to override (the response
+    will record that an override was used).
 
     Args:
         doc_id: Stable identifier from the doc's frontmatter, e.g. "rb-add-nginx-proxy-host".
+        include_secret_adjacent: If True, also return the body of `secret_adjacent`
+            docs. Default False. Use deliberately — these docs are adjacent to
+            actual credentials/keys.
     """
     idx = _LOADER.index()
     doc = idx.by_doc_id.get(doc_id)
@@ -124,12 +131,18 @@ def read_doc(doc_id: str) -> dict[str, Any]:
         return {"doc_id": doc_id, "found": False}
 
     base: dict[str, Any] = {"doc_id": doc.doc_id, "found": True, **_hit_to_dict(doc)}
-    if body_is_releasable(doc.sensitivity):
+
+    if body_is_releasable(doc.sensitivity, include_secret_adjacent=include_secret_adjacent):
         base["body"] = doc.body
         base["body_released"] = True
+        if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
+            base["override_used"] = True
+            base["advisory"] = advisory(doc.sensitivity, override_used=True)
+        elif doc.sensitivity is Sensitivity.SENSITIVE:
+            base["advisory"] = advisory(doc.sensitivity)
     else:
         base["body_released"] = False
-        base["policy"] = policy_note(doc.sensitivity)
+        base["advisory"] = advisory(doc.sensitivity)
     return base
 
 
@@ -208,6 +221,148 @@ def recent_changes(days: int = 7, limit: int = 50) -> dict[str, Any]:
         "days": days,
         "commit_count": len(commits),
         "commits": commits,
+    }
+
+
+@mcp.tool()
+def search_body(
+    query: str,
+    limit: int = 10,
+    context_lines: int = 1,
+    case_sensitive: bool = False,
+    include_secret_adjacent: bool = False,
+) -> dict[str, Any]:
+    """Full-text search across vault doc bodies using ripgrep.
+
+    Searches the content of every indexed `.md`, skipping matches that fall
+    inside frontmatter blocks. Results are grouped by `doc_id`. Honors the
+    sensitivity gate the same way `read_doc` does: `sensitive` docs are
+    included with an advisory; `secret_adjacent` docs are excluded by
+    default and require `include_secret_adjacent=True`.
+
+    Args:
+        query: Literal string or regex (ripgrep regex syntax).
+        limit: Max number of distinct documents to return (default 10).
+        context_lines: Lines of context above + below each match (default 1).
+        case_sensitive: If True, match case. Default False.
+        include_secret_adjacent: If True, also search inside `secret_adjacent`
+            docs. Default False.
+    """
+    query = (query or "").strip()
+    if not query:
+        return {"query": query, "hits_by_doc": [], "match_count": 0}
+
+    rg = shutil.which("rg")
+    if not rg:
+        return {
+            "error": (
+                "ripgrep (`rg`) not found on PATH. Install via `brew install ripgrep` "
+                "or skip this tool."
+            ),
+        }
+
+    idx = _LOADER.index()
+    vault_root = _LOADER.config.vault_path.resolve()
+    indexed_roots = [vault_root / sub for sub in _LOADER.config.indexed_dirs]
+    indexed_roots = [r for r in indexed_roots if r.is_dir()]
+    if not indexed_roots:
+        return {"query": query, "hits_by_doc": [], "match_count": 0}
+
+    cmd = [
+        rg,
+        "--json",
+        "--type", "md",
+        "--max-count", "10",   # per-file cap
+        f"--context={max(0, min(int(context_lines), 5))}",
+        "--no-ignore-vcs",
+    ]
+    if not case_sensitive:
+        cmd.append("-i")
+    cmd.append(query)
+    cmd.extend(str(r) for r in indexed_roots)
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=15, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"error": f"ripgrep failed: {exc}"}
+
+    if proc.returncode > 1:
+        # rg returns 1 for "no matches" — that's fine. Anything else is bad.
+        return {"error": proc.stderr.strip() or f"ripgrep returncode={proc.returncode}"}
+
+    # Walk rg --json output. Group matches by source file.
+    matches_by_path: dict[str, list[dict]] = {}
+    current_path: str | None = None
+    for line in proc.stdout.splitlines():
+        if not line:
+            continue
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        t = evt.get("type")
+        data = evt.get("data") or {}
+        if t == "begin":
+            current_path = (data.get("path") or {}).get("text")
+            if current_path:
+                matches_by_path.setdefault(current_path, [])
+        elif t in ("match", "context") and current_path:
+            line_no = data.get("line_number")
+            text = (data.get("lines") or {}).get("text", "").rstrip("\n")
+            if line_no is None:
+                continue
+            matches_by_path[current_path].append({
+                "line_number": line_no,
+                "kind": t,
+                "text": text,
+            })
+
+    # Resolve each path to a Doc, apply the sensitivity gate, and drop
+    # matches that fall inside the frontmatter block.
+    by_path_to_doc = {str(d.path): d for d in idx.docs}
+    hits_by_doc: list[dict] = []
+    excluded = {"secret_adjacent_skipped": 0, "unindexed_skipped": 0}
+
+    for path_str, hits in matches_by_path.items():
+        doc = by_path_to_doc.get(path_str)
+        if doc is None:
+            # File matched but isn't in our index (untagged, in 00 Templates/, etc.)
+            excluded["unindexed_skipped"] += 1
+            continue
+        if doc.sensitivity is Sensitivity.SECRET_ADJACENT and not include_secret_adjacent:
+            excluded["secret_adjacent_skipped"] += 1
+            continue
+        # Drop any hit that lands inside the frontmatter block.
+        in_body = [h for h in hits if h["line_number"] >= doc.body_start_line]
+        if not in_body:
+            continue
+        # Match-only count (excluding context lines) for ranking.
+        match_count = sum(1 for h in in_body if h["kind"] == "match")
+        if match_count == 0:
+            continue
+        hits_by_doc.append({
+            **_hit_to_dict(doc),
+            "match_count": match_count,
+            "snippets": in_body,
+            **({"advisory": advisory(doc.sensitivity)}
+               if doc.sensitivity is Sensitivity.SENSITIVE else {}),
+        })
+
+    # Sort by match count (desc), then last_reviewed (desc), then title.
+    hits_by_doc.sort(
+        key=lambda h: (h["match_count"], h.get("last_reviewed") or "", h["title"]),
+        reverse=True,
+    )
+    capped = hits_by_doc[: max(1, min(int(limit), 50))]
+
+    return {
+        "query": query,
+        "doc_count": len(capped),
+        "total_match_count": sum(h["match_count"] for h in capped),
+        "excluded": excluded,
+        "hits_by_doc": capped,
     }
 
 
@@ -544,7 +699,7 @@ def update_frontmatter(
 
     # ---- load existing ---------------------------------------------------
     text = full_path.read_text(encoding="utf-8")
-    fm, body = _split_frontmatter(text)
+    fm, body, _body_start = _split_frontmatter(text)
     if fm is None:
         return {
             "ok": False,

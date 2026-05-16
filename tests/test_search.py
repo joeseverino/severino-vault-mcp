@@ -98,13 +98,22 @@ def test_find_runbook_ranks_nginx_query(fake_vault: Path) -> None:
     assert result["hits"][0]["doc_id"] == "rb-add-nginx-proxy-host"
 
 
-def test_read_doc_respects_secret_adjacent(fake_vault: Path) -> None:
+def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
     server = _fresh_module("severino_knowledge_router.server")
     result = server.read_doc("infra-local-pki")
     assert result["found"] is True
     assert result["body_released"] is False
     assert "body" not in result
-    assert "secret_adjacent" in result["policy"].lower()
+    assert "secret_adjacent" in result["advisory"].lower()
+
+
+def test_read_doc_overrides_secret_adjacent(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    assert result["body_released"] is True
+    assert "CA private key" in result["body"]
+    assert result["override_used"] is True
+    assert "override" in result["advisory"].lower()
 
 
 def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
@@ -112,6 +121,18 @@ def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
     result = server.read_doc("rb-add-nginx-proxy-host")
     assert result["body_released"] is True
     assert "## Goal" in result["body"]
+
+
+def test_read_doc_releases_sensitive_with_advisory(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    server.update_frontmatter(
+        relative_path="03 Runbooks/Add Nginx Proxy Host.md",
+        sensitivity="sensitive",
+    )
+    result = server.read_doc("rb-add-nginx-proxy-host")
+    assert result["body_released"] is True
+    assert "## Goal" in result["body"]
+    assert "sensitive" in result["advisory"].lower()
 
 
 def test_add_frontmatter_validates_enums(fake_vault: Path) -> None:
@@ -180,6 +201,35 @@ def test_update_frontmatter_refuses_without_frontmatter(fake_vault: Path) -> Non
     )
     assert result["ok"] is False
     assert "no frontmatter" in result["errors"][0].lower()
+
+
+def test_search_body_finds_text_in_body(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.search_body("HTTPS via NPM")
+    doc_ids = [h["doc_id"] for h in result["hits_by_doc"]]
+    assert "rb-add-nginx-proxy-host" in doc_ids
+
+
+def test_search_body_excludes_secret_adjacent_by_default(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    default = server.search_body("CA private key")
+    assert default["doc_count"] == 0
+    assert default["excluded"]["secret_adjacent_skipped"] >= 1
+
+    overridden = server.search_body("CA private key", include_secret_adjacent=True)
+    assert overridden["doc_count"] == 1
+    assert overridden["hits_by_doc"][0]["doc_id"] == "infra-local-pki"
+
+
+def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    # "nginx" appears in the nginx runbook frontmatter tags AND in the body.
+    # The frontmatter hit should be excluded; the body hit should remain.
+    result = server.search_body("nginx")
+    for hit in result["hits_by_doc"]:
+        for snip in hit["snippets"]:
+            # Frontmatter spans the first ~16 lines of this fixture doc.
+            assert snip["line_number"] >= 17, (hit["doc_id"], snip)
 
 
 def test_inventory_for_project_filters_by_slug(fake_vault: Path) -> None:

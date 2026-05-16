@@ -1,16 +1,21 @@
 """Sensitivity policy gate.
 
-The vault's frontmatter schema labels every doc with one of four sensitivities.
-This module encodes the contract for what an AI assistant is allowed to see:
+The MCP runs locally and is consumed by Joe's own Claude Code / Claude
+Desktop session. The threat model is "don't surface live secrets in a chat
+window where they could be copy-pasted or persisted in conversation logs,"
+not "treat every operational runbook as forbidden knowledge."
 
-    public          — anything (full body)
-    internal        — anything (full body)
-    sensitive       — metadata only (title, doc_id, system, path, tags); body withheld
-    secret_adjacent — refuse with a pointer; metadata only
+So the gate is narrow:
 
-The MCP host (Claude, etc.) gets a structured response either way, but for
-sensitive/secret_adjacent the body is replaced with a short policy note so
-secrets cannot end up in an LLM context window.
+    public          — body released
+    internal        — body released
+    sensitive       — body released + advisory note ("handle carefully")
+    secret_adjacent — body withheld by default; caller can pass
+                      `include_secret_adjacent=True` to read_doc to override,
+                      and the response will mark that an override was used.
+
+The HQ Markdown / JSON exports use a stricter rule (sensitive → title+path
+only) — that's a separate consumer for AI-prep contexts.
 """
 
 from __future__ import annotations
@@ -27,29 +32,56 @@ class Sensitivity(StrEnum):
     @classmethod
     def parse(cls, value: str | None) -> Sensitivity:
         if not value:
-            return cls.SENSITIVE  # conservative default if missing
+            # Conservative default for missing labels — admin / arch docs
+            # without an explicit sensitivity get treated as internal so
+            # bodies are still returnable.
+            return cls.INTERNAL
         try:
             return cls(value.strip().lower())
         except ValueError:
-            return cls.SENSITIVE
+            return cls.INTERNAL
 
 
-def body_is_releasable(sensitivity: Sensitivity) -> bool:
-    """Public + internal docs can have their full body returned."""
-    return sensitivity in (Sensitivity.PUBLIC, Sensitivity.INTERNAL)
+def body_is_releasable(sensitivity: Sensitivity, *, include_secret_adjacent: bool = False) -> bool:
+    """Whether `read_doc` should include the body.
+
+    Public / internal / sensitive: always yes. secret_adjacent only if the
+    caller explicitly opted in.
+    """
+    if sensitivity is Sensitivity.SECRET_ADJACENT:
+        return include_secret_adjacent
+    return True
 
 
-def policy_note(sensitivity: Sensitivity) -> str:
-    """Human-readable explanation of why the body was withheld."""
+def advisory(sensitivity: Sensitivity, *, override_used: bool = False) -> str:
+    """Free-text advisory string for the response.
+
+    For sensitive docs: a short "handle carefully" reminder.
+    For secret_adjacent docs:
+      - default (no override): the refusal explanation
+      - override=True: a strong reminder that the body is being released
+    """
     if sensitivity is Sensitivity.SENSITIVE:
         return (
-            "Body withheld by policy (sensitivity=sensitive). "
-            "Read it directly in the Obsidian vault."
+            "Doc is labeled `sensitive`. Body returned because the MCP runs "
+            "locally, but treat this content as private — don't paste it into "
+            "untrusted contexts."
         )
-    if sensitivity is Sensitivity.SECRET_ADJACENT:
+    if sensitivity is Sensitivity.SECRET_ADJACENT and not override_used:
         return (
-            "Body withheld by policy (sensitivity=secret_adjacent). "
-            "This doc is adjacent to credentials/keys — do not request the "
-            "body via AI tools. Open it in Obsidian on the Mac."
+            "Body withheld: sensitivity=secret_adjacent. This doc is adjacent "
+            "to credentials/keys. Pass include_secret_adjacent=True to read_doc "
+            "if you really need the body."
+        )
+    if sensitivity is Sensitivity.SECRET_ADJACENT and override_used:
+        return (
+            "Body released under explicit override (include_secret_adjacent=True). "
+            "This doc is labeled secret_adjacent — be deliberate about what you "
+            "do with the content."
         )
     return ""
+
+
+# Backwards-compat alias — older code in this repo may still reference policy_note.
+def policy_note(sensitivity: Sensitivity) -> str:
+    return advisory(sensitivity)
