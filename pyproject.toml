@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "severino-knowledge-router"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local MCP server that routes AI assistants to the right doc in the Severino Labs vault and Severino HQ."
 readme = "README.md"
 requires-python = ">=3.11"

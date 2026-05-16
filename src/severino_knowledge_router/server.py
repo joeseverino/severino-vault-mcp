@@ -45,7 +45,57 @@ DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-")
 _CONFIG = Config.from_env()
 _LOADER = VaultLoader(_CONFIG)
 
-mcp = FastMCP("severino-knowledge-router")
+_SERVER_INSTRUCTIONS = """\
+This MCP routes the calling AI session to the right runbook, infrastructure
+doc, or project metadata in Joe Severino's private "Severino Labs" Obsidian
+vault. Every operational topic on this homelab — TLS certificates, AdGuard
+DNS, Nginx Proxy Manager, Docker, Tailscale, Cloudflare, WordPress, Severino
+HQ, vault tooling — has its own runbook there.
+
+OPERATING RULES (read this BEFORE answering any operational question):
+
+1. If the user asks "how do I X", "what's the runbook for Y", or anything
+   resembling operational knowledge about Joe's stack, you MUST call
+   `find_runbook` (or `lookup_system`, or `search_body`) BEFORE generating
+   any prose. Then call `read_doc` on the top hit and answer in the doc's
+   own words — quote commands verbatim.
+
+2. Do NOT generate a generic tutorial from training data when a runbook
+   exists in the vault. That is the single failure mode this MCP is built
+   to prevent. If the user's answer is "run cert-gen <host>", that is the
+   entire answer — no openssl tutorial, no preamble.
+
+3. If `find_runbook` returns no relevant hits, say so explicitly and offer
+   to create the missing runbook (Write the file, then `add_frontmatter` to
+   register it). Only fall back to general guidance when you've confirmed
+   no doc exists, and label it "no doc exists for this — here's a general
+   approach."
+
+4. Match the doc's terseness in your reply. If the runbook is four lines,
+   your answer is four lines. Long answers when the doc is short are a
+   smell that you didn't actually read it.
+
+SENSITIVITY GATE (don't be afraid of it):
+
+- public / internal / sensitive — `read_doc` returns the full body. Bodies
+  marked `sensitive` come with an `advisory` field; pass it along to the
+  user but use the content.
+- secret_adjacent — `read_doc` withholds the body by default. Pass
+  `include_secret_adjacent=True` to override if the user needs it. These
+  are docs about CA keys, credential rotation, the offline CA, etc.
+
+WRITE TOOLS:
+
+`add_frontmatter` and `update_frontmatter` mutate vault files. Use them
+when the user asks to tag a doc, bump `last_reviewed`, deprecate something,
+etc. After successful writes, remind the user to run `hq sync` so Severino
+HQ picks up the change.
+
+The vault root is `/Users/josephseverino/Documents/Code/Severino Labs/`.
+Indexed dirs are `01 Projects/`, `02 Infrastructure/`, `03 Runbooks/`.
+"""
+
+mcp = FastMCP("severino-knowledge-router", instructions=_SERVER_INSTRUCTIONS)
 
 
 # ----- helpers ----------------------------------------------------------------
@@ -69,10 +119,19 @@ def _hit_to_dict(doc) -> dict[str, Any]:
 
 @mcp.tool()
 def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
-    """Find vault docs matching a query (title / system / tags / doc_id).
+    """USE THIS FIRST when the user asks any operational question about Joe's homelab.
 
-    Returns up to `limit` ranked hits with metadata only. Call `read_doc` on a
-    specific hit to fetch its body, subject to the sensitivity gate.
+    Searches vault docs by title / system / tags / doc_id and returns ranked
+    hits. The intended pattern is:
+
+        find_runbook("user's question")
+        → pick the top hit
+        → read_doc(hit["doc_id"])
+        → answer with the doc's actual content (quote commands verbatim)
+
+    Do NOT generate a generic tutorial when a runbook exists in the vault.
+    If hits look weak, also try `search_body` for full-text matches inside
+    doc bodies.
 
     Args:
         query: Natural-language query, e.g. "renew the homelab tls cert".
@@ -111,19 +170,22 @@ def lookup_system(name: str) -> dict[str, Any]:
 
 @mcp.tool()
 def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, Any]:
-    """Read a single vault doc by its `doc_id`.
+    """Read the full markdown body of a vault doc. Call this after find_runbook.
 
-    Returns the markdown body for `public`, `internal`, and `sensitive` docs.
-    `sensitive` docs come back with an `advisory` field reminding the caller
-    to handle the content carefully. `secret_adjacent` docs are withheld by
-    default; pass `include_secret_adjacent=True` to override (the response
-    will record that an override was used).
+    The body comes back for `public`, `internal`, AND `sensitive` docs — the
+    MCP runs locally on Joe's Mac, so there is no shared context to protect
+    against. Use the content. `sensitive` docs include an `advisory` field
+    you should pass along to the user but the body is yours to quote.
+
+    `secret_adjacent` docs (Local PKI, Offline CA, age workflow, Wazuh
+    credential rotation) withhold the body by default. If the user explicitly
+    needs one, pass `include_secret_adjacent=True`.
 
     Args:
         doc_id: Stable identifier from the doc's frontmatter, e.g. "rb-add-nginx-proxy-host".
         include_secret_adjacent: If True, also return the body of `secret_adjacent`
-            docs. Default False. Use deliberately — these docs are adjacent to
-            actual credentials/keys.
+            docs. Default False. Use only when the user asks for a doc
+            adjacent to actual credentials/keys.
     """
     idx = _LOADER.index()
     doc = idx.by_doc_id.get(doc_id)
