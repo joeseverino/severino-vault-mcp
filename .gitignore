@@ -9,7 +9,8 @@ dist/
 # uv / virtualenvs
 .venv/
 venv/
-uv.lock
+# uv.lock is committed — this is an application, not a library; CI needs a
+# stable lockfile to build reproducibly.
 
 # Tooling caches
 .pytest_cache/
