@@ -1,5 +1,10 @@
 # severino-knowledge-router
 
+[![CI](https://github.com/joeseverino/severino-knowledge-router/actions/workflows/ci.yml/badge.svg)](https://github.com/joeseverino/severino-knowledge-router/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![MCP](https://img.shields.io/badge/MCP-stdio%20server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Local MCP server that routes an AI assistant to the right doc in the Severino
 Labs vault and Severino HQ. Reads vault frontmatter directly from disk;
 enforces the documented sensitivity policy so secret-adjacent material never
