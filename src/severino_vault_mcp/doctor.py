@@ -7,23 +7,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
-from .vault import _coerce_list, _split_frontmatter
-
-DOC_TYPES = {
-    "runbook", "architecture_note", "deployment_guide",
-    "troubleshooting_guide", "recovery_procedure",
-    "public_article_draft", "decision_record",
-}
-ENVIRONMENTS = {
-    "lab", "homelab", "vps", "wordpress", "cloudflare", "tailscale",
-    "adguard", "unifi", "local_mac", "other",
-}
-STATUSES = {"draft", "active", "deprecated", "archived"}
-SENSITIVITIES = {"public", "internal", "sensitive", "secret_adjacent"}
-DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-")
-REQUIRED_FIELDS = (
-    "doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity",
+from .schema import (
+    DOC_ID_PREFIXES,
+    DOC_TYPES,
+    ENVIRONMENTS,
+    REQUIRED_FIELDS,
+    SENSITIVITIES,
+    STATUSES,
 )
+from .vault import _coerce_list, _split_frontmatter
 
 
 @dataclass
@@ -51,6 +43,7 @@ class DoctorReport:
 
 def validate_vault(config: Config, *, propose: bool = False) -> DoctorReport:
     report = DoctorReport(vault_path=config.vault_path)
+    seen_doc_ids: dict[str, str] = {}
     for path in _iter_markdown_files(config):
         report.checked_files += 1
         relative_path = _relative(path, config.vault_path)
@@ -73,6 +66,15 @@ def validate_vault(config: Config, *, propose: bool = False) -> DoctorReport:
         doc_id = fm.get("doc_id")
         if doc_id:
             report.indexed_docs += 1
+            doc_id = str(doc_id)
+            if doc_id in seen_doc_ids:
+                report.add(DoctorFinding(
+                    relative_path,
+                    "error",
+                    f"duplicate doc_id {doc_id!r}; already used by {seen_doc_ids[doc_id]}",
+                ))
+            else:
+                seen_doc_ids[doc_id] = relative_path
         _validate_frontmatter(report, relative_path, fm)
     return report
 

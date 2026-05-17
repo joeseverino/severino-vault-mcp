@@ -1,11 +1,11 @@
-"""
-MCP server registration.
+"""MCP server registration.
 
-Seven tools. Five are read-only (find_runbook, lookup_system, read_doc,
-inventory_for_project, recent_changes) and read the vault from disk; no
-network calls. Two are vault writers (add_frontmatter, update_frontmatter)
-that mutate vault `.md` files in place -- both validate against the schema
-and refuse unsafe operations. doc_id is immutable across all writes.
+Nine tools. Seven are read-only (find_runbook, get_runbook, lookup_system,
+read_doc, inventory_for_project, recent_changes, search_body) and read the
+vault from disk; no network calls. Two are vault writers (add_frontmatter,
+update_frontmatter) that mutate vault `.md` files in place -- both validate
+against the schema and refuse unsafe operations. doc_id is immutable across
+all writes.
 
 The Quick Index is also exposed as an MCP resource so clients can discover
 the vault's navigation hub without spending a search-tool call.
@@ -22,6 +22,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
+from .schema import DOC_ID_PREFIXES, DOC_TYPES, ENVIRONMENTS, SENSITIVITIES, STATUSES
 from .search import rank
 from .secret_unlock import (
     SecretUnlockResult,
@@ -33,19 +34,6 @@ from .secret_unlock import (
 from .sensitivity import Sensitivity, advisory, body_is_releasable
 from .vault import VaultLoader, _split_frontmatter
 
-# Enum vocabularies — must match the Frontmatter Schema doc in the vault.
-DOC_TYPES = {
-    "runbook", "architecture_note", "deployment_guide",
-    "troubleshooting_guide", "recovery_procedure",
-    "public_article_draft", "decision_record",
-}
-ENVIRONMENTS = {
-    "lab", "vps", "wordpress", "cloudflare", "tailscale",
-    "adguard", "unifi", "local_mac", "other",
-}
-STATUSES = {"draft", "active", "deprecated", "archived"}
-SENSITIVITIES = {"public", "internal", "sensitive", "secret_adjacent"}
-DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-")
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
 QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
 DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
@@ -276,6 +264,46 @@ def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         "indexed_doc_count": len(idx.docs),
         "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
     }
+
+
+@mcp.tool()
+def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
+    """Search for the best runbook and return its body in one tool call.
+
+    This is the safest path for smaller/local models because it removes the
+    multi-step `find_runbook` → copy `doc_id` → `read_doc` failure mode. It
+    returns the same ranked hits as `find_runbook`, plus a `selected` document
+    and the selected document body when the sensitivity gate allows release.
+
+    Args:
+        query: Natural-language operational question, e.g. "ssh into the VPS".
+        limit: Maximum ranked hits to include for context (default 5).
+    """
+    idx = _LOADER.index()
+    hits = rank(idx.docs, query, limit=max(1, min(limit, 25)))
+    response: dict[str, Any] = {
+        "query": query,
+        "indexed_doc_count": len(idx.docs),
+        "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
+    }
+    if not hits:
+        response["found"] = False
+        return response
+
+    doc = hits[0].doc
+    selected: dict[str, Any] = {"score": hits[0].score, **_hit_to_dict(doc)}
+    if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
+        response["found"] = True
+        response["selected"] = _withheld_secret_adjacent_response(selected, "not_requested")
+        return response
+
+    selected["body"] = doc.body
+    selected["body_released"] = True
+    if doc.sensitivity is Sensitivity.SENSITIVE:
+        selected["advisory"] = advisory(doc.sensitivity)
+    response["found"] = True
+    response["selected"] = selected
+    return response
 
 
 @mcp.tool()
@@ -655,7 +683,7 @@ def add_frontmatter(
             troubleshooting_guide | recovery_procedure | public_article_draft |
             decision_record.
         system: Free text — the system / service the doc is about.
-        environment: One of lab | vps | wordpress | cloudflare |
+        environment: One of lab | homelab | vps | wordpress | cloudflare |
             tailscale | adguard | unifi | local_mac | other. Default "other".
         status: One of draft | active | deprecated | archived. Default "active".
         sensitivity: One of public | internal | sensitive | secret_adjacent.

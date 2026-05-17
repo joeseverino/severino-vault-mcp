@@ -2,12 +2,56 @@
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-05-17
+
+Retrieval reliability and schema-consistency release. Adds a safer one-call
+runbook retrieval path for local models and removes a duplicated schema enum
+that let write-tool validation drift from `doctor` and the documented vault
+schema.
+
+### Added
+
+- `get_runbook(query, limit=5)` MCP tool. It returns ranked hits plus the
+  selected document body in a single call, while preserving the same
+  `secret_adjacent` withholding behavior as `read_doc`. This avoids the
+  local-model failure mode where an assistant calls `find_runbook`, mistypes
+  the selected `doc_id`, then fills the gap from generic model memory.
+- Shared `schema.py` constants for frontmatter enum vocabularies and required
+  fields.
+- `doctor` duplicate-`doc_id` validation. Duplicate frontmatter IDs now fail
+  validation instead of silently overwriting each other in the in-memory
+  `by_doc_id` index.
+- Regression tests for:
+  - `environment: homelab` being accepted by write tools.
+  - Duplicate `doc_id` detection.
+  - Normal SSH runbook retrieval ranking above SSH recovery procedures.
+  - `get_runbook` body release and `secret_adjacent` withholding.
+
 ### Changed
 
+- Bumped package version to 2.2.0 in `pyproject.toml` and
+  `src/severino_vault_mcp/__init__.py`.
+- README MCP surface now documents `get_runbook` and `search_body`.
+- README status now reflects v2.2.0 and the single-call retrieval path.
+- Server and doctor validation now import the same schema constants instead of
+  maintaining duplicate enum sets.
 - Bumped pinned GitHub Action versions via Dependabot, verified green
   across the full CI matrix and code-scanning workflows before merge:
   - `actions/checkout`: `v4` → `v6.0.2`
   - `astral-sh/setup-uv`: `v3` → `v8.1.0`
+
+### Fixed
+
+- `add_frontmatter(..., environment="homelab")` no longer fails validation.
+  `homelab` was already valid in the vault schema, existing docs, Severino HQ,
+  and `doctor`; only the MCP server write-tool enum was stale.
+
+### Verification
+
+- `uv run ruff check .` passes.
+- `uv run pytest -q` passes with 31 tests.
+- Real-vault timing sanity check: 70 indexed docs, `doctor` around 0.05s, and
+  cold-process `get_runbook` around 0.27s including Python startup.
 
 ## [2.1.0] — 2026-05-17
 
@@ -208,7 +252,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v1.0.0

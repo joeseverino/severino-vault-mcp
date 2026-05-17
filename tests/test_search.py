@@ -205,11 +205,101 @@ sensitivity: internal
     assert any("doc_type='made_up'" in message for message in messages)
 
 
+def test_doctor_reports_duplicate_doc_id(fake_vault: Path) -> None:
+    duplicate = fake_vault / "03 Runbooks" / "Duplicate.md"
+    duplicate.write_text(
+        """---
+doc_id: rb-add-nginx-proxy-host
+title: Duplicate
+doc_type: runbook
+system: Duplicate
+environment: other
+status: active
+sensitivity: internal
+---
+
+# Duplicate
+""",
+        encoding="utf-8",
+    )
+
+    doctor = _fresh_module("severino_vault_mcp.doctor")
+    from severino_vault_mcp.config import Config
+
+    report = doctor.validate_vault(Config.from_env())
+    messages = [f.message for f in report.findings if f.relative_path == "03 Runbooks/Duplicate.md"]
+    assert any("duplicate doc_id" in message for message in messages)
+
+
 def test_find_runbook_ranks_nginx_query(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.find_runbook("nginx proxy")
     assert result["hits"], result
     assert result["hits"][0]["doc_id"] == "rb-add-nginx-proxy-host"
+
+
+def test_find_runbook_ranks_normal_ssh_above_recovery(fake_vault: Path) -> None:
+    (fake_vault / "03 Runbooks" / "SSH Into VPS.md").write_text(
+        """---
+doc_id: rb-ssh-into-vps
+title: SSH Into VPS
+doc_type: runbook
+system: sl-cloud-edge-01
+environment: vps
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-17
+tags: [vps, ssh, access, cloud-edge]
+---
+
+## Connect
+
+```bash
+ssh edge
+```
+""",
+        encoding="utf-8",
+    )
+    (fake_vault / "03 Runbooks" / "Recover SSH Access.md").write_text(
+        """---
+doc_id: rb-recover-ssh-cloud-edge
+title: Recover SSH Access
+doc_type: recovery_procedure
+system: sl-cloud-edge-01
+environment: vps
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-16
+tags: [vps]
+---
+
+Use only when `ssh edge` is refused or times out.
+""",
+        encoding="utf-8",
+    )
+
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.find_runbook("how do i ssh into the VPS")
+    assert result["hits"][0]["doc_id"] == "rb-ssh-into-vps"
+
+
+def test_get_runbook_returns_selected_body_in_one_call(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("nginx proxy")
+    assert result["found"] is True
+    assert result["selected"]["doc_id"] == "rb-add-nginx-proxy-host"
+    assert result["selected"]["body_released"] is True
+    assert "Expose an internal service" in result["selected"]["body"]
+
+
+def test_get_runbook_withholds_secret_adjacent_body(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("local pki")
+    assert result["found"] is True
+    assert result["selected"]["doc_id"] == "infra-local-pki"
+    assert result["selected"]["body_released"] is False
+    assert "body" not in result["selected"]
+    assert result["selected"]["unlock"]["result"] == "not_requested"
 
 
 def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
@@ -359,6 +449,21 @@ def test_add_frontmatter_validates_enums(fake_vault: Path) -> None:
     )
     assert result["ok"] is False
     assert any("doc_id" in e for e in result["errors"])
+
+
+def test_add_frontmatter_accepts_homelab_environment(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.add_frontmatter(
+        relative_path="01 Projects/untagged.md",
+        doc_id="project-homelab-untagged",
+        title="Homelab Untagged",
+        doc_type="architecture_note",
+        system="Homelab",
+        environment="homelab",
+    )
+    assert result["ok"] is True, result
+    body = (fake_vault / "01 Projects" / "untagged.md").read_text(encoding="utf-8")
+    assert "environment: homelab" in body
 
 
 def test_add_frontmatter_writes(fake_vault: Path) -> None:

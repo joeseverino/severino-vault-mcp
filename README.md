@@ -98,10 +98,12 @@ vault root.
 | Tool | Read or write | What it answers |
 |---|---|---|
 | `find_runbook(query, limit=5)` | read | "How do I add an HTTPS proxy host?" |
+| `get_runbook(query, limit=5)` | read | Single-call search + selected doc body for local models that are weaker at multi-step tool use. |
 | `lookup_system(name)` | read | "Tell me about AdGuard Home" |
 | `read_doc(doc_id)` | read | Returns markdown bodies for `public`, `internal`, and `sensitive` docs. `secret_adjacent` requires explicit request plus local unlock. |
 | `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
+| `search_body(query)` | read | Full-text body search with frontmatter skipped and `secret_adjacent` bodies excluded. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
 
@@ -317,12 +319,13 @@ contract as a real operations vault.
 
 ## Status
 
-v2.1.0. Stable local stdio MCP for routing AI assistants to an
+v2.2.0. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
-vault, CI, docs, config-file support, and secret-adjacent local unlock controls.
-Layered security tooling (CodeQL, pip-audit, OSSF Scorecard, Dependabot) runs
-on every push, every PR, and weekly. Downstream metadata-system integration is
-intentionally optional.
+vault, CI, docs, config-file support, secret-adjacent local unlock controls,
+and a single-call `get_runbook` tool for smaller local models. Layered security
+tooling (CodeQL, pip-audit, OSSF Scorecard, Dependabot) runs on every push,
+every PR, and weekly. Downstream metadata-system integration is intentionally
+optional.
 
 ## License
 
