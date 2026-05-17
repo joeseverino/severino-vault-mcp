@@ -4,12 +4,11 @@ MCP server registration.
 Seven tools. Five are read-only (find_runbook, lookup_system, read_doc,
 inventory_for_project, recent_changes) and read the vault from disk; no
 network calls. Two are vault writers (add_frontmatter, update_frontmatter)
-that mutate vault `.md` files in place — both validate against the schema
+that mutate vault `.md` files in place -- both validate against the schema
 and refuse unsafe operations. doc_id is immutable across all writes.
 
-Sensitivity gate (in read_doc) enforces what bodies are returned to the
-calling LLM: public / internal full body; sensitive / secret_adjacent
-metadata only.
+The Quick Index is also exposed as an MCP resource so clients can discover
+the vault's navigation hub without spending a search-tool call.
 """
 
 from __future__ import annotations
@@ -40,6 +39,9 @@ ENVIRONMENTS = {
 STATUSES = {"draft", "active", "deprecated", "archived"}
 SENSITIVITIES = {"public", "internal", "sensitive", "secret_adjacent"}
 DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-")
+QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
+QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
+DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
 
 
 _CONFIG = Config.from_env()
@@ -54,24 +56,32 @@ HQ, vault tooling — has its own runbook there.
 
 OPERATING RULES (read this BEFORE answering any operational question):
 
-1. If the user asks "how do I X", "what's the runbook for Y", or anything
+1. For broad or cross-cutting questions ("how do I X", "where do I look",
+   "what's the process for..."), START with the Quick Index navigation hub:
+   read the `vault://quick-index` resource if your MCP host supports
+   resources, or call `read_doc('report-playbook-mcp-index')` if it does not.
+   Then read the specific target doc before answering. Prefer
+   `vault://doc/{doc_id}` for stable doc reads when your MCP host supports
+   resource templates; otherwise call `read_doc(doc_id)`.
+
+2. If the user asks "what's the runbook for Y" or anything more specific
    resembling operational knowledge about Joe's stack, you MUST call
    `find_runbook` (or `lookup_system`, or `search_body`) BEFORE generating
    any prose. Then call `read_doc` on the top hit and answer in the doc's
    own words — quote commands verbatim.
 
-2. Do NOT generate a generic tutorial from training data when a runbook
+3. Do NOT generate a generic tutorial from training data when a runbook
    exists in the vault. That is the single failure mode this MCP is built
    to prevent. If the user's answer is "run cert-gen <host>", that is the
    entire answer — no openssl tutorial, no preamble.
 
-3. If `find_runbook` returns no relevant hits, say so explicitly and offer
+4. If `find_runbook` returns no relevant hits, say so explicitly and offer
    to create the missing runbook (Write the file, then `add_frontmatter` to
    register it). Only fall back to general guidance when you've confirmed
    no doc exists, and label it "no doc exists for this — here's a general
    approach."
 
-4. Match the doc's terseness in your reply. If the runbook is four lines,
+5. Match the doc's terseness in your reply. If the runbook is four lines,
    your answer is four lines. Long answers when the doc is short are a
    smell that you didn't actually read it.
 
@@ -113,6 +123,62 @@ def _hit_to_dict(doc) -> dict[str, Any]:
         "tags": list(doc.tags),
         "last_reviewed": doc.last_reviewed,
     }
+
+
+# ----- resources --------------------------------------------------------------
+
+def _render_doc_resource(doc_id: str) -> str:
+    """Return a markdown resource view of one vault doc."""
+    idx = _LOADER.index()
+    doc = idx.by_doc_id.get(doc_id)
+    if doc is None:
+        return (
+            "# Vault Doc Not Found\n\n"
+            f"No indexed vault doc exists with doc_id `{doc_id}`.\n\n"
+            "Use `find_runbook`, `lookup_system`, or `search_body` to locate "
+            "the right document."
+        )
+    if not body_is_releasable(doc.sensitivity, include_secret_adjacent=False):
+        return (
+            f"# {doc.title}\n\n"
+            f"{advisory(doc.sensitivity)}\n\n"
+            f"- doc_id: `{doc.doc_id}`\n"
+            f"- path: `{doc.relative_path}`\n"
+            f"- system: `{doc.system}`\n"
+            f"- sensitivity: `{doc.sensitivity.value}`\n"
+        )
+    return doc.body
+
+@mcp.resource(
+    QUICK_INDEX_RESOURCE_URI,
+    name="quick-index",
+    title="Severino Labs Quick Index",
+    description=(
+        "Navigation hub for broad homelab questions. Read this first for "
+        "cross-cutting 'how do I' or 'where do I look' questions, then read "
+        "the target runbook or infrastructure doc it points to."
+    ),
+    mime_type="text/markdown",
+)
+def quick_index() -> str:
+    """Return the Quick Index markdown body as a discoverable MCP resource."""
+    return _render_doc_resource(QUICK_INDEX_DOC_ID)
+
+
+@mcp.resource(
+    DOC_RESOURCE_TEMPLATE_URI,
+    name="vault-doc",
+    title="Vault Doc by doc_id",
+    description=(
+        "Stable resource template for reading an indexed vault doc by doc_id. "
+        "Returns markdown body when releasable, or an advisory plus metadata "
+        "when the doc is secret-adjacent."
+    ),
+    mime_type="text/markdown",
+)
+def vault_doc(doc_id: str) -> str:
+    """Return one indexed vault doc as a resource template."""
+    return _render_doc_resource(doc_id)
 
 
 # ----- tools ------------------------------------------------------------------

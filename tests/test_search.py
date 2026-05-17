@@ -6,6 +6,7 @@ vault on disk and exercises the loader / tools directly.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ import pytest
 
 @pytest.fixture
 def fake_vault(tmp_path: Path, monkeypatch) -> Path:
-    """Spin up a 3-doc fake vault."""
+    """Spin up a tiny fake vault."""
     (tmp_path / "01 Projects").mkdir()
     (tmp_path / "02 Infrastructure").mkdir()
     (tmp_path / "03 Runbooks").mkdir()
@@ -62,6 +63,28 @@ CA private key lives offline.
         encoding="utf-8",
     )
 
+    (tmp_path / "03 Runbooks" / "Quick Index.md").write_text(
+        """---
+doc_id: report-playbook-mcp-index
+title: Severino Labs Quick Index
+doc_type: public_article_draft
+system: Knowledge Router
+environment: other
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-01
+tags: [index, mcp, navigation]
+---
+
+# Severino Labs Quick Index
+
+| Intent | Start Here |
+|---|---|
+| Add HTTPS service | rb-add-nginx-proxy-host |
+""",
+        encoding="utf-8",
+    )
+
     (tmp_path / "01 Projects" / "untagged.md").write_text(
         "# Untagged\n\nNo frontmatter yet.\n",
         encoding="utf-8",
@@ -88,7 +111,11 @@ def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
     loader = vault_mod.VaultLoader(Config.from_env())
     idx = loader.index()
     doc_ids = {d.doc_id for d in idx.docs}
-    assert doc_ids == {"rb-add-nginx-proxy-host", "infra-local-pki"}
+    assert doc_ids == {
+        "rb-add-nginx-proxy-host",
+        "infra-local-pki",
+        "report-playbook-mcp-index",
+    }
 
 
 def test_find_runbook_ranks_nginx_query(fake_vault: Path) -> None:
@@ -121,6 +148,56 @@ def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
     result = server.read_doc("rb-add-nginx-proxy-host")
     assert result["body_released"] is True
     assert "## Goal" in result["body"]
+
+
+def test_quick_index_resource_returns_index_body(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.quick_index()
+    assert "# Severino Labs Quick Index" in result
+    assert "rb-add-nginx-proxy-host" in result
+
+
+def test_vault_doc_resource_returns_releasable_body(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.vault_doc("rb-add-nginx-proxy-host")
+    assert "## Goal" in result
+    assert "Expose an internal homelab service" in result
+
+
+def test_vault_doc_resource_withholds_secret_adjacent_body(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.vault_doc("infra-local-pki")
+    assert "secret_adjacent" in result
+    assert "infra-local-pki" in result
+    assert "CA private key lives offline" not in result
+
+
+def test_vault_doc_resource_handles_missing_doc(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    result = server.vault_doc("rb-does-not-exist")
+    assert "# Vault Doc Not Found" in result
+    assert "rb-does-not-exist" in result
+
+
+def test_mcp_resources_are_registered_and_resolvable(fake_vault: Path) -> None:
+    server = _fresh_module("severino_knowledge_router.server")
+    manager = server.mcp._resource_manager
+
+    resources = {str(resource.uri): resource for resource in manager.list_resources()}
+    templates = {
+        template.uri_template: template for template in manager.list_templates()
+    }
+
+    assert "vault://quick-index" in resources
+    assert "vault://doc/{doc_id}" in templates
+
+    async def read_template_resource() -> str:
+        resource = await manager.get_resource("vault://doc/rb-add-nginx-proxy-host")
+        return await resource.read()
+
+    rendered = asyncio.run(read_template_resource())
+    assert "## Goal" in rendered
+    assert "Expose an internal homelab service" in rendered
 
 
 def test_read_doc_releases_sensitive_with_advisory(fake_vault: Path) -> None:
@@ -223,13 +300,15 @@ def test_search_body_excludes_secret_adjacent_by_default(fake_vault: Path) -> No
 
 def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
     server = _fresh_module("severino_knowledge_router.server")
-    # "nginx" appears in the nginx runbook frontmatter tags AND in the body.
+    # "NPM" appears in the nginx runbook frontmatter system AND in the body.
     # The frontmatter hit should be excluded; the body hit should remain.
-    result = server.search_body("nginx")
-    for hit in result["hits_by_doc"]:
-        for snip in hit["snippets"]:
-            # Frontmatter spans the first ~16 lines of this fixture doc.
-            assert snip["line_number"] >= 17, (hit["doc_id"], snip)
+    result = server.search_body("NPM")
+    nginx_hit = next(
+        h for h in result["hits_by_doc"] if h["doc_id"] == "rb-add-nginx-proxy-host"
+    )
+    for snip in nginx_hit["snippets"]:
+        # Frontmatter spans the first ~16 lines of this fixture doc.
+        assert snip["line_number"] >= 17, snip
 
 
 def test_inventory_for_project_filters_by_slug(fake_vault: Path) -> None:
@@ -242,3 +321,27 @@ def test_inventory_for_project_filters_by_slug(fake_vault: Path) -> None:
     result = server.inventory_for_project("homelab-dns")
     assert result["match_count"] == 1
     assert "runbook" in result["by_doc_type"]
+
+
+def test_sample_vault_is_reproducible(monkeypatch) -> None:
+    sample_vault = Path(__file__).resolve().parents[1] / "examples" / "sample-vault"
+    monkeypatch.setenv("SKR_VAULT_PATH", str(sample_vault))
+    monkeypatch.setenv("SKR_CACHE_SECONDS", "0")
+
+    server = _fresh_module("severino_knowledge_router.server")
+
+    index_body = server.quick_index()
+    assert "Severino Labs Quick Index" in index_body
+    assert "rb-generate-homelab-cert" in index_body
+
+    doc_body = server.vault_doc("rb-generate-homelab-cert")
+    assert "## Commands" in doc_body
+    assert "./cert-gen <service>.homelab" in doc_body
+
+    cert_result = server.find_runbook("generate homelab certificate")
+    assert cert_result["hits"][0]["doc_id"] == "rb-generate-homelab-cert"
+
+    ca_result = server.read_doc("infra-offline-ca")
+    assert ca_result["found"] is True
+    assert ca_result["body_released"] is False
+    assert "body" not in ca_result
