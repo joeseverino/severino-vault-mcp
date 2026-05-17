@@ -45,6 +45,18 @@ known. Both paths use the same sensitivity policy as `read_doc`.
 
 ---
 
+## Documentation
+
+| Doc | Purpose |
+|---|---|
+| `STRUCTURE.md` | File-by-file repository map. |
+| `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
+| `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
+| `docs/ai-safety-security.md` | AI safety model, sensitivity gate, local unlock, audit logging, and threat assumptions. |
+| `.github/SECURITY.md` | GitHub vulnerability reporting policy. |
+
+---
+
 ## Why it exists
 
 Severino Labs has three layers:
