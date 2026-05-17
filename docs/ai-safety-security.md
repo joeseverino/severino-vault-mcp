@@ -19,9 +19,9 @@ The MCP should:
 
 - Route the assistant to the right runbook or infrastructure note.
 - Return exact operational docs when they are safe to release.
-- Withhold `secret_adjacent` bodies by default.
-- Require local human authorization before releasing a secret-adjacent body.
-- Avoid broad full-text search over secret-adjacent bodies.
+- Withhold `restricted` bodies by default.
+- Require local human authorization before releasing a restricted body.
+- Avoid broad full-text search over restricted bodies.
 - Keep body content out of audit logs.
 
 ## Local Model Usage
@@ -37,7 +37,7 @@ vaults:
   reduce hallucinated operational steps.
 
 The local-model path is still not a hard sandbox. A trusted local MCP host is
-required, and a compromised host can request allowed tools. `secret_adjacent`
+required, and a compromised host can request allowed tools. `restricted`
 docs therefore remain withheld unless the explicit local unlock flow succeeds.
 
 ## Sensitivity Levels
@@ -47,9 +47,9 @@ docs therefore remain withheld unless the explicit local unlock flow succeeds.
 | `public` | Released. |
 | `internal` | Released. |
 | `sensitive` | Released with advisory text. |
-| `secret_adjacent` | Withheld by default. Released only through `read_doc` after explicit request and local unlock. |
+| `restricted` | Withheld by default. Released only through `read_doc` after explicit request and local unlock. |
 
-`secret_adjacent` is for docs near credentials, keys, CA procedures, rotation
+`restricted` is for docs near credentials, keys, CA procedures, rotation
 steps, or other material that should not casually enter an AI chat transcript.
 
 ## Secret-Adjacent Release Flow
@@ -57,13 +57,13 @@ steps, or other material that should not casually enter an AI chat transcript.
 The model can request a body, but the local machine authorizes it:
 
 ```text
-read_doc(doc_id, include_secret_adjacent=True)
+read_doc(doc_id, include_restricted=True)
         |
         v
-doc is secret_adjacent?
+doc is restricted?
         |
         v
-SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1?
+SVMC_ALLOW_RESTRICTED_UNLOCK=1?
         |
         v
 unlock hash configured?
@@ -77,10 +77,10 @@ release body for this one request only
 
 All conditions must pass:
 
-- The caller explicitly sets `include_secret_adjacent=True`.
-- The local MCP environment has `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1`.
+- The caller explicitly sets `include_restricted=True`.
+- The local MCP environment has `SVMC_ALLOW_RESTRICTED_UNLOCK=1`.
 - A salted unlock hash is configured through Keychain, a local hash file, or
-  `SVMC_SECRET_ADJACENT_UNLOCK_HASH`.
+  `SVMC_RESTRICTED_UNLOCK_HASH`.
 - The local hidden-input prompt succeeds.
 
 The unlock phrase must never be typed into AI chat.
@@ -103,7 +103,7 @@ withheld and the response includes metadata plus an unlock failure reason.
 Unlock attempts append one local audit line:
 
 ```text
-timestamp action=secret_adjacent_unlock doc_id=<doc_id> result=<result> client=stdio
+timestamp action=restricted_unlock doc_id=<doc_id> result=<result> client=stdio
 ```
 
 The audit log never includes:
@@ -120,11 +120,11 @@ The default audit path is:
 
 ## Search Safety
 
-`search_body` never searches secret-adjacent bodies, even if its deprecated
+`search_body` never searches restricted bodies, even if its deprecated
 compatibility flag is set. This is intentional: broad full-text search can leak
 too much context from credential-adjacent docs.
 
-Use `read_doc(..., include_secret_adjacent=True)` for a specific per-doc unlock
+Use `read_doc(..., include_restricted=True)` for a specific per-doc unlock
 request instead.
 
 ## Write Safety
@@ -148,7 +148,7 @@ This is a local MCP. It assumes:
 - The MCP host process is trusted enough to invoke local tools.
 - The vault files are readable by the local user.
 - A compromised MCP host can still request tools; the local unlock prompt is
-  the boundary for `secret_adjacent` body release.
+  the boundary for `restricted` body release.
 
 This project reduces accidental AI exposure. It is not a substitute for
 filesystem permissions, Keychain hygiene, or vault-level secret management.

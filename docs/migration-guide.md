@@ -99,8 +99,8 @@ Restart AdGuard Home and check local resolution.
 - Use `internal` for private operational context that is safe to enter chat.
 - Use `sensitive` for private but chat-acceptable information that deserves an
   advisory.
-- Use `secret_adjacent` for anything that may reveal credentials, private key
+- Use `restricted` for anything that may reveal credentials, private key
   paths, recovery flows, token rotation steps, internal auth procedures, or
   escalation paths.
 
-When in doubt, use `secret_adjacent` and loosen later.
+When in doubt, use `restricted` and loosen later.

@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-05-17
+
+Alias and restricted-sensitivity release. Adds a vault-local alias layer for
+natural phrases while cleaning up the public sensitivity vocabulary from
+`secret_adjacent` to `restricted`.
+
+### Added
+
+- Optional vault-local aliases at `<vault>/.svmc/aliases.toml`, loaded into the
+  cached vault index for fast phrase-to-`doc_id` resolution.
+- Safe sample aliases under `examples/sample-vault/.svmc/aliases.toml`.
+- `read_doc` alias and exact-title fallback resolution for smaller local models
+  that pass a human phrase instead of a stable `doc_id`.
+- Helpful `read_doc` not-found guidance pointing assistants back to
+  `find_runbook`, `lookup_system`, and `search_body`.
+- `include_restricted=True` as the public argument for requesting restricted
+  body release through the existing local unlock gate.
+
+### Changed
+
+- Renamed the public sensitivity label from `secret_adjacent` to `restricted`
+  across current docs, examples, and sample-vault frontmatter.
+- Kept backward-compatible parsing for older `secret_adjacent`,
+  `credential_adjacent`, and `confidential` labels.
+- Kept backward-compatible `include_secret_adjacent` and
+  `SVMC_SECRET_ADJACENT_*` inputs while documenting the new
+  `SVMC_RESTRICTED_*` names.
+- Clarified `docs/demo.md` so reproducible sample-vault transcript content is
+  separated from private-vault local-model screenshots.
+- Bumped package version to 2.3.0 in `pyproject.toml`,
+  `src/severino_vault_mcp/__init__.py`, `uv.lock`, and README status.
+
+### Verification
+
+- `scripts/check.sh --quick` passes with 36 tests.
+
 ## [2.2.2] — 2026-05-17
 
 Documentation proof-of-use patch. Adds real local-model screenshots showing
@@ -311,7 +347,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.1.0...v2.2.0

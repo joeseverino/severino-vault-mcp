@@ -32,4 +32,4 @@ then read the specific runbook or infrastructure note before answering.
 2. Specific runbook question: call `find_runbook`.
 3. Read `vault://doc/{doc_id}` for the chosen target doc before answering.
 4. Use `read_doc` when you need structured metadata or an explicit
-   `secret_adjacent` override.
+   `restricted` override.

@@ -17,6 +17,7 @@ import json
 import shutil
 import subprocess
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -32,7 +33,7 @@ from .secret_unlock import (
     verify_unlock_phrase,
 )
 from .sensitivity import Sensitivity, advisory, body_is_releasable
-from .vault import VaultLoader, _split_frontmatter
+from .vault import Doc, VaultLoader, _normalize_alias, _split_frontmatter
 
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
 QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
@@ -84,9 +85,9 @@ SENSITIVITY GATE (don't be afraid of it):
 - public / internal / sensitive — `read_doc` returns the full body. Bodies
   marked `sensitive` come with an `advisory` field; pass it along to the
   user but use the content.
-- secret_adjacent — `read_doc` withholds the body by default. Pass
-  `include_secret_adjacent=True` only when the user explicitly needs it.
-  The local MCP still requires `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1` plus a
+- restricted — `read_doc` withholds the body by default. Pass
+  `include_restricted=True` only when the user explicitly needs it.
+  The local MCP still requires `SVMC_ALLOW_RESTRICTED_UNLOCK=1` plus a
   successful hidden local unlock prompt before releasing the body. These are
   docs about CA keys, credential rotation, the offline CA, etc.
 
@@ -240,19 +241,75 @@ def _withheld_secret_adjacent_response(base: dict[str, Any], result: str | None 
     return base
 
 
+def _lookup_doc(identifier: str) -> tuple[Doc | None, dict[str, str] | None]:
+    """Resolve a stable doc_id or a human-facing title/path alias."""
+    idx = _LOADER.index()
+    doc = idx.by_doc_id.get(identifier)
+    if doc is not None:
+        return doc, None
+
+    alias = _normalize_alias(identifier)
+    alias_doc_id = idx.aliases.get(alias)
+    if alias_doc_id:
+        return idx.by_doc_id[alias_doc_id], {
+            "input": identifier,
+            "matched_alias": alias,
+            "target_doc_id": alias_doc_id,
+        }
+
+    needle = _normalize_alias(identifier)
+    if not needle:
+        return None, None
+
+    for candidate in idx.docs:
+        aliases = {
+            candidate.doc_id,
+            candidate.title,
+            candidate.relative_path,
+            Path(candidate.relative_path).stem,
+        }
+        normalized_aliases = {_normalize_alias(alias) for alias in aliases}
+        if needle in normalized_aliases:
+            return candidate, {
+                "input": identifier,
+                "matched_alias": candidate.title,
+                "target_doc_id": candidate.doc_id,
+                "source": "title_or_path",
+            }
+    return None, None
+
+
+def _not_found_response(identifier: str) -> dict[str, Any]:
+    return {
+        "doc_id": identifier,
+        "found": False,
+        "guidance": (
+            "`read_doc` works best with a stable `doc_id`. If you only have a "
+            "human title or phrase, call `find_runbook`, `lookup_system`, or "
+            "`search_body` first, then retry `read_doc` with the returned "
+            "`doc_id`."
+        ),
+        "suggested_tools": ["find_runbook", "lookup_system", "search_body"],
+        "alias_hint": (
+            "For recurring local phrases, add an entry to the vault aliases "
+            "file configured by `SVMC_ALIASES_PATH` or `[aliases].path`."
+        ),
+    }
+
+
 _SECRET_UNLOCK_MESSAGES = {
     "not_requested": (
-        "Body withheld. To request release, rerun with include_secret_adjacent=True; "
+        "Body withheld. To request release, rerun with include_restricted=True; "
         "the local MCP will still require an interactive unlock on the Mac."
     ),
     "disabled": (
-        "Interactive unlock is disabled. Set SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1 "
+        "Interactive unlock is disabled. Set SVMC_ALLOW_RESTRICTED_UNLOCK=1 "
         "in the local MCP environment to allow local unlock prompts."
     ),
     "no_unlock_hash": (
         "No local unlock hash is configured. Store a salted sha256 unlock hash "
-        "in Keychain, SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE, or "
-        "SVMC_SECRET_ADJACENT_UNLOCK_HASH."
+        "in Keychain, SVMC_RESTRICTED_UNLOCK_HASH_FILE, or "
+        "SVMC_RESTRICTED_UNLOCK_HASH."
     ),
     "prompt_unavailable": "Local hidden-input prompt was unavailable or cancelled.",
     "failed": "Local unlock phrase verification failed.",
@@ -333,7 +390,7 @@ def quick_index() -> str:
     description=(
         "Stable resource template for reading an indexed vault doc by doc_id. "
         "Returns markdown body when releasable, or an advisory plus metadata "
-        "when the doc is secret-adjacent."
+        "when the doc is restricted."
     ),
     mime_type="text/markdown",
 )
@@ -429,7 +486,13 @@ def lookup_system(name: str) -> dict[str, Any]:
     if not needle:
         return {"system_query": name, "matches": []}
     idx = _LOADER.index()
-    matches = [d for d in idx.docs if needle in d.system.lower()]
+    matches = [
+        d
+        for d in idx.docs
+        if needle in d.system.lower()
+        or needle in d.title.lower()
+        or needle in d.doc_id.lower()
+    ]
     matches.sort(key=lambda d: (d.status != "active", d.last_reviewed or "", d.title))
     return {
         "system_query": name,
@@ -439,7 +502,11 @@ def lookup_system(name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, Any]:
+def read_doc(
+    doc_id: str,
+    include_restricted: bool = False,
+    include_secret_adjacent: bool = False,
+) -> dict[str, Any]:
     """Read the full markdown body of a vault doc. Call this after find_runbook.
 
     The body comes back for `public`, `internal`, AND `sensitive` docs — the
@@ -447,27 +514,34 @@ def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, An
     `sensitive` docs include an `advisory` field you should pass along to
     the user but the body is yours to quote.
 
-    `secret_adjacent` docs (Local PKI, Offline CA, age workflow, Wazuh
+    `restricted` docs (Local PKI, Offline CA, age workflow, Wazuh
     credential rotation) withhold the body by default. If the user explicitly
-    needs one, pass `include_secret_adjacent=True`; the local MCP still
-    requires `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1`, a configured unlock hash,
+    needs one, pass `include_restricted=True`; the local MCP still
+    requires `SVMC_ALLOW_RESTRICTED_UNLOCK=1`, a configured unlock hash,
     and a successful hidden local unlock prompt on the Mac.
 
     Args:
         doc_id: Stable identifier from the doc's frontmatter, e.g. "rb-add-nginx-proxy-host".
-        include_secret_adjacent: If True, request the body of `secret_adjacent`
-            docs. Default False. This is only a request; local unlock policy
-            must still approve the release.
+            Exact doc titles and vault-relative filenames are also accepted as
+            a fallback for smaller local models, but stable `doc_id` values are
+            preferred.
+        include_restricted: If True, request the body of `restricted` docs.
+            Default False. This is only a request; local unlock policy must
+            still approve the release.
+        include_secret_adjacent: Backwards-compatible alias for
+            `include_restricted`.
     """
-    idx = _LOADER.index()
-    doc = idx.by_doc_id.get(doc_id)
+    doc, resolved_from_alias = _lookup_doc(doc_id)
     if doc is None:
-        return {"doc_id": doc_id, "found": False}
+        return _not_found_response(doc_id)
 
     base: dict[str, Any] = {"doc_id": doc.doc_id, "found": True, **_hit_to_dict(doc)}
+    if resolved_from_alias:
+        base["resolved_from_alias"] = resolved_from_alias
 
+    requested_restricted = include_restricted or include_secret_adjacent
     if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
-        if not include_secret_adjacent:
+        if not requested_restricted:
             return _withheld_secret_adjacent_response(base, "not_requested")
 
         unlock = _secret_adjacent_unlock(doc.doc_id, doc.title)
@@ -485,7 +559,7 @@ def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, An
             return base
         return _withheld_secret_adjacent_response(base, unlock.result)
 
-    if body_is_releasable(doc.sensitivity, include_secret_adjacent=include_secret_adjacent):
+    if body_is_releasable(doc.sensitivity, include_secret_adjacent=requested_restricted):
         base["body"] = doc.body
         base["body_released"] = True
         if doc.sensitivity is Sensitivity.SENSITIVE:
@@ -579,6 +653,7 @@ def search_body(
     limit: int = 10,
     context_lines: int = 1,
     case_sensitive: bool = False,
+    include_restricted: bool = False,
     include_secret_adjacent: bool = False,
 ) -> dict[str, Any]:
     """Full-text search across vault doc bodies using ripgrep.
@@ -586,8 +661,8 @@ def search_body(
     Searches the content of every indexed `.md`, skipping matches that fall
     inside frontmatter blocks. Results are grouped by `doc_id`. Honors the
     sensitivity gate the same way `read_doc` does: `sensitive` docs are
-    included with an advisory; `secret_adjacent` docs are always excluded.
-    Use `read_doc(..., include_secret_adjacent=True)` for per-doc local
+    included with an advisory; `restricted` docs are always excluded.
+    Use `read_doc(..., include_restricted=True)` for per-doc local
     unlock requests.
 
     Args:
@@ -595,7 +670,10 @@ def search_body(
         limit: Max number of distinct documents to return (default 10).
         context_lines: Lines of context above + below each match (default 1).
         case_sensitive: If True, match case. Default False.
-        include_secret_adjacent: Deprecated compatibility flag. Secret-adjacent
+        include_restricted: Deprecated compatibility flag. Restricted bodies
+            are never searched; per-doc local unlock is only available through
+            `read_doc`.
+        include_secret_adjacent: Deprecated compatibility flag. Restricted
             bodies are never searched; per-doc local unlock is only available
             through `read_doc`.
     """
@@ -674,7 +752,11 @@ def search_body(
     # matches that fall inside the frontmatter block.
     by_path_to_doc = {str(d.path): d for d in idx.docs}
     hits_by_doc: list[dict] = []
-    excluded = {"secret_adjacent_skipped": 0, "unindexed_skipped": 0}
+    excluded = {
+        "restricted_skipped": 0,
+        "secret_adjacent_skipped": 0,
+        "unindexed_skipped": 0,
+    }
 
     for path_str, hits in matches_by_path.items():
         doc = by_path_to_doc.get(path_str)
@@ -683,6 +765,7 @@ def search_body(
             excluded["unindexed_skipped"] += 1
             continue
         if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
+            excluded["restricted_skipped"] += 1
             excluded["secret_adjacent_skipped"] += 1
             continue
         # Drop any hit that lands inside the frontmatter block.
@@ -796,7 +879,7 @@ def add_frontmatter(
         environment: One of lab | homelab | vps | wordpress | cloudflare |
             tailscale | adguard | unifi | local_mac | other. Default "other".
         status: One of draft | active | deprecated | archived. Default "active".
-        sensitivity: One of public | internal | sensitive | secret_adjacent.
+        sensitivity: One of public | internal | sensitive | restricted.
             Default "internal" — pick conservatively for credential/key-adjacent docs.
         tags: Optional kebab-case tag list.
         related_projects: Optional project slugs.

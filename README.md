@@ -104,10 +104,10 @@ vault root.
 | `find_runbook(query, limit=5)` | read | "How do I add an HTTPS proxy host?" |
 | `get_runbook(query, limit=5)` | read | Single-call search + selected doc body for local models that are weaker at multi-step tool use. |
 | `lookup_system(name)` | read | "Tell me about AdGuard Home" |
-| `read_doc(doc_id)` | read | Returns markdown bodies for `public`, `internal`, and `sensitive` docs. `secret_adjacent` requires explicit request plus local unlock. |
+| `read_doc(doc_id)` | read | Returns one doc by stable ID or configured local alias. Missing-doc responses tell the assistant which discovery tool to use next. |
 | `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
-| `search_body(query)` | read | Full-text body search with frontmatter skipped and `secret_adjacent` bodies excluded. |
+| `search_body(query)` | read | Full-text body search with frontmatter skipped and `restricted` bodies excluded. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
 
@@ -154,7 +154,7 @@ Recommended docs:
 - Infrastructure notes with stable `infra-*` IDs.
 - Project indexes with stable `project-*` IDs.
 - `sensitivity` values set deliberately: `public`, `internal`, `sensitive`,
-  or `secret_adjacent`.
+  or `restricted`.
 
 Real vaults are usually messy. Start with the validator:
 
@@ -238,14 +238,41 @@ and one-off runs.
 | `SVMC_CONFIG` | `~/.config/severino-vault-mcp/config.toml` | TOML config path |
 | `SVMC_VAULT_PATH` | `~/Documents/vault` | Vault root |
 | `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks` | Colon-separated subdirs the loader recurses into |
+| `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Optional local phrase-to-`doc_id` aliases for private shorthand and smaller local models |
 | `SVMC_METADATA_URL` | unset | Optional downstream metadata-system URL |
 | `SVMC_CACHE_SECONDS` | `30` | How long the in-memory vault index stays warm |
-| `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_secret_adjacent=True)` |
-| `SVMC_SECRET_ADJACENT_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
-| `SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
-| `SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-vault-mcp` | macOS Keychain service name for the salted unlock hash |
-| `SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT` | `secret-adjacent-unlock` | macOS Keychain account name for the salted unlock hash |
-| `SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Local audit log for unlock attempts; no body content is logged |
+| `SVMC_ALLOW_RESTRICTED_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_restricted=True)` |
+| `SVMC_RESTRICTED_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
+| `SVMC_RESTRICTED_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/restricted-unlock.sha256` | Local file containing the salted unlock hash |
+| `SVMC_RESTRICTED_UNLOCK_KEYCHAIN_SERVICE` | `severino-vault-mcp` | macOS Keychain service name for the salted unlock hash |
+| `SVMC_RESTRICTED_UNLOCK_KEYCHAIN_ACCOUNT` | `restricted-unlock` | macOS Keychain account name for the salted unlock hash |
+| `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Local audit log for unlock attempts; no body content is logged |
+
+### Local Aliases
+
+Aliases are an optional local phrase-to-`doc_id` map. They are useful when a
+model or operator naturally asks for "offline ca" or "cert generation" but the
+vault uses stable IDs such as `infra-offline-ca` and
+`rb-generate-internal-cert`.
+
+By default aliases are loaded from:
+
+```text
+<vault>/.svmc/aliases.toml
+```
+
+Example:
+
+```toml
+[aliases]
+"offline ca" = "infra-offline-ca"
+"cert generation" = "rb-generate-internal-cert"
+```
+
+Aliases only resolve to indexed `doc_id` values, and normal sensitivity rules
+still apply. A `restricted` doc found through an alias is still withheld
+unless the caller explicitly requests `include_restricted=True` and the
+local unlock policy approves it.
 
 ## Sensitivity Policy
 
@@ -254,15 +281,15 @@ and one-off runs.
 | `public` | Full body. Safe to publish. |
 | `internal` | Full body. Private operational context, but safe to enter an AI chat you control. |
 | `sensitive` | Full body + advisory. Private but still safe to enter chat when handled deliberately. |
-| `secret_adjacent` | Metadata only by default. May expose credentials, key paths, recovery flows, internal auth procedures, or escalation paths. Full body requires explicit request plus local unlock. |
+| `restricted` | Metadata only by default. May expose credentials, key paths, recovery flows, internal auth procedures, or escalation paths. Full body requires explicit request plus local unlock. |
 
 Use `sensitive` only for material that is private but acceptable to place in
 the assistant context. If a document could reveal credentials, private key
 locations, recovery procedures, token rotation steps, break-glass access,
 internal authentication flows, or escalation paths, mark it
-`secret_adjacent`.
+`restricted`.
 
-When in doubt, choose `secret_adjacent`. Mislabeling a secret-bearing procedure
+When in doubt, choose `restricted`. Mislabeling a secret-bearing procedure
 as merely `sensitive` will cause the body to be returned to the MCP client.
 
 ## Threat Model
@@ -274,16 +301,16 @@ as merely `sensitive` will cause the body to be returned to the MCP client.
 - It reduces accidental disclosure to AI chat context; it does not sandbox a
   malicious MCP host.
 - A compromised MCP host can still ask for allowed tools. The local unlock
-  prompt is the final boundary for `secret_adjacent` body release.
+  prompt is the final boundary for `restricted` body release.
 - Store actual credentials and private keys outside indexed markdown whenever
   possible.
 
-To release one secret-adjacent body through the MCP, all conditions must pass:
+To release one restricted body through the MCP, all conditions must pass:
 
-- The caller requests `read_doc(..., include_secret_adjacent=True)`.
-- `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1` is set in the local MCP environment.
+- The caller requests `read_doc(..., include_restricted=True)`.
+- `SVMC_ALLOW_RESTRICTED_UNLOCK=1` is set in the local MCP environment.
 - A salted unlock hash is configured in macOS Keychain, a local hash file, or
-  `SVMC_SECRET_ADJACENT_UNLOCK_HASH`.
+  `SVMC_RESTRICTED_UNLOCK_HASH`.
 - The local hidden-input prompt succeeds.
 
 Do not type the unlock phrase into AI chat. The prompt is local-only, and the
@@ -295,7 +322,7 @@ Recommended macOS setup stores the salted hash in Keychain, not the phrase:
 HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
 security add-generic-password -U \
   -s severino-vault-mcp \
-  -a secret-adjacent-unlock \
+  -a restricted-unlock \
   -w "$HASH"
 ```
 
@@ -307,7 +334,7 @@ environment:
 - Client edge DNS and internal hostname resolution.
 - AdGuard Home as a DNS/security filtering component.
 - Nginx Proxy Manager for browser-facing internal services.
-- Local PKI and an offline CA example that exercises `secret_adjacent`
+- Local PKI and an offline CA example that exercises `restricted`
   withholding.
 
 It is intentionally safe demo data, but it follows the same frontmatter
@@ -334,9 +361,9 @@ contract as a real operations vault.
 
 ## Status
 
-v2.2.2. Stable local stdio MCP for routing AI assistants to an
+v2.3.0. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
-vault, CI, docs, config-file support, secret-adjacent local unlock controls,
+vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
 responses for smaller local models. Demo screenshots show local-model usage on
 macOS. Layered security tooling (CodeQL, pip-audit, OSSF Scorecard,

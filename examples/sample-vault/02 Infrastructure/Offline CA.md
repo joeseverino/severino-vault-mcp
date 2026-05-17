@@ -5,7 +5,7 @@ doc_type: architecture_note
 system: Local PKI
 environment: local_mac
 status: active
-sensitivity: secret_adjacent
+sensitivity: restricted
 last_reviewed: 2026-05-17
 related_projects:
   - client-edge-dns

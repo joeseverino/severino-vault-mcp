@@ -19,6 +19,7 @@ def fake_vault(tmp_path: Path, monkeypatch) -> Path:
     (tmp_path / "01 Projects").mkdir()
     (tmp_path / "02 Infrastructure").mkdir()
     (tmp_path / "03 Runbooks").mkdir()
+    (tmp_path / ".svmc").mkdir()
 
     (tmp_path / "03 Runbooks" / "Add Nginx Proxy Host.md").write_text(
         """---
@@ -52,7 +53,7 @@ doc_type: architecture_note
 system: Local PKI
 environment: local_mac
 status: active
-sensitivity: secret_adjacent
+sensitivity: restricted
 last_reviewed: 2026-04-01
 tags: [pki, ca]
 ---
@@ -91,6 +92,15 @@ tags: [index, mcp, navigation]
         encoding="utf-8",
     )
 
+    (tmp_path / ".svmc" / "aliases.toml").write_text(
+        """[aliases]
+"https proxy" = "rb-add-nginx-proxy-host"
+"offline ca" = "infra-local-pki"
+"missing target" = "rb-does-not-exist"
+""",
+        encoding="utf-8",
+    )
+
     monkeypatch.setenv("SVMC_VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("SVMC_CACHE_SECONDS", "0")
     return tmp_path
@@ -122,6 +132,18 @@ def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
         "infra-local-pki",
         "report-playbook-mcp-index",
     }
+
+
+def test_loader_indexes_local_aliases(fake_vault: Path) -> None:
+    vault_mod = _fresh_module("severino_vault_mcp.vault")
+    from severino_vault_mcp.config import Config
+
+    loader = vault_mod.VaultLoader(Config.from_env())
+    idx = loader.index()
+
+    assert idx.aliases["https proxy"] == "rb-add-nginx-proxy-host"
+    assert idx.aliases["offline ca"] == "infra-local-pki"
+    assert idx.invalid_aliases["missing target"] == "rb-does-not-exist"
 
 
 def test_config_file_sets_vault_path_and_env_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -359,12 +381,12 @@ def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
     assert result["found"] is True
     assert result["body_released"] is False
     assert "body" not in result
-    assert "secret_adjacent" in result["advisory"].lower()
+    assert "restricted" in result["advisory"].lower()
 
 
 def test_read_doc_secret_adjacent_request_requires_local_unlock(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    result = server.read_doc("infra-local-pki", include_restricted=True)
     assert result["body_released"] is False
     assert "body" not in result
     assert result["unlock"]["result"] == "disabled"
@@ -375,17 +397,17 @@ def test_read_doc_releases_secret_adjacent_after_local_unlock(
     fake_vault: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("SVMC_ALLOW_SECRET_ADJACENT_UNLOCK", "1")
-    monkeypatch.setenv("SVMC_SECRET_ADJACENT_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
+    monkeypatch.setenv("SVMC_ALLOW_RESTRICTED_UNLOCK", "1")
+    monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
     monkeypatch.setenv(
-        "SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+        "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG",
         str(fake_vault / "audit.log"),
     )
 
     server = _fresh_module("severino_vault_mcp.server")
     monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "open sesame")
 
-    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    result = server.read_doc("infra-local-pki", include_restricted=True)
     assert result["body_released"] is True
     assert "CA private key" in result["body"]
     assert result["override_used"] is True
@@ -400,17 +422,17 @@ def test_read_doc_keeps_secret_adjacent_locked_after_bad_unlock(
     fake_vault: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("SVMC_ALLOW_SECRET_ADJACENT_UNLOCK", "1")
-    monkeypatch.setenv("SVMC_SECRET_ADJACENT_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
+    monkeypatch.setenv("SVMC_ALLOW_RESTRICTED_UNLOCK", "1")
+    monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
     monkeypatch.setenv(
-        "SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+        "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG",
         str(fake_vault / "audit.log"),
     )
 
     server = _fresh_module("severino_vault_mcp.server")
     monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "wrong")
 
-    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    result = server.read_doc("infra-local-pki", include_restricted=True)
     assert result["body_released"] is False
     assert "body" not in result
     assert result["unlock"]["result"] == "failed"
@@ -425,6 +447,33 @@ def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
     result = server.read_doc("rb-add-nginx-proxy-host")
     assert result["body_released"] is True
     assert "## Goal" in result["body"]
+
+
+def test_read_doc_resolves_local_aliases(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("https proxy")
+    assert result["found"] is True
+    assert result["doc_id"] == "rb-add-nginx-proxy-host"
+    assert result["resolved_from_alias"]["matched_alias"] == "https proxy"
+    assert result["body_released"] is True
+
+
+def test_read_doc_alias_preserves_secret_adjacent_gate(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("offline ca")
+    assert result["found"] is True
+    assert result["doc_id"] == "infra-local-pki"
+    assert result["body_released"] is False
+    assert "body" not in result
+    assert result["resolved_from_alias"]["target_doc_id"] == "infra-local-pki"
+
+
+def test_read_doc_missing_doc_guides_discovery(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("not a doc")
+    assert result["found"] is False
+    assert "stable `doc_id`" in result["guidance"]
+    assert result["suggested_tools"] == ["find_runbook", "lookup_system", "search_body"]
 
 
 def test_quick_index_resource_returns_index_body(fake_vault: Path) -> None:
@@ -444,7 +493,7 @@ def test_vault_doc_resource_returns_releasable_body(fake_vault: Path) -> None:
 def test_vault_doc_resource_withholds_secret_adjacent_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.vault_doc("infra-local-pki")
-    assert "secret_adjacent" in result
+    assert "restricted" in result
     assert "infra-local-pki" in result
     assert "CA private key lives offline" not in result
 
@@ -583,11 +632,11 @@ def test_search_body_excludes_secret_adjacent_by_default(fake_vault: Path) -> No
     server = _fresh_module("severino_vault_mcp.server")
     default = server.search_body("CA private key")
     assert default["doc_count"] == 0
-    assert default["excluded"]["secret_adjacent_skipped"] >= 1
+    assert default["excluded"]["restricted_skipped"] >= 1
 
-    overridden = server.search_body("CA private key", include_secret_adjacent=True)
+    overridden = server.search_body("CA private key", include_restricted=True)
     assert overridden["doc_count"] == 0
-    assert overridden["excluded"]["secret_adjacent_skipped"] >= 1
+    assert overridden["excluded"]["restricted_skipped"] >= 1
 
 
 def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
@@ -637,3 +686,16 @@ def test_sample_vault_is_reproducible(monkeypatch) -> None:
     assert ca_result["found"] is True
     assert ca_result["body_released"] is False
     assert "body" not in ca_result
+
+    ca_title_result = server.read_doc("Offline CA")
+    assert ca_title_result["found"] is True
+    assert ca_title_result["doc_id"] == "infra-offline-ca"
+    assert ca_title_result["body_released"] is False
+    assert "body" not in ca_title_result
+
+    ca_slug_result = server.read_doc("offline ca")
+    assert ca_slug_result["found"] is True
+    assert ca_slug_result["doc_id"] == "infra-offline-ca"
+
+    system_result = server.lookup_system("Offline CA")
+    assert any(match["doc_id"] == "infra-offline-ca" for match in system_result["matches"])

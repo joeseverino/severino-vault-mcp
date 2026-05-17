@@ -38,7 +38,7 @@ In an MCP client, verify:
 - `find_runbook("generate internal certificate")` ranks
   `rb-generate-internal-cert` first.
 - `vault://doc/infra-offline-ca` withholds the body by default.
-- `read_doc("infra-offline-ca", include_secret_adjacent=True)` still requires
+- `read_doc("infra-offline-ca", include_restricted=True)` still requires
   local unlock.
 
 ## Packaging

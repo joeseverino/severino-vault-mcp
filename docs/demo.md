@@ -1,26 +1,36 @@
-# Demo Transcript
+# Demo
 
-This transcript uses the safe sample vault in `examples/sample-vault/`.
-It shows the intended MCP flow: broad questions start at the Quick Index,
-then the assistant reads the specific target doc before answering.
+This page has two separate demo surfaces:
 
-## Setup
+- A safe sample-vault transcript that anyone can reproduce from
+  `examples/sample-vault/`.
+- Real local screenshots showing the same server pattern against a private
+  operations vault from a Mac-hosted MCP client.
+
+## Sample Vault Setup
 
 ```bash
 SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
+The sample transcript below shows the intended MCP flow: broad questions start
+at the Quick Index, then the assistant reads the specific target doc before
+answering.
+
 ## Real Local Usage
 
-The screenshots below show the same flow against a private local operations
-vault from a Mac-hosted MCP client using `qwen2.5-7b-instruct`. They are
-included as usage proof; the copyable commands remain in the vault runbooks.
+These screenshots are not from the sample vault. They show
+`severino-vault-mcp` connected to a private local operations vault from a
+Mac-hosted MCP client using `qwen2.5-7b-instruct`. They are included as usage
+proof; the copyable commands remain in the private vault runbooks.
 
 ![Local model retrieving a VPS SSH runbook answer](assets/local-model-vps-ssh.png)
 
 ![Local model retrieving a homelab container restart procedure](assets/local-model-container-restart.png)
 
-## Broad Operational Question
+## Sample Vault Transcript
+
+### Broad Operational Question
 
 User:
 
@@ -58,7 +68,7 @@ Use the Add Nginx Proxy Host runbook.
 5. Save and verify https://<service>.internal.example.
 ```
 
-## Specific Runbook Question
+### Specific Runbook Question
 
 User:
 
@@ -96,7 +106,7 @@ Then enter the CA key passphrase when prompted and confirm the certificate
 output files were created.
 ```
 
-## Secret-Adjacent Doc
+### Secret-Adjacent Doc
 
 User:
 
@@ -114,20 +124,20 @@ Expected behavior:
 
 ```text
 The MCP returns an advisory plus metadata. It does not return the body by
-default because the doc is marked secret_adjacent.
+default because the doc is marked restricted.
 ```
 
 If the user explicitly needs the body and accepts the risk, the client can
 fall back to:
 
 ```text
-Call tool: read_doc("infra-offline-ca", include_secret_adjacent=True)
+Call tool: read_doc("infra-offline-ca", include_restricted=True)
 ```
 
 Expected behavior:
 
 ```text
-The MCP only releases the body if SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1 is set,
+The MCP only releases the body if SVMC_ALLOW_RESTRICTED_UNLOCK=1 is set,
 a local unlock hash is configured, and the hidden-input prompt on the Mac
 succeeds. Otherwise it returns metadata, advisory text, and the unlock failure
 reason. The unlock phrase is never entered into chat.

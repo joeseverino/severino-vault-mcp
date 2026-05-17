@@ -67,6 +67,7 @@ def _value(section: dict[str, Any], key: str, default: Any) -> Any:
 class Config:
     vault_path: Path
     indexed_dirs: tuple[str, ...]
+    aliases_path: Path
     metadata_url: str
     cache_seconds: int
     allow_secret_adjacent_unlock: bool
@@ -83,7 +84,7 @@ class Config:
         vault = _section(data, "vault")
         metadata = _section(data, "metadata")
         cache = _section(data, "cache")
-        unlock = _section(data, "secret_adjacent")
+        unlock = _section(data, "restricted") or _section(data, "secret_adjacent")
 
         indexed_dirs = _value(
             vault,
@@ -93,10 +94,19 @@ class Config:
         if isinstance(indexed_dirs, str):
             indexed_dirs = [part for part in indexed_dirs.split(":") if part]
 
+        vault_path = _env_path(
+            "SVMC_VAULT_PATH",
+            _value(vault, "path", "~/Documents/vault"),
+        )
+
+        aliases = _section(data, "aliases")
+        aliases_default = vault_path / ".svmc" / "aliases.toml"
+
         return cls(
-            vault_path=_env_path(
-                "SVMC_VAULT_PATH",
-                _value(vault, "path", "~/Documents/vault"),
+            vault_path=vault_path,
+            aliases_path=_env_path(
+                "SVMC_ALIASES_PATH",
+                _value(aliases, "path", aliases_default),
             ),
             indexed_dirs=_env_list("SVMC_INDEXED_DIRS", tuple(indexed_dirs)),
             metadata_url=os.environ.get(
@@ -108,35 +118,53 @@ class Config:
                 str(_value(cache, "seconds", 30)),
             )),
             allow_secret_adjacent_unlock=_env_bool(
-                "SVMC_ALLOW_SECRET_ADJACENT_UNLOCK",
-                bool(_value(unlock, "allow_unlock", False)),
+                "SVMC_ALLOW_RESTRICTED_UNLOCK",
+                _env_bool(
+                    "SVMC_ALLOW_SECRET_ADJACENT_UNLOCK",
+                    bool(_value(unlock, "allow_unlock", False)),
+                ),
             ),
             secret_unlock_hash=os.environ.get(
-                "SVMC_SECRET_ADJACENT_UNLOCK_HASH",
-                _value(unlock, "hash", None),
+                "SVMC_RESTRICTED_UNLOCK_HASH",
+                os.environ.get(
+                    "SVMC_SECRET_ADJACENT_UNLOCK_HASH",
+                    _value(unlock, "hash", None),
+                ),
             ),
             secret_unlock_hash_file=_env_path(
-                "SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE",
-                _value(
-                    unlock,
-                    "hash_file",
-                    "~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256",
+                "SVMC_RESTRICTED_UNLOCK_HASH_FILE",
+                os.environ.get(
+                    "SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE",
+                    _value(
+                        unlock,
+                        "hash_file",
+                        "~/.config/severino-vault-mcp/restricted-unlock.sha256",
+                    ),
                 ),
             ),
             secret_unlock_keychain_service=os.environ.get(
-                "SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
-                str(_value(unlock, "keychain_service", "severino-vault-mcp")),
+                "SVMC_RESTRICTED_UNLOCK_KEYCHAIN_SERVICE",
+                os.environ.get(
+                    "SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
+                    str(_value(unlock, "keychain_service", "severino-vault-mcp")),
+                ),
             ),
             secret_unlock_keychain_account=os.environ.get(
-                "SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT",
-                str(_value(unlock, "keychain_account", "secret-adjacent-unlock")),
+                "SVMC_RESTRICTED_UNLOCK_KEYCHAIN_ACCOUNT",
+                os.environ.get(
+                    "SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT",
+                    str(_value(unlock, "keychain_account", "restricted-unlock")),
+                ),
             ),
             secret_unlock_audit_log=_env_path(
-                "SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
-                _value(
-                    unlock,
-                    "audit_log",
-                    "~/.local/state/severino-vault-mcp/audit.log",
+                "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG",
+                os.environ.get(
+                    "SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+                    _value(
+                        unlock,
+                        "audit_log",
+                        "~/.local/state/severino-vault-mcp/audit.log",
+                    ),
                 ),
             ),
         )

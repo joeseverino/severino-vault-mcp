@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -159,12 +160,18 @@ def _coerce_list(value) -> list[str]:
     return [str(value)]
 
 
+def _normalize_alias(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
 # ----- Index -----------------------------------------------------------------
 
 @dataclass
 class Index:
     docs: list[Doc] = field(default_factory=list)
     by_doc_id: dict[str, Doc] = field(default_factory=dict)
+    aliases: dict[str, str] = field(default_factory=dict)
+    invalid_aliases: dict[str, str] = field(default_factory=dict)
     loaded_at: float = 0.0
 
     def add(self, doc: Doc) -> None:
@@ -210,7 +217,35 @@ class VaultLoader:
                 if not fm or not fm.get("doc_id"):
                     continue
                 idx.add(self._mk_doc(path, fm, body, body_start_line))
+        idx.aliases, idx.invalid_aliases = self._load_aliases(idx)
         return idx
+
+    def _load_aliases(self, idx: Index) -> tuple[dict[str, str], dict[str, str]]:
+        """Load optional local aliases as normalized phrase -> doc_id."""
+        try:
+            with self.config.aliases_path.open("rb") as handle:
+                data = tomllib.load(handle)
+        except FileNotFoundError:
+            return {}, {}
+        except (OSError, tomllib.TOMLDecodeError):
+            return {}, {}
+
+        raw_aliases = data.get("aliases", {})
+        if not isinstance(raw_aliases, dict):
+            return {}, {}
+
+        aliases: dict[str, str] = {}
+        invalid: dict[str, str] = {}
+        for raw_alias, raw_doc_id in raw_aliases.items():
+            alias = _normalize_alias(str(raw_alias))
+            doc_id = str(raw_doc_id).strip()
+            if not alias or not doc_id:
+                continue
+            if doc_id in idx.by_doc_id:
+                aliases[alias] = doc_id
+            else:
+                invalid[alias] = doc_id
+        return aliases, invalid
 
     def _walk(self, root: Path) -> list[Path]:
         """List `.md` files under `root`. Uses `fd` if available, else pathlib."""

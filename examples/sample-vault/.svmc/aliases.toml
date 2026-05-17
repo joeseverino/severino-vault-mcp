@@ -1,0 +1,4 @@
+[aliases]
+"offline ca" = "infra-offline-ca"
+"cert generation" = "rb-generate-internal-cert"
+"https proxy" = "rb-add-nginx-proxy-host"

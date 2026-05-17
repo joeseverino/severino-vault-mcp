@@ -112,15 +112,15 @@ catches CVEs against the *current* pin.
 - `doctor` validation for missing and invalid frontmatter.
 - Search ranking for `find_runbook`.
 - `read_doc` body release for `public`, `internal`, and `sensitive` docs.
-- Default withholding for `secret_adjacent` docs.
-- One-request local unlock behavior for `secret_adjacent` docs.
-- Audit log writing for secret-adjacent unlock attempts.
+- Default withholding for `restricted` docs.
+- One-request local unlock behavior for `restricted` docs.
+- Audit log writing for restricted unlock attempts.
 - `vault://quick-index` resource behavior.
 - `vault://doc/{doc_id}` resource-template behavior.
 - Real FastMCP registration for resources and resource templates.
 - Frontmatter creation and update validation.
 - Full-text body search with frontmatter skipping.
-- Permanent exclusion of `secret_adjacent` bodies from `search_body`.
+- Permanent exclusion of `restricted` bodies from `search_body`.
 - Project inventory lookup.
 - Reproducibility of `examples/sample-vault`.
 
@@ -139,16 +139,16 @@ Expected sample behavior:
 - `vault://quick-index` returns the demo navigation hub.
 - `vault://doc/rb-generate-internal-cert` returns the sample certificate runbook.
 - `find_runbook("generate internal certificate")` ranks `rb-generate-internal-cert` first.
-- `vault://doc/infra-offline-ca` withholds body content because the doc is `secret_adjacent`.
-- `read_doc("infra-offline-ca", include_secret_adjacent=True)` still requires local unlock.
+- `vault://doc/infra-offline-ca` withholds body content because the doc is `restricted`.
+- `read_doc("infra-offline-ca", include_restricted=True)` still requires local unlock.
 
 ## CI Security Signal
 
 CI does not prove the MCP is safe by itself. It does prove that the core safety
 contracts are regression-tested:
 
-- `secret_adjacent` bodies are withheld by default.
-- `include_secret_adjacent=True` is not sufficient on its own.
-- `search_body` cannot reveal secret-adjacent snippets.
+- `restricted` bodies are withheld by default.
+- `include_restricted=True` is not sufficient on its own.
+- `search_body` cannot reveal restricted snippets.
 - Path validation prevents write tools from escaping the vault root.
 - Frontmatter enum validation rejects malformed metadata writes.

@@ -1,7 +1,7 @@
-"""Local unlock gate for secret-adjacent document bodies.
+"""Local unlock gate for restricted document bodies.
 
-The LLM can request a secret-adjacent body by setting
-`include_secret_adjacent=True`, but the local machine still decides whether
+The LLM can request a restricted body by setting `include_restricted=True`,
+but the local machine still decides whether
 to release it. The unlock phrase is collected through a macOS hidden-input
 dialog, never through chat.
 """
@@ -97,7 +97,7 @@ def prompt_unlock_phrase(doc_id: str, title: str) -> str | None:
     if sys.platform != "darwin" or not shutil.which("osascript"):
         return None
 
-    label = _applescript_string(f"Unlock secret-adjacent doc?\n\n{title}\n{doc_id}")
+    label = _applescript_string(f"Unlock restricted doc?\n\n{title}\n{doc_id}")
     script = (
         f'display dialog {label} default answer "" with hidden answer '
         'buttons {"Cancel", "Unlock"} default button "Unlock"'
@@ -122,7 +122,7 @@ def audit_secret_unlock(audit_log_path: Path, *, doc_id: str, result: str) -> No
     """Append one local audit line. Never write body content or phrases."""
     timestamp = datetime.now(UTC).isoformat()
     line = (
-        f"{timestamp} action=secret_adjacent_unlock doc_id={doc_id} "
+        f"{timestamp} action=restricted_unlock doc_id={doc_id} "
         f"result={result} client=stdio\n"
     )
     try:

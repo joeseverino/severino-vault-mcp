@@ -8,6 +8,12 @@
 path = "~/Documents/vault"
 indexed_dirs = ["01 Projects", "02 Infrastructure", "03 Runbooks"]
 
+[aliases]
+# Optional local phrase -> doc_id map. By default this is
+# "<vault>/.svmc/aliases.toml" so aliases can live with a private vault
+# without being committed to this repository.
+path = "~/Documents/vault/.svmc/aliases.toml"
+
 [cache]
 seconds = 30
 
@@ -15,9 +21,9 @@ seconds = 30
 # Optional URL for a downstream asset/project system. Leave empty when unused.
 url = ""
 
-[secret_adjacent]
+[restricted]
 allow_unlock = false
-hash_file = "~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256"
+hash_file = "~/.config/severino-vault-mcp/restricted-unlock.sha256"
 keychain_service = "severino-vault-mcp"
-keychain_account = "secret-adjacent-unlock"
+keychain_account = "restricted-unlock"
 audit_log = "~/.local/state/severino-vault-mcp/audit.log"
