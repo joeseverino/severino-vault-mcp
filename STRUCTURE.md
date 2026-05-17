@@ -12,6 +12,7 @@ what each one is responsible for. Generated caches, local virtualenvs, and
 | `.gitignore` | Local/generated files excluded from Git. |
 | `CHANGELOG.md` | Release history and feature notes. |
 | `LICENSE` | MIT license. |
+| `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
 | `README.md` | Main project overview, install instructions, MCP surface, configuration, and sensitivity policy. |
 | `STRUCTURE.md` | This repository map. |
 | `pyproject.toml` | Package metadata, dependencies, console script, pytest config, and Ruff config. |

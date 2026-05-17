@@ -49,6 +49,7 @@ known. Both paths use the same sensitivity policy as `read_doc`.
 
 | Doc | Purpose |
 |---|---|
+| `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
 | `STRUCTURE.md` | File-by-file repository map. |
 | `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
 | `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
@@ -146,8 +147,7 @@ Or, if you didn't `uv tool install`, point Claude Code at the local checkout:
 
 ```bash
 claude mcp add severino-knowledge-router \
-    --command uv \
-    --args run --directory $HOME/Documents/Code/Assets/severino-knowledge-router severino-knowledge-router
+    -- uv run --directory $HOME/Documents/Code/Assets/severino-knowledge-router severino-knowledge-router
 ```
 
 ### Wire to Claude Desktop
