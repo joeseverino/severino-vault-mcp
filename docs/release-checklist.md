@@ -1,7 +1,18 @@
 # Release Checklist
 
-Use this before tagging a public release or linking the project from a
-portfolio.
+Normal flow:
+
+```bash
+scripts/prepare-release.sh X.Y.Z "short headline"
+# edit CHANGELOG.md if needed
+scripts/check.sh --release
+git add ...
+git commit
+scripts/release.sh X.Y.Z "short headline"
+```
+
+The helper scripts are the source of truth. The sections below explain what
+they cover and how to recover manually if needed.
 
 ## Repository Hygiene
 
@@ -42,18 +53,27 @@ the installed command name.
 
 ## Version Bump
 
-Version is duplicated in two files. Bump both, or the CI smoke test will
-detect the drift:
+Use the prep helper for normal releases:
+
+```bash
+scripts/prepare-release.sh X.Y.Z "short headline"
+```
+
+It bumps `pyproject.toml`, `src/severino_vault_mcp/__init__.py`, README
+status, creates a starter `CHANGELOG.md` section, and refreshes `uv.lock`.
+Edit the generated changelog section before committing.
+
+Manual fallback:
 
 - `pyproject.toml` — the `version = "X.Y.Z"` line under `[project]`.
 - `src/severino_vault_mcp/__init__.py` — the `__version__` string.
-
-Re-run `uv sync --extra dev` after the bump so `uv.lock` picks up the new
-project version. Commit all three files together.
+- `README.md` status paragraph.
+- `CHANGELOG.md` release section and compare-link footer.
+- `uv.lock` after `uv sync --extra dev`.
 
 ## CHANGELOG
 
-- Add a new `## [X.Y.Z] — YYYY-MM-DD` section above the previous entry.
+- Add a new `## [X.Y.Z] - YYYY-MM-DD` section above the previous entry.
 - Move anything currently under `[Unreleased]` into the new section.
 - Update the compare-link footer at the bottom of the file:
 

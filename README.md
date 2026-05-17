@@ -310,7 +310,9 @@ contract as a real operations vault.
 | `CONTRIBUTING.md` | Local development, issue, PR, and release guidance. |
 | `STRUCTURE.md` | File-by-file repository map. |
 | `scripts/check.sh` | One-command local verification for lint, tests, version alignment, and sample-vault validation. |
+| `scripts/prepare-release.sh` | Version-bump and changelog prep helper. |
 | `scripts/release.sh` | One-command release wrapper for checks, tagging, pushing, and GitHub release creation. |
+| `.gitmessage` | Commit message template for descriptive, reviewable commits. |
 | `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
 | `docs/migration-guide.md` | Messy-vault onboarding, doctor usage, and bad-doc-to-fixed-doc examples. |
 | `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |

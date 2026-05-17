@@ -24,6 +24,12 @@ For release-grade local verification, including installed-tool smoke checks:
 scripts/check.sh --release
 ```
 
+Prepare a release bump and starter changelog:
+
+```bash
+scripts/prepare-release.sh X.Y.Z "short headline"
+```
+
 Install dependencies:
 
 ```bash

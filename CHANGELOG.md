@@ -37,6 +37,10 @@ schema.
   releases.
 - Added `scripts/check.sh` as the shared local verification entry point for
   routine checks and release checks.
+- Added `scripts/prepare-release.sh` to bump versions, refresh `uv.lock`, and
+  draft a changelog section before release.
+- Added `.gitmessage` so future commits default to a descriptive
+  why/what/verification structure.
 - Server and doctor validation now import the same schema constants instead of
   maintaining duplicate enum sets.
 - Bumped pinned GitHub Action versions via Dependabot, verified green
