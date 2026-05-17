@@ -23,6 +23,8 @@ operator's actual documentation instead of generic model memory.
 - Exposes stable resources such as `vault://quick-index` and
   `vault://doc/{doc_id}`.
 - Searches vault metadata and markdown bodies without requiring a database.
+- Uses modern Rust-based file tooling — `ripgrep` for structured body search
+  and `fd` for fast vault indexing — instead of reinventing them in Python.
 - Enforces a sensitivity gate for credential-adjacent procedures.
 - Provides narrow, validated frontmatter write tools for maintaining a vault.
 - Uses a copyable TOML config and environment overrides for fast adoption.
@@ -71,6 +73,17 @@ uv tool install --from . severino-vault-mcp
 mkdir -p ~/.config/severino-vault-mcp
 cp config.example.toml ~/.config/severino-vault-mcp/config.toml
 ```
+
+### Native Tool Dependencies
+
+| Tool | Required? | Used For | Install |
+|---|---|---|---|
+| [`ripgrep`](https://github.com/BurntSushi/ripgrep) (`rg`) | Required for `search_body` | Structured (`--json`) body search across vault markdown, skipping frontmatter blocks | `brew install ripgrep` / `apt-get install ripgrep` |
+| [`fd`](https://github.com/sharkdp/fd) | Optional, recommended | Fast indexed-dir walking in the vault loader. Falls back to `pathlib.rglob` when missing. | `brew install fd` / `apt-get install fd-find` |
+
+Both are pure Rust binaries with no runtime dependencies. CI installs `ripgrep`
+on every job so the body-search test suite always runs against the same tool
+production uses.
 
 Edit `~/.config/severino-vault-mcp/config.toml` and set `vault.path` to your
 vault root.

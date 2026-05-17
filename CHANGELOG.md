@@ -2,22 +2,10 @@
 
 ## [Unreleased]
 
-### Security
-
-- Pinned every GitHub Action reference in `.github/workflows/` to a full
-  commit SHA, with the human-readable version kept as a trailing comment so
-  Dependabot can still produce update PRs. Mitigates the supply-chain risk of
-  a third-party tag being moved to a malicious commit.
-- Enabled branch protection on `main`: force pushes blocked, deletions
-  blocked, linear history required, conversation resolution required, and
-  five required status checks (`pytest + ruff` × 3, `Analyze (python)`,
-  `Audit pinned dependencies`) for pull requests.
-- Documented supply-chain hardening, branch protection, and release process
-  in `.github/SECURITY.md`.
-
 ## [2.1.0] — 2026-05-17
 
-Security tooling release. Adds layered, public-repo-grade security automation
+Security tooling and supply-chain hardening release. Adds layered,
+public-repo-grade security automation and tightens repository governance
 without changing the MCP surface or runtime behavior.
 
 ### Added
@@ -31,8 +19,14 @@ without changing the MCP surface or runtime behavior.
   chain scoring. Publishes results to scorecard.dev and uploads SARIF to the
   GitHub Security tab.
 - README badges for CodeQL, pip-audit, and OpenSSF Scorecard.
-- `Security Tooling` section in `.github/SECURITY.md` documenting the layered
-  SAST + SCA + governance model and where findings show up.
+- README `Native Tool Dependencies` section calling out `ripgrep` and `fd`,
+  the Rust binaries the server delegates to for body search and indexing.
+- `Security Tooling` and `Supply Chain Hardening` sections in
+  `.github/SECURITY.md` documenting the layered SAST + SCA + governance model,
+  pinned-action convention, least-privilege workflow tokens, and release
+  expectations.
+- `Branch Protection` and `Releases` sections in `.github/SECURITY.md`
+  documenting the on-`main` ruleset and the tag/release convention.
 - Per-workflow documentation in `docs/testing-ci.md`.
 
 ### Changed
@@ -41,6 +35,20 @@ without changing the MCP surface or runtime behavior.
   tooling layer.
 - Bumped package version to 2.1.0 in `pyproject.toml` and
   `src/severino_vault_mcp/__init__.py`.
+
+### Security
+
+- Pinned every GitHub Action reference in `.github/workflows/` to a full
+  commit SHA, with the human-readable version kept as a trailing comment so
+  Dependabot can still produce update PRs. Mitigates the supply-chain risk of
+  a third-party tag being moved to a malicious commit. Closes 11 OSSF
+  Scorecard `Pinned-Dependencies` findings.
+- Enabled branch protection on `main`: force pushes blocked, deletions
+  blocked, linear history required, conversation resolution required, and
+  five required status checks (`pytest + ruff` × 3, `Analyze (python)`,
+  `Audit pinned dependencies`) for pull requests. Administrators are not
+  enforced so the solo maintainer can publish security patches without a PR
+  round-trip; this should change if the project gains contributors.
 
 ## [2.0.0] — 2026-05-17
 
