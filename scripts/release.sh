@@ -9,8 +9,9 @@ Usage:
 Example:
   scripts/release.sh 2.2.0 "retrieval reliability"
 
-This verifies the release, creates an annotated tag, pushes main + tag, and
-creates the GitHub release from the matching CHANGELOG.md section.
+This verifies the release, creates a signed annotated tag, pushes main + tag,
+creates the GitHub release from the matching CHANGELOG.md section, and verifies
+that the release exists before exiting successfully.
 EOF
 }
 
@@ -92,8 +93,11 @@ if git rev-parse "$tag" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Creating annotated tag $tag"
-git tag -a "$tag" -m "$tag - $headline"
+echo "==> Creating signed annotated tag $tag"
+git tag -s "$tag" -m "$tag - $headline"
+
+echo "==> Verifying tag signature"
+git tag -v "$tag" >/dev/null
 
 echo "==> Pushing main"
 git push origin main
@@ -107,5 +111,8 @@ else
   echo "==> Creating GitHub release"
   gh release create "$tag" --title "$tag - $headline" --latest --notes "$notes"
 fi
+
+echo "==> Verifying GitHub release"
+gh release view "$tag" >/dev/null
 
 echo "Release complete: $tag"
