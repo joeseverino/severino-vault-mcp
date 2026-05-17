@@ -63,6 +63,14 @@ if [[ "$py_version" != "$version" || "$init_version" != "$version" ]]; then
   exit 1
 fi
 
+if [[ "$(git config --get gpg.format || true)" == "ssh" ]]; then
+  allowed_signers="$(git config --get gpg.ssh.allowedSignersFile || true)"
+  if [[ -z "$allowed_signers" || ! -f "$allowed_signers" ]]; then
+    echo "SSH tag verification requires gpg.ssh.allowedSignersFile to point at an existing file" >&2
+    exit 1
+  fi
+fi
+
 notes="$(
   VERSION="$version" python3 - <<'PY'
 from pathlib import Path
