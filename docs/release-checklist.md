@@ -17,9 +17,7 @@ portfolio.
 
 ```bash
 uv sync --extra dev
-uv run pytest
-uv run ruff check .
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+scripts/check.sh
 ```
 
 In an MCP client, verify:
@@ -66,23 +64,24 @@ project version. Commit all three files together.
 
 ## Tag and Publish
 
-Use annotated tags (`-a`), never lightweight tags. Tag format is
-`vMAJOR.MINOR.PATCH`.
+Use the release helper for normal releases:
 
 ```bash
-git tag -a vX.Y.Z -m "vX.Y.Z — short headline"
-git push origin main
-git push origin vX.Y.Z
-
-gh release create vX.Y.Z \
-  --title "vX.Y.Z — short headline" \
-  --latest \
-  --notes "$(awk '/^## \[X.Y.Z\]/,/^## \[/' CHANGELOG.md | sed '$d')"
+scripts/release.sh X.Y.Z "short headline"
 ```
 
-The `awk | sed` pulls the X.Y.Z section out of `CHANGELOG.md` so the release
-notes stay in lockstep with the changelog. Edit the section heading inside
-the awk pattern to match the new version.
+It runs lint, tests, sample-vault validation, installed-tool smoke checks,
+version alignment checks, creates an annotated tag, pushes `main` and the tag,
+and creates the GitHub release from the matching `CHANGELOG.md` section.
+
+Manual fallback, if needed:
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z - short headline"
+git push origin main
+git push origin vX.Y.Z
+gh release create vX.Y.Z --title "vX.Y.Z - short headline" --latest
+```
 
 ## Dependabot Pull Requests
 

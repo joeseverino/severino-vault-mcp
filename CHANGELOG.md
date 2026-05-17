@@ -33,6 +33,10 @@ schema.
   `src/severino_vault_mcp/__init__.py`.
 - README MCP surface now documents `get_runbook` and `search_body`.
 - README status now reflects v2.2.0 and the single-call retrieval path.
+- Release checklist now points at `scripts/release.sh` for repeatable tagged
+  releases.
+- Added `scripts/check.sh` as the shared local verification entry point for
+  routine checks and release checks.
 - Server and doctor validation now import the same schema constants instead of
   maintaining duplicate enum sets.
 - Bumped pinned GitHub Action versions via Dependabot, verified green

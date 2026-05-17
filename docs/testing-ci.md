@@ -6,6 +6,24 @@ where that matters.
 
 ## Local Commands
 
+Use the wrapper for normal local verification:
+
+```bash
+scripts/check.sh
+```
+
+For a faster edit loop:
+
+```bash
+scripts/check.sh --quick
+```
+
+For release-grade local verification, including installed-tool smoke checks:
+
+```bash
+scripts/check.sh --release
+```
+
 Install dependencies:
 
 ```bash

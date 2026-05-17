@@ -53,7 +53,7 @@ Not a great fit:
 git clone git@github.com:joeseverino/severino-vault-mcp.git
 cd severino-vault-mcp
 uv sync --extra dev
-uv run pytest
+scripts/check.sh
 SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
@@ -309,6 +309,8 @@ contract as a real operations vault.
 | `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
 | `CONTRIBUTING.md` | Local development, issue, PR, and release guidance. |
 | `STRUCTURE.md` | File-by-file repository map. |
+| `scripts/check.sh` | One-command local verification for lint, tests, version alignment, and sample-vault validation. |
+| `scripts/release.sh` | One-command release wrapper for checks, tagging, pushing, and GitHub release creation. |
 | `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
 | `docs/migration-guide.md` | Messy-vault onboarding, doctor usage, and bad-doc-to-fixed-doc examples. |
 | `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
