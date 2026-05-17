@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped pinned GitHub Action versions via Dependabot, verified green
+  across the full CI matrix and code-scanning workflows before merge:
+  - `actions/checkout`: `v4` → `v6.0.2`
+  - `astral-sh/setup-uv`: `v3` → `v8.1.0`
+
 ## [2.1.0] — 2026-05-17
 
 Security tooling and supply-chain hardening release. Adds layered,
