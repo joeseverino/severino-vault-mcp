@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Security
+
+- Pinned every GitHub Action reference in `.github/workflows/` to a full
+  commit SHA, with the human-readable version kept as a trailing comment so
+  Dependabot can still produce update PRs. Mitigates the supply-chain risk of
+  a third-party tag being moved to a malicious commit.
+- Enabled branch protection on `main`: force pushes blocked, deletions
+  blocked, linear history required, conversation resolution required, and
+  five required status checks (`pytest + ruff` × 3, `Analyze (python)`,
+  `Audit pinned dependencies`) for pull requests.
+- Documented supply-chain hardening, branch protection, and release process
+  in `.github/SECURITY.md`.
+
 ## [2.1.0] — 2026-05-17
 
 Security tooling release. Adds layered, public-repo-grade security automation

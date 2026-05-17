@@ -140,6 +140,49 @@ signal across code, dependencies, and project governance.
 Findings from CodeQL and Scorecard appear in the repository's Security tab.
 `pip-audit` failures appear as a failed check on the PR or scheduled run.
 
+## Supply Chain Hardening
+
+The following controls reduce the risk of a compromised third-party action or
+upstream tag being executed against this repository:
+
+- All GitHub Action references are pinned to a full commit SHA, with the
+  human-readable version retained as a trailing comment (for example,
+  `uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4`).
+  Dependabot understands this format and will open update PRs when a new
+  version is released.
+- Workflow `permissions:` blocks default to `read` and only grant
+  `security-events: write`, `id-token: write`, or `actions: read` to the
+  specific jobs that require them (CodeQL upload, Scorecard OIDC publish,
+  Scorecard read of workflow metadata).
+- The OSSF Scorecard workflow runs with `persist-credentials: false` on
+  checkout so that the default `GITHUB_TOKEN` is not left on disk for
+  third-party action steps.
+
+## Branch Protection
+
+`main` is protected with the following rules:
+
+- Force pushes are blocked.
+- Branch deletion is blocked.
+- Linear history is required (no merge commits in `main`).
+- Conversation resolution is required before merging a pull request.
+- Five required status checks must pass before any pull request can merge:
+  `pytest + ruff (3.11)`, `pytest + ruff (3.12)`, `pytest + ruff (3.13)`,
+  `Analyze (python)` (CodeQL), and `Audit pinned dependencies` (pip-audit).
+
+Administrators are not currently included in the branch protection
+enforcement. This is a deliberate solo-maintainer trade-off: PR merges are
+gated by CI, but the maintainer can still publish a fast security patch
+without a PR round-trip. If the project gains contributors, enable
+`enforce_admins` to apply the same gate to everyone.
+
+## Releases
+
+Tagged releases (`vMAJOR.MINOR.PATCH`) are published on GitHub with notes
+generated from `CHANGELOG.md`. Release tags are annotated. Until the project
+adopts a signed release process (Sigstore or signed git tags), consumers who
+need integrity guarantees should pin to a commit SHA rather than a tag.
+
 ## Disclosure
 
 Public disclosure should wait until a fix or mitigation is available. Security
