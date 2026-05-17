@@ -8,7 +8,7 @@ status: active
 sensitivity: secret_adjacent
 last_reviewed: 2026-05-17
 related_projects:
-  - homelab-dns
+  - client-edge-dns
 related_assets: []
 tags:
   - pki

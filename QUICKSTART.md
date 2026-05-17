@@ -1,7 +1,8 @@
 # Quickstart
 
 This guide gets `severino-vault-mcp` running as a local stdio MCP server
-against either the included sample vault or your own Obsidian-style vault.
+against either the included sample vault or your own Obsidian-style operations
+vault.
 
 ## Prerequisites
 
@@ -10,13 +11,13 @@ against either the included sample vault or your own Obsidian-style vault.
 - `ripgrep` (`rg`) for body search
 - An MCP client such as Claude Code, Claude Desktop, Cline, or another MCP host
 
-Install the local toolchain on macOS:
+macOS toolchain:
 
 ```bash
 brew install uv ripgrep
 ```
 
-## 1. Clone and Test
+## 1. Clone And Test
 
 ```bash
 git clone git@github.com:joeseverino/severino-vault-mcp.git
@@ -33,13 +34,13 @@ pytest passes
 ruff reports All checks passed
 ```
 
-## 2. Run Against the Sample Vault
+## 2. Run The Sample Vault
 
-The sample vault is safe demo data and does not require access to a private
-Obsidian vault.
+The sample vault is safe network/security operations demo data. It does not
+require access to a private vault.
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
 This starts the MCP server on stdio. It waits for an MCP client to talk to it,
@@ -51,9 +52,9 @@ From the repo directory:
 
 ```bash
 claude mcp add \
-  -e SKR_VAULT_PATH="$PWD/examples/sample-vault" \
+  -e SVMC_VAULT_PATH="$PWD/examples/sample-vault" \
   severino-vault-mcp \
-  -- uv run --directory "$PWD" severino-vault-mcp
+  -- uv run --no-editable --directory "$PWD" severino-vault-mcp
 ```
 
 Then ask your MCP client to verify:
@@ -65,9 +66,17 @@ Use the severino-vault-mcp MCP. Read vault://quick-index and tell me the first d
 Expected behavior:
 
 - The client can see `vault://quick-index`.
-- The client can read `vault://doc/rb-generate-homelab-cert`.
-- `find_runbook("generate homelab certificate")` returns `rb-generate-homelab-cert`.
-- `vault://doc/infra-offline-ca` withholds the body because it is `secret_adjacent`.
+- The client can read `vault://doc/rb-generate-internal-cert`.
+- `find_runbook("generate internal certificate")` returns
+  `rb-generate-internal-cert`.
+- `vault://doc/infra-offline-ca` withholds the body because it is
+  `secret_adjacent`.
+
+Validate the sample vault from another terminal:
+
+```bash
+SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp doctor
+```
 
 ## 4. Wire Claude Desktop
 
@@ -91,7 +100,7 @@ Example using the sample vault:
         "severino-vault-mcp"
       ],
       "env": {
-        "SKR_VAULT_PATH": "/absolute/path/to/severino-vault-mcp/examples/sample-vault"
+        "SVMC_VAULT_PATH": "/absolute/path/to/severino-vault-mcp/examples/sample-vault"
       }
     }
   }
@@ -127,19 +136,37 @@ tags:
 ---
 ```
 
-Point the MCP at your vault:
+For a persistent setup, copy and edit the example config:
 
 ```bash
-SKR_VAULT_PATH="/absolute/path/to/your/vault" uv run severino-vault-mcp
+mkdir -p ~/.config/severino-vault-mcp
+cp config.example.toml ~/.config/severino-vault-mcp/config.toml
 ```
 
-If your vault uses different folders:
+Set:
+
+```toml
+[vault]
+path = "/absolute/path/to/your/vault"
+indexed_dirs = ["01 Projects", "02 Infrastructure", "03 Runbooks"]
+```
+
+For one-off runs, environment variables are enough:
 
 ```bash
-SKR_VAULT_PATH="/absolute/path/to/your/vault" \
-SKR_INDEXED_DIRS="Projects:Infrastructure:Runbooks" \
-uv run severino-vault-mcp
+SVMC_VAULT_PATH="/absolute/path/to/your/vault" \
+SVMC_INDEXED_DIRS="Projects:Infrastructure:Runbooks" \
+uv run --no-editable severino-vault-mcp
 ```
+
+Before connecting a messy vault to an MCP client, run:
+
+```bash
+SVMC_VAULT_PATH="/absolute/path/to/your/vault" \
+uv run --no-editable severino-vault-mcp doctor --propose
+```
+
+Fix missing or invalid frontmatter until `doctor` reports no errors.
 
 ## 6. Recommended Vault Docs
 
@@ -148,7 +175,9 @@ For best results, create:
 - A Quick Index doc with `doc_id: report-playbook-mcp-index`.
 - Runbooks with stable `rb-*` IDs.
 - Infrastructure docs with stable `infra-*` IDs.
-- Consistent `sensitivity` values: `public`, `internal`, `sensitive`, or `secret_adjacent`.
+- Project indexes with stable `project-*` IDs.
+- Deliberate `sensitivity` values: `public`, `internal`, `sensitive`, or
+  `secret_adjacent`.
 
 The Quick Index backs:
 
@@ -162,7 +191,7 @@ Known docs can be read through:
 vault://doc/{doc_id}
 ```
 
-## 7. Optional: Install as a uv Tool
+## 7. Optional: Install As A uv Tool
 
 For daily use:
 
@@ -202,7 +231,7 @@ Then add this env var to the MCP client config:
 ```json
 {
   "env": {
-    "SKR_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
+    "SVMC_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
   }
 }
 ```
@@ -211,29 +240,19 @@ Never type the unlock phrase into AI chat. The prompt is local-only.
 
 ## 9. Common Adoption Checks
 
-Run these locally before opening a PR:
+Run these locally before opening a PR or publishing your own fork:
 
 ```bash
 uv run pytest
 uv run ruff check .
 ```
 
-Check the repository map:
+Read:
 
-```bash
-open STRUCTURE.md
-```
-
-Read the safety model:
-
-```bash
-open docs/ai-safety-security.md
-```
-
-## More Detail
-
-- `README.md` — full project overview
-- `STRUCTURE.md` — file-by-file repository map
-- `docs/demo.md` — sample assistant transcript
-- `docs/testing-ci.md` — test and CI details
-- `docs/ai-safety-security.md` — safety model and threat assumptions
+- `README.md` for full project overview.
+- `CONTRIBUTING.md` for development workflow.
+- `STRUCTURE.md` for the repository map.
+- `docs/demo.md` for a sample assistant transcript.
+- `docs/migration-guide.md` for messy vault migration.
+- `docs/testing-ci.md` for test and CI details.
+- `docs/ai-safety-security.md` for safety model and threat assumptions.

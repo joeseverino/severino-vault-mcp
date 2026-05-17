@@ -1,6 +1,6 @@
 """Sensitivity policy gate.
 
-The MCP runs locally and is consumed by Joe's own Claude Code / Claude
+The MCP runs locally and is consumed by the operator's own Claude Code / Claude
 Desktop session. The threat model is "don't surface live secrets in a chat
 window where they could be copy-pasted or persisted in conversation logs,"
 not "treat every operational runbook as forbidden knowledge."
@@ -14,8 +14,9 @@ So the gate is narrow:
                       one-shot local unlock, but this module never treats a
                       caller flag alone as sufficient authorization.
 
-The HQ Markdown / JSON exports use a stricter rule (sensitive → title+path
-only) — that's a separate consumer for AI-prep contexts.
+Downstream exports may choose stricter rules, such as returning only title and
+path for sensitive docs. That policy belongs to those consumers, not this
+local MCP read path.
 """
 
 from __future__ import annotations

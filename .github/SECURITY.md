@@ -1,28 +1,130 @@
-# Security policy
+# Security Policy
 
-`severino-vault-mcp` runs as a local MCP server on Joe's Mac. It has no
-network listening surface — it speaks stdio to its parent process (Claude Code,
-Claude Desktop, etc.) and reads files the local user account can already read.
+## Supported Versions
 
-## Reporting a vulnerability
+Security fixes are provided for the latest released version of
+`severino-vault-mcp` and for the current `main` branch when a fix has not yet
+been released.
 
-Email `security@<this-domain>` (replace with the operator's address) or use
-GitHub private vulnerability reporting on this repo. **Do not** open a public
-issue.
+| Version | Supported |
+|---|---|
+| `2.x` | Yes |
+| `< 2.0.0` | No |
 
-## Threat model
+If you are running from source, update to the latest commit on `main` before
+reporting unless the issue is specifically about upgrade behavior.
 
-In scope:
+## Reporting A Vulnerability
 
-- Bypass of the sensitivity gate (e.g. `secret_adjacent` body returned to an LLM).
-- Path-traversal in the write tools (writing outside the vault).
-- Bypass of frontmatter validation (writing invalid enum values, bad `doc_id` prefixes).
-- Schema-version mismatch between the MCP and the vault.
+Email: github@jseverino.com
 
-Out of scope:
+Do not open a public GitHub issue for security reports. Include:
 
-- Anything that requires write access to the user's home directory the user already has.
-- LLM hallucinations about doc bodies. The MCP returns truthful data; the
-  consuming LLM is responsible for not misrepresenting it.
-- Compromised MCP host. If your Claude Code/Desktop install is malicious, the
-  MCP is the least of your problems.
+- Affected version or commit SHA.
+- Operating system and Python version.
+- MCP host or client used.
+- Relevant `SVMC_*` configuration with secrets removed.
+- Minimal reproduction steps.
+- Expected result and actual result.
+- Whether the issue caused markdown body content, unlock phrases, paths, or
+  secret-adjacent metadata to appear somewhere unexpected.
+
+Expected handling:
+
+- Acknowledgement target: within 72 hours.
+- Initial triage target: within 7 days.
+- Fix timeline depends on severity and reproducibility.
+- Confirmed vulnerabilities will be fixed privately first, then documented in
+  release notes when disclosure is safe.
+
+## Project Security Boundary
+
+`severino-vault-mcp` is a local stdio MCP server. It is designed to be launched
+by a local MCP host such as Claude Code, Claude Desktop, Cline, or another
+stdio-capable client.
+
+It does not:
+
+- Start an HTTP listener.
+- Expose a network API.
+- Provide multi-user authentication.
+- Sandbox the MCP host process.
+- Replace filesystem permissions, disk encryption, Keychain, password
+  managers, or secret-management systems.
+
+It does:
+
+- Read markdown files under configured indexed vault directories.
+- Return `public`, `internal`, and `sensitive` document bodies to the MCP
+  client.
+- Withhold `secret_adjacent` document bodies by default.
+- Require explicit `include_secret_adjacent=True` plus local unlock
+  configuration and a successful hidden local prompt before releasing one
+  `secret_adjacent` body.
+- Log unlock attempts without logging document bodies or unlock phrases.
+
+## Sensitivity Labels
+
+The most important operator responsibility is labeling documents correctly.
+
+| Label | Intended Meaning | Body Release |
+|---|---|---|
+| `public` | Safe to publish. | Returned. |
+| `internal` | Private operational context, safe to enter an AI chat you control. | Returned. |
+| `sensitive` | Private but still chat-acceptable when handled deliberately. | Returned with advisory. |
+| `secret_adjacent` | May reveal credentials, private key paths, recovery flows, token rotation steps, internal auth procedures, break-glass access, or escalation paths. | Withheld by default; local unlock required. |
+
+Misclassifying a secret-bearing document as `sensitive` is operator error and
+will cause the body to be returned. When in doubt, use `secret_adjacent`.
+
+## In Scope
+
+Reports are most useful when they show one of these impacts:
+
+- `secret_adjacent` bodies released without explicit request and successful
+  local unlock.
+- `search_body` exposing `secret_adjacent` snippets.
+- Path traversal or write-tool behavior that writes outside the configured
+  vault root.
+- Frontmatter validation bypass that lets invalid enum values or mutable
+  `doc_id` changes through write tools.
+- Document body content, unlock phrases, or unlock hashes written to logs,
+  audit files, exceptions, test artifacts, or release artifacts.
+- Unsafe parsing or packaging behavior that changes the local security
+  boundary.
+- Dependency vulnerabilities that are reachable through normal MCP operation.
+
+## Out Of Scope
+
+The following are generally out of scope unless they enable an in-scope impact:
+
+- A malicious or compromised MCP host. The host can request allowed tools and
+  receives returned content by design.
+- Local code execution as the same operating system user.
+- Access to files already readable by the local user outside this tool.
+- Incorrect answers generated by the model after receiving accurate MCP data.
+- User decisions to paste secrets or unlock phrases into chat.
+- Denial-of-service against a local development machine without data exposure.
+- Automated scanner output without a practical exploit path.
+- Vulnerabilities in private vault contents, private infrastructure, or
+  downstream systems not shipped in this repository.
+
+## Safe Configuration Guidance
+
+- Keep actual credentials, private keys, recovery codes, and token material out
+  of indexed markdown whenever possible.
+- Mark credential-adjacent procedures as `secret_adjacent`.
+- Run `severino-vault-mcp doctor --propose` before onboarding a messy vault.
+- Review proposed frontmatter manually; do not blindly accept sensitivity
+  labels.
+- Store the secret-adjacent unlock hash in macOS Keychain or a local file with
+  restrictive permissions. Do not store the unlock phrase itself.
+- Do not type the unlock phrase into AI chat. The prompt is local-only.
+- Treat MCP hosts as trusted local software. Do not connect this server to an
+  untrusted host.
+
+## Disclosure
+
+Public disclosure should wait until a fix or mitigation is available. Security
+release notes will avoid publishing exploit details that materially increase
+risk for users who have not upgraded.

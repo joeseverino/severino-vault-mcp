@@ -39,3 +39,9 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -q
+
+      - name: Smoke test installed package
+        run: |
+          uv sync --extra dev --no-editable
+          uv run --no-sync python -c "import severino_vault_mcp; print(severino_vault_mcp.__version__)"
+          SVMC_VAULT_PATH=examples/sample-vault uv run --no-sync severino-vault-mcp doctor

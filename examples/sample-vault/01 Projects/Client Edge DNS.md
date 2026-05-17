@@ -1,9 +1,9 @@
 ---
-doc_id: project-homelab-dns
-title: Homelab DNS
+doc_id: project-client-edge-dns
+title: Client Edge DNS
 doc_type: architecture_note
-system: Homelab DNS
-environment: homelab
+system: Client Edge DNS
+environment: other
 status: active
 sensitivity: internal
 last_reviewed: 2026-05-17
@@ -11,12 +11,12 @@ related_projects: []
 related_assets: []
 tags:
   - dns
-  - homelab
+  - network-operations
 ---
 
-# Homelab DNS
+# Client Edge DNS
 
-Example project index for DNS-related homelab work.
+Example project index for DNS and edge-access work.
 
 ## Related Docs
 

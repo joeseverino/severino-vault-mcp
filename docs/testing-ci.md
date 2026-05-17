@@ -50,12 +50,16 @@ Steps:
 5. Run `uv sync --extra dev`.
 6. Run `uv run ruff check src tests`.
 7. Run `uv run pytest -q`.
+8. Reinstall the project non-editably and smoke-test the installed package:
+   import `severino_vault_mcp` and run `severino-vault-mcp doctor` against
+   `examples/sample-vault`.
 
 ## What the Tests Cover
 
 `tests/test_search.py` covers:
 
 - Vault indexing from frontmatter-bearing markdown files.
+- `doctor` validation for missing and invalid frontmatter.
 - Search ranking for `find_runbook`.
 - `read_doc` body release for `public`, `internal`, and `sensitive` docs.
 - Default withholding for `secret_adjacent` docs.
@@ -77,14 +81,14 @@ The sample vault lives at `examples/sample-vault/`.
 Run the server against it:
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
 Expected sample behavior:
 
 - `vault://quick-index` returns the demo navigation hub.
-- `vault://doc/rb-generate-homelab-cert` returns the sample certificate runbook.
-- `find_runbook("generate homelab certificate")` ranks `rb-generate-homelab-cert` first.
+- `vault://doc/rb-generate-internal-cert` returns the sample certificate runbook.
+- `find_runbook("generate internal certificate")` ranks `rb-generate-internal-cert` first.
 - `vault://doc/infra-offline-ca` withholds body content because the doc is `secret_adjacent`.
 - `read_doc("infra-offline-ca", include_secret_adjacent=True)` still requires local unlock.
 

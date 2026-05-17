@@ -1,0 +1,23 @@
+# Example severino-vault-mcp configuration.
+#
+# Copy this file to ~/.config/severino-vault-mcp/config.toml and adjust it for
+# your local vault. Every setting can also be overridden with the matching
+# SVMC_* environment variable shown in README.md.
+
+[vault]
+path = "~/Documents/vault"
+indexed_dirs = ["01 Projects", "02 Infrastructure", "03 Runbooks"]
+
+[cache]
+seconds = 30
+
+[metadata]
+# Optional URL for a downstream asset/project system. Leave empty when unused.
+url = ""
+
+[secret_adjacent]
+allow_unlock = false
+hash_file = "~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256"
+keychain_service = "severino-vault-mcp"
+keychain_account = "secret-adjacent-unlock"
+audit_log = "~/.local/state/severino-vault-mcp/audit.log"

@@ -40,7 +40,7 @@ DOC_TYPES = {
     "public_article_draft", "decision_record",
 }
 ENVIRONMENTS = {
-    "homelab", "vps", "wordpress", "cloudflare", "tailscale",
+    "lab", "vps", "wordpress", "cloudflare", "tailscale",
     "adguard", "unifi", "local_mac", "other",
 }
 STATUSES = {"draft", "active", "deprecated", "archived"}
@@ -56,10 +56,9 @@ _LOADER = VaultLoader(_CONFIG)
 
 _SERVER_INSTRUCTIONS = """\
 This MCP routes the calling AI session to the right runbook, infrastructure
-doc, or project metadata in Joe Severino's private "Severino Labs" Obsidian
-vault. Every operational topic on this homelab — TLS certificates, AdGuard
-DNS, Nginx Proxy Manager, Docker, Tailscale, Cloudflare, WordPress, Severino
-HQ, vault tooling — has its own runbook there.
+doc, or project metadata in the configured Obsidian-style operational vault.
+The vault is expected to contain stable frontmatter IDs, a Quick Index, and
+runbooks or infrastructure notes for the operator's environment.
 
 OPERATING RULES (read this BEFORE answering any operational question):
 
@@ -72,7 +71,7 @@ OPERATING RULES (read this BEFORE answering any operational question):
    resource templates; otherwise call `read_doc(doc_id)`.
 
 2. If the user asks "what's the runbook for Y" or anything more specific
-   resembling operational knowledge about Joe's stack, you MUST call
+   resembling operational knowledge from the configured vault, you MUST call
    `find_runbook` (or `lookup_system`, or `search_body`) BEFORE generating
    any prose. Then call `read_doc` on the top hit and answer in the doc's
    own words — quote commands verbatim.
@@ -99,7 +98,7 @@ SENSITIVITY GATE (don't be afraid of it):
   user but use the content.
 - secret_adjacent — `read_doc` withholds the body by default. Pass
   `include_secret_adjacent=True` only when the user explicitly needs it.
-  The local MCP still requires `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1` plus a
+  The local MCP still requires `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1` plus a
   successful hidden local unlock prompt before releasing the body. These are
   docs about CA keys, credential rotation, the offline CA, etc.
 
@@ -107,11 +106,11 @@ WRITE TOOLS:
 
 `add_frontmatter` and `update_frontmatter` mutate vault files. Use them
 when the user asks to tag a doc, bump `last_reviewed`, deprecate something,
-etc. After successful writes, remind the user to run `hq sync` so Severino
-HQ picks up the change.
+etc. After successful writes, remind the user to run any downstream vault
+sync or indexing job their workflow requires.
 
-The vault root is `/Users/josephseverino/Documents/Code/Severino Labs/`.
-Indexed dirs are `01 Projects/`, `02 Infrastructure/`, `03 Runbooks/`.
+The configured vault root and indexed directories are controlled by
+`config.example.toml`-style settings or `SVMC_*` environment overrides.
 """
 
 mcp = FastMCP("severino-vault-mcp", instructions=_SERVER_INSTRUCTIONS)
@@ -152,13 +151,13 @@ _SECRET_UNLOCK_MESSAGES = {
         "the local MCP will still require an interactive unlock on the Mac."
     ),
     "disabled": (
-        "Interactive unlock is disabled. Set SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1 "
+        "Interactive unlock is disabled. Set SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1 "
         "in the local MCP environment to allow local unlock prompts."
     ),
     "no_unlock_hash": (
         "No local unlock hash is configured. Store a salted sha256 unlock hash "
-        "in Keychain, SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE, or "
-        "SKR_SECRET_ADJACENT_UNLOCK_HASH."
+        "in Keychain, SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE, or "
+        "SVMC_SECRET_ADJACENT_UNLOCK_HASH."
     ),
     "prompt_unavailable": "Local hidden-input prompt was unavailable or cancelled.",
     "failed": "Local unlock phrase verification failed.",
@@ -219,9 +218,9 @@ def _render_doc_resource(doc_id: str) -> str:
 @mcp.resource(
     QUICK_INDEX_RESOURCE_URI,
     name="quick-index",
-    title="Severino Labs Quick Index",
+    title="Vault Quick Index",
     description=(
-        "Navigation hub for broad homelab questions. Read this first for "
+        "Navigation hub for broad operational questions. Read this first for "
         "cross-cutting 'how do I' or 'where do I look' questions, then read "
         "the target runbook or infrastructure doc it points to."
     ),
@@ -252,7 +251,7 @@ def vault_doc(doc_id: str) -> str:
 
 @mcp.tool()
 def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
-    """USE THIS FIRST when the user asks any operational question about Joe's homelab.
+    """USE THIS FIRST when the user asks an operational question covered by the vault.
 
     Searches vault docs by title / system / tags / doc_id and returns ranked
     hits. The intended pattern is:
@@ -267,7 +266,7 @@ def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
     doc bodies.
 
     Args:
-        query: Natural-language query, e.g. "renew the homelab tls cert".
+        query: Natural-language query, e.g. "renew the internal TLS cert".
         limit: Maximum hits to return (default 5).
     """
     idx = _LOADER.index()
@@ -306,14 +305,14 @@ def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, An
     """Read the full markdown body of a vault doc. Call this after find_runbook.
 
     The body comes back for `public`, `internal`, AND `sensitive` docs — the
-    MCP runs locally on Joe's Mac, so there is no shared context to protect
-    against. Use the content. `sensitive` docs include an `advisory` field
-    you should pass along to the user but the body is yours to quote.
+    MCP runs locally under the operator's user account. Use the content.
+    `sensitive` docs include an `advisory` field you should pass along to
+    the user but the body is yours to quote.
 
     `secret_adjacent` docs (Local PKI, Offline CA, age workflow, Wazuh
     credential rotation) withhold the body by default. If the user explicitly
     needs one, pass `include_secret_adjacent=True`; the local MCP still
-    requires `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1`, a configured unlock hash,
+    requires `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1`, a configured unlock hash,
     and a successful hidden local unlock prompt on the Mac.
 
     Args:
@@ -364,11 +363,10 @@ def inventory_for_project(project_slug: str) -> dict[str, Any]:
     """List vault docs that name `project_slug` in their `related_projects` frontmatter.
 
     Returns the docs grouped by `doc_type`. This is the "what do I have for
-    project X" question — extend with HQ asset/expense data in a future
-    version when an authenticated API is in place.
+    project X" question based on vault frontmatter.
 
     Args:
-        project_slug: HQ Project slug (e.g. "homelab-dns") — must match the
+        project_slug: Project slug (e.g. "client-edge-dns") — must match the
             entry in a doc's `related_projects:` list.
     """
     slug = project_slug.strip()
@@ -643,8 +641,8 @@ def add_frontmatter(
     through Obsidian, not this tool. Validates every enum field against the
     schema before writing.
 
-    After success, the file is reloaded into the vault cache and the caller
-    is reminded to run `hq sync` to upsert HQ.
+    After success, the file is reloaded into the vault cache. If the operator
+    syncs vault metadata into another system, remind them to run that sync.
 
     Args:
         relative_path: Path relative to the vault root, e.g.
@@ -657,14 +655,14 @@ def add_frontmatter(
             troubleshooting_guide | recovery_procedure | public_article_draft |
             decision_record.
         system: Free text — the system / service the doc is about.
-        environment: One of homelab | vps | wordpress | cloudflare |
+        environment: One of lab | vps | wordpress | cloudflare |
             tailscale | adguard | unifi | local_mac | other. Default "other".
         status: One of draft | active | deprecated | archived. Default "active".
         sensitivity: One of public | internal | sensitive | secret_adjacent.
             Default "internal" — pick conservatively for credential/key-adjacent docs.
         tags: Optional kebab-case tag list.
-        related_projects: Optional HQ Project slugs.
-        related_assets: Optional HQ Asset slugs.
+        related_projects: Optional project slugs.
+        related_assets: Optional asset slugs.
         last_reviewed: Optional ISO date (YYYY-MM-DD). Defaults to today.
     """
     # ---- validate enums --------------------------------------------------
@@ -754,7 +752,7 @@ def add_frontmatter(
         "doc_id": doc_id,
         "relative_path": str(full_path.relative_to(vault_root)),
         "wrote_bytes": len(new_body.encode("utf-8")),
-        "next_step": "run `hq sync` from the Mac so HQ picks it up",
+        "next_step": "run any downstream vault metadata sync if your workflow uses one",
     }
 
 
@@ -874,9 +872,9 @@ def update_frontmatter(
             validated against the schema.
         set_tags / add_tags / remove_tags: list ops for `tags`.
         set_related_projects / add_related_projects / remove_related_projects:
-            list ops for `related_projects` (HQ Project slugs).
+            list ops for `related_projects` (project slugs).
         set_related_assets / add_related_assets / remove_related_assets:
-            list ops for `related_assets` (HQ Asset slugs).
+            list ops for `related_assets` (asset slugs).
     """
     # ---- enum validation -------------------------------------------------
     errors: list[str] = []
@@ -989,7 +987,7 @@ def update_frontmatter(
         "doc_id": fm.get("doc_id"),
         "relative_path": str(full_path.relative_to(vault_root)),
         "changed_fields": sorted(changed.keys()),
-        "next_step": "run `hq sync` from the Mac so HQ picks it up",
+        "next_step": "run any downstream vault metadata sync if your workflow uses one",
     }
 
 

@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-05-17
+
+Public release. This version turns the project from a private local MCP into a
+portfolio-ready, reusable tool for safely grounding AI assistants in
+Git-backed Obsidian operations vaults.
+
+### Added
+
+- `CONTRIBUTING.md` with local setup, test/lint commands, contribution
+  expectations, and security-report guidance.
+- `config.example.toml` and TOML config loading, with `SVMC_*` environment
+  overrides for demos, CI, and one-off runs.
+- `severino-vault-mcp doctor` for required frontmatter validation, plus
+  `doctor --propose` for starter frontmatter suggestions.
+- `docs/migration-guide.md` with messy-vault onboarding guidance and a
+  bad-doc-to-fixed-doc example.
+- `docs/release-checklist.md` for public release and portfolio-readiness checks.
+- Focused GitHub repository metadata for MCP, Obsidian runbooks, local-first
+  AI tooling, network security, and security operations.
+
+### Changed
+
+- Renamed the Python package from `severino_knowledge_router` to
+  `severino_vault_mcp`.
+- Renamed the local checkout and public command surface to match the GitHub
+  repository: `severino-vault-mcp`.
+- Reworked README and Quickstart around public adoption: local-first MCP
+  positioning, copy/paste setup, MCP client examples, and network/security
+  operations use cases.
+- Reworked the sample vault into a generic client-edge DNS and internal TLS
+  operations scenario.
+- Renamed the optional downstream integration setting to
+  `SVMC_METADATA_URL`.
+- Updated Codex and Claude Code local MCP registrations to the new
+  `severino-vault-mcp` name.
+
+### Security
+
+- Replaced the placeholder GitHub security policy with a professional
+  vulnerability reporting policy using github@jseverino.com.
+- Expanded the security policy with supported versions, scope, out-of-scope
+  cases, security boundaries, sensitivity label definitions, safe
+  configuration guidance, and disclosure expectations.
+- Kept the local-only stdio threat model explicit: no HTTP listener, no hosted
+  service, and no broad release of `secret_adjacent` document bodies.
+
+### Verification
+
+- `uv run pytest` passes with 26 tests.
+- `uv run ruff check .` passes.
+- `severino-vault-mcp doctor` validates the sample vault with no findings.
+- Public-readiness scan found no private vault paths. Historical old-name
+  references are limited to changelog and release-note migration context.
+
 ## [1.0.0] — 2026-05-17
 
 First stable private release.
@@ -35,7 +89,7 @@ First stable private release.
 ### Security
 
 - Added one-request local unlock gate for `secret_adjacent` docs:
-  `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1`, configured unlock hash, hidden macOS
+  `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1`, configured unlock hash, hidden macOS
   prompt, and audit logging are required before a body can be released.
 - Added local audit logging for unlock attempts without recording body content
   or unlock phrases.
@@ -43,7 +97,7 @@ First stable private release.
 
 ### Tests
 
-- 23 pytest cases covering vault indexing, resources, resource templates,
+- 24 pytest cases covering vault indexing, resources, resource templates,
   sensitivity policy, local unlock, audit logging, frontmatter writes,
   full-text search behavior, and sample-vault reproducibility.
 - GitHub Actions runs pytest and Ruff on Python 3.11, 3.12, and 3.13.
@@ -53,7 +107,7 @@ First stable private release.
 ### Changed
 
 - **Sensitivity gate loosened to match the actual threat model.** The MCP runs
-  locally and is consumed by Joe's own Claude Code / Claude Desktop session;
+  locally and is consumed by the operator's own Claude Code / Claude Desktop session;
   refusing every `sensitive` body was friction, not safety.
   - `public` / `internal` / `sensitive` now all release the body. `sensitive`
     responses include an `advisory` field reminding the caller to handle the
@@ -99,7 +153,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v1.0.0
 [0.2.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v0.1.0

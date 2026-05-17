@@ -41,7 +41,7 @@ read_doc(doc_id, include_secret_adjacent=True)
 doc is secret_adjacent?
         |
         v
-SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1?
+SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1?
         |
         v
 unlock hash configured?
@@ -56,9 +56,9 @@ release body for this one request only
 All conditions must pass:
 
 - The caller explicitly sets `include_secret_adjacent=True`.
-- The local MCP environment has `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1`.
+- The local MCP environment has `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1`.
 - A salted unlock hash is configured through Keychain, a local hash file, or
-  `SKR_SECRET_ADJACENT_UNLOCK_HASH`.
+  `SVMC_SECRET_ADJACENT_UNLOCK_HASH`.
 - The local hidden-input prompt succeeds.
 
 The unlock phrase must never be typed into AI chat.

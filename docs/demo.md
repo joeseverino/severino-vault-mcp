@@ -7,7 +7,7 @@ then the assistant reads the specific target doc before answering.
 ## Setup
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
 ## Broad Operational Question
@@ -15,7 +15,7 @@ SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
 User:
 
 ```text
-How do I expose a new homelab service over HTTPS?
+How do I expose a new internal service over HTTPS?
 ```
 
 MCP client action:
@@ -42,10 +42,10 @@ Assistant answer:
 Use the Add Nginx Proxy Host runbook.
 
 1. Open Nginx Proxy Manager.
-2. Add a proxy host for <service>.homelab.
+2. Add a proxy host for <service>.internal.example.
 3. Set the forward hostname and port for the service container.
 4. Attach the matching certificate.
-5. Save and verify https://<service>.homelab.
+5. Save and verify https://<service>.internal.example.
 ```
 
 ## Specific Runbook Question
@@ -65,13 +65,13 @@ Call tool: find_runbook("cert generation")
 Expected top hit:
 
 ```text
-rb-generate-homelab-cert
+rb-generate-internal-cert
 ```
 
 MCP client action:
 
 ```text
-Read resource: vault://doc/rb-generate-homelab-cert
+Read resource: vault://doc/rb-generate-internal-cert
 ```
 
 Assistant answer:
@@ -80,7 +80,7 @@ Assistant answer:
 Run:
 
 cd ~/Documents/Code/Projects/cert-generator
-./cert-gen <service>.homelab
+./cert-gen <service>.internal.example
 
 Then enter the CA key passphrase when prompted and confirm the certificate
 output files were created.
@@ -117,7 +117,7 @@ Call tool: read_doc("infra-offline-ca", include_secret_adjacent=True)
 Expected behavior:
 
 ```text
-The MCP only releases the body if SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1 is set,
+The MCP only releases the body if SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1 is set,
 a local unlock hash is configured, and the hidden-input prompt on the Mac
 succeeds. Otherwise it returns metadata, advisory text, and the unlock failure
 reason. The unlock phrase is never entered into chat.

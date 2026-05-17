@@ -5,23 +5,74 @@
 ![MCP](https://img.shields.io/badge/MCP-stdio%20server-green)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Local stdio MCP server that grounds AI assistants in Obsidian-style
-operational vaults with discoverable resources, runbooks, and safety gates.
-It reads vault frontmatter directly from disk and enforces the documented
-sensitivity policy so secret-adjacent material never leaks into an LLM context
-window by default.
+Local-first MCP server for turning an Obsidian-style operations vault into
+usable AI context without exposing credential-adjacent material by default.
 
-The same pattern works for any Obsidian-style operational vault with stable
-frontmatter IDs.
+It is built for security-minded operators, consultants, and small teams who
+keep runbooks, infrastructure notes, decision records, and client/lab
+procedures in markdown. The server runs over stdio, reads local files only,
+and gives MCP clients a reliable way to answer operational questions from the
+operator's actual documentation instead of generic model memory.
 
-Runs on the Mac as a stdio server. No network exposure.
+## Why It Is Useful
 
----
+- Grounds AI assistants in real runbooks before they answer.
+- Exposes stable resources such as `vault://quick-index` and
+  `vault://doc/{doc_id}`.
+- Searches vault metadata and markdown bodies without requiring a database.
+- Enforces a sensitivity gate for credential-adjacent procedures.
+- Provides narrow, validated frontmatter write tools for maintaining a vault.
+- Uses a copyable TOML config and environment overrides for fast adoption.
+- Has no HTTP listener, no hosted service, and no remote auth surface.
 
-## What it does
+## Who This Is For
 
-Seven tools and two resource entry points, registered with any MCP host
-(Claude Code, Claude Desktop, Cline, etc.):
+Best fit:
+
+- Homelab and small-team operations documentation.
+- MSP or client operations notes where procedures need to be repeatable.
+- Cybersecurity lab runbooks and training environments.
+- Incident response, recovery, and infrastructure maintenance notes.
+- Internal "how do I operate this system?" documentation.
+
+Not a great fit:
+
+- Generic personal note-taking with no operational structure.
+- Vaults where you do not want to add frontmatter.
+- Multi-user hosted knowledge bases that need server-side auth.
+- Replacing secret management, password vaults, or filesystem permissions.
+
+## Quick Start
+
+```bash
+git clone git@github.com:joeseverino/severino-vault-mcp.git
+cd severino-vault-mcp
+uv sync --extra dev
+uv run pytest
+SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+```
+
+That starts a stdio MCP server pointed at the included sample vault. Wire it
+to an MCP client, then ask the client to read `vault://quick-index`.
+
+Before wiring a real vault, validate it:
+
+```bash
+SVMC_VAULT_PATH=/absolute/path/to/your/vault severino-vault-mcp doctor --propose
+```
+
+For a persistent local install:
+
+```bash
+uv tool install --from . severino-vault-mcp
+mkdir -p ~/.config/severino-vault-mcp
+cp config.example.toml ~/.config/severino-vault-mcp/config.toml
+```
+
+Edit `~/.config/severino-vault-mcp/config.toml` and set `vault.path` to your
+vault root.
+
+## MCP Surface
 
 | Resource | Type | What it returns |
 |---|---|---|
@@ -30,135 +81,104 @@ Seven tools and two resource entry points, registered with any MCP host
 
 | Tool | Read or write | What it answers |
 |---|---|---|
-| `find_runbook(query, limit=5)` | read | "How do I add an NPM proxy host?" |
+| `find_runbook(query, limit=5)` | read | "How do I add an HTTPS proxy host?" |
 | `lookup_system(name)` | read | "Tell me about AdGuard Home" |
-| `read_doc(doc_id)` | read | Returns the markdown body for `public`, `internal`, and `sensitive` docs. `secret_adjacent` requires explicit request plus local unlock. |
-| `inventory_for_project(slug)` | read | "What docs are part of homelab-dns?" |
+| `read_doc(doc_id)` | read | Returns markdown bodies for `public`, `internal`, and `sensitive` docs. `secret_adjacent` requires explicit request plus local unlock. |
+| `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
-| `add_frontmatter(...)` | write | Prepends a fully-validated frontmatter block to a vault doc that doesn't have one. Refuses if frontmatter already exists. |
-| `update_frontmatter(...)` | write | Updates fields on a doc that already has frontmatter. `doc_id` is immutable; everything else is fair game. `touch_last_reviewed=True` is the common "I just re-read this runbook" pattern. |
+| `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
+| `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
 
-All seven respect the schema documented at
-`02 Infrastructure/Severino HQ/Frontmatter Schema.md` in the vault.
+CLI helper:
 
-Resources are for stable readable knowledge objects. Tools are for search,
-lookup, mutation, and workflow-style actions.
+```bash
+severino-vault-mcp doctor --propose
+```
 
-The `vault://quick-index` resource exposes `report-playbook-mcp-index`, the
-Severino Labs navigation hub. The `vault://doc/{doc_id}` resource template lets
-MCP clients read a known doc directly as markdown once a stable `doc_id` is
-known. Both paths use the same sensitivity policy as `read_doc`.
+Validates required frontmatter fields in the configured vault and prints
+starter frontmatter for markdown files that are not yet indexed.
 
+## Adopt It For Your Vault
+
+Your vault needs markdown files with YAML frontmatter under these folders by
+default:
+
+```text
+01 Projects/
+02 Infrastructure/
+03 Runbooks/
+```
+
+Minimum frontmatter:
+
+```yaml
 ---
-
-## Documentation
-
-| Doc | Purpose |
-|---|---|
-| `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
-| `STRUCTURE.md` | File-by-file repository map. |
-| `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
-| `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
-| `docs/ai-safety-security.md` | AI safety model, sensitivity gate, local unlock, audit logging, and threat assumptions. |
-| `.github/SECURITY.md` | GitHub vulnerability reporting policy. |
-
+doc_id: rb-example
+title: Example Runbook
+doc_type: runbook
+system: Example System
+environment: other
+status: active
+sensitivity: internal
+tags:
+  - example
 ---
-
-## Why it exists
-
-Severino Labs has three layers:
-
-- **Obsidian vault** — the deep knowledge (runbooks, infra docs, decision records).
-- **Severino HQ** — the operational ledger (assets, expenses, receipts, projects).
-- **`severino-vault-mcp`** (this MCP) — the bridge.
-
-Every vault `.md` under `01 Projects/`, `02 Infrastructure/`, `03 Runbooks/`
-has a YAML frontmatter block with `doc_id`, `system`, `sensitivity`, `tags`,
-etc. HQ already syncs that frontmatter via `hq sync`; this MCP exposes the
-same data to any LLM that wants to ground a question against the vault.
-
-The sensitivity gate is the policy boundary: `secret_adjacent` docs can be
-searched as metadata and pointed at, but their bodies are withheld unless the
-caller requests access and the local Mac authorizes a one-request unlock.
-
----
-
-## Install
-
-Requires Python 3.11+. Uses `uv` to manage the install.
-
-```bash
-git clone git@github.com:joeseverino/severino-vault-mcp.git \
-    ~/Documents/Code/Assets/severino-vault-mcp
-cd ~/Documents/Code/Assets/severino-vault-mcp
-uv sync --extra dev
-uv run pytest
 ```
 
-### Reproducible demo
+Recommended docs:
 
-This repo includes a fake Obsidian-style vault under `examples/sample-vault/`.
-It has the same folder layout and frontmatter contract as the private vault,
-but contains only safe sample docs.
+- A Quick Index doc with `doc_id: report-playbook-mcp-index`.
+- Runbooks with stable `rb-*` IDs.
+- Infrastructure notes with stable `infra-*` IDs.
+- Project indexes with stable `project-*` IDs.
+- `sensitivity` values set deliberately: `public`, `internal`, `sensitive`,
+  or `secret_adjacent`.
 
-Run the test suite against the project:
-
-```bash
-uv run pytest
-```
-
-Start the MCP against the sample vault:
+Real vaults are usually messy. Start with the validator:
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
+SVMC_VAULT_PATH="/absolute/path/to/your/vault" severino-vault-mcp doctor
 ```
 
-In an MCP client, the intended AI workflow is:
-
-| User intent | First MCP action | Second MCP action |
-|---|---|---|
-| Broad question: "How do I expose a service over HTTPS?" | Read `vault://quick-index` | Read `vault://doc/{doc_id}` for the target runbook |
-| Specific question: "What's the cert generation runbook?" | `find_runbook("cert generation")` | Read `vault://doc/{doc_id}` or call `read_doc` on the top hit |
-| System question: "Tell me about AdGuard Home" | `lookup_system("AdGuard Home")` | Read `vault://doc/{doc_id}` for the relevant doc |
-| Secret-adjacent question: "Show me the offline CA doc" | `read_doc("infra-offline-ca")` | `read_doc(..., include_secret_adjacent=True)` only when explicitly needed; local unlock still required |
-
-Expected demo behavior:
-
-- `vault://quick-index` returns the sample navigation hub.
-- `vault://doc/rb-generate-homelab-cert` returns the sample certificate runbook.
-- `find_runbook("generate homelab certificate")` returns `rb-generate-homelab-cert`.
-- `vault://doc/infra-offline-ca` and `read_doc("infra-offline-ca")` withhold
-  the body by default because the doc is marked `secret_adjacent`.
-- `read_doc("infra-offline-ca", include_secret_adjacent=True)` still withholds
-  the body unless local interactive unlock is enabled and succeeds.
-
-See `docs/demo.md` for a short transcript of the intended assistant flow.
-
-For day-to-day use, install as a `uv` tool so the `severino-vault-mcp`
-command lands on `$PATH`:
+Add `--propose` to print starter frontmatter for files that are missing it:
 
 ```bash
-uv tool install --from . severino-vault-mcp
+SVMC_VAULT_PATH="/absolute/path/to/your/vault" severino-vault-mcp doctor --propose
 ```
 
-Re-run after `git pull` with `uv tool upgrade severino-vault-mcp`.
+Point the server at your vault with either TOML:
 
-### Wire to Claude Code
+```toml
+[vault]
+path = "/absolute/path/to/your/vault"
+indexed_dirs = ["01 Projects", "02 Infrastructure", "03 Runbooks"]
+```
+
+Or with environment variables:
+
+```bash
+SVMC_VAULT_PATH="/absolute/path/to/your/vault" \
+SVMC_INDEXED_DIRS="01 Projects:02 Infrastructure:03 Runbooks" \
+severino-vault-mcp
+```
+
+## MCP Client Examples
+
+Claude Code after `uv tool install`:
 
 ```bash
 claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
-Or, if you didn't `uv tool install`, point Claude Code at the local checkout:
+Claude Code from a checkout:
 
 ```bash
 claude mcp add severino-vault-mcp \
-    -- uv run --directory $HOME/Documents/Code/Assets/severino-vault-mcp severino-vault-mcp
+  -e SVMC_VAULT_PATH="$PWD/examples/sample-vault" \
+  -- uv run --no-editable --directory "$PWD" severino-vault-mcp
 ```
 
-### Wire to Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Claude Desktop:
 
 ```json
 {
@@ -166,69 +186,76 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "severino-vault-mcp": {
       "command": "severino-vault-mcp",
       "env": {
-        "SKR_VAULT_PATH": "/Users/josephseverino/Documents/Code/Severino Labs"
+        "SVMC_VAULT_PATH": "/absolute/path/to/your/vault"
       }
     }
   }
 }
 ```
 
-Restart the Claude Desktop app. The 7 tools and 2 resource entry points should
-appear in the MCP picker.
+## Configuration
 
----
+`config.example.toml` is the recommended starting point. Copy it to:
 
-## Configuration (env vars)
+```text
+~/.config/severino-vault-mcp/config.toml
+```
+
+Environment variables override the config file and are useful for demos, CI,
+and one-off runs.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `SKR_VAULT_PATH` | `~/Documents/Code/Severino Labs` | Vault root |
-| `SKR_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks` | Colon-separated subdirs the loader recurses into |
-| `SKR_HQ_URL` | `https://hq.jseverino.com` | Reserved for the future HQ integration |
-| `SKR_CACHE_SECONDS` | `30` | How long the in-memory vault index stays warm |
-| `SKR_ALLOW_SECRET_ADJACENT_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_secret_adjacent=True)` |
-| `SKR_SECRET_ADJACENT_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
-| `SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
-| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-vault-mcp` | macOS Keychain service name for the salted unlock hash |
-| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT` | `secret-adjacent-unlock` | macOS Keychain account name for the salted unlock hash |
-| `SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Local audit log for unlock attempts; no body content is logged |
+| `SVMC_CONFIG` | `~/.config/severino-vault-mcp/config.toml` | TOML config path |
+| `SVMC_VAULT_PATH` | `~/Documents/vault` | Vault root |
+| `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks` | Colon-separated subdirs the loader recurses into |
+| `SVMC_METADATA_URL` | unset | Optional downstream metadata-system URL |
+| `SVMC_CACHE_SECONDS` | `30` | How long the in-memory vault index stays warm |
+| `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_secret_adjacent=True)` |
+| `SVMC_SECRET_ADJACENT_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
+| `SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
+| `SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-vault-mcp` | macOS Keychain service name for the salted unlock hash |
+| `SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT` | `secret-adjacent-unlock` | macOS Keychain account name for the salted unlock hash |
+| `SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Local audit log for unlock attempts; no body content is logged |
 
-The package is single-user by design — there's no auth, no remote surface, no
-shared state. It runs in the same process as your MCP host and reads files
-your user account can read.
-
----
-
-## Schema contract
-
-The frontmatter spec lives in the vault at
-`02 Infrastructure/Severino HQ/Frontmatter Schema.md`. The MCP refuses to
-write anything that doesn't conform — `doc_type`, `environment`, `status`,
-and `sensitivity` are all enum-validated; `doc_id` is checked for one of the
-known prefixes (`rb-`, `infra-`, `report-`, `project-`, `note-`).
-
----
-
-## Sensitivity policy
+## Sensitivity Policy
 
 | Sensitivity | `read_doc` returns |
 |---|---|
-| `public` | Full body |
-| `internal` | Full body |
-| `sensitive` | Full body + advisory |
-| `secret_adjacent` | Metadata only + policy note by default; full body only after explicit request plus local unlock |
+| `public` | Full body. Safe to publish. |
+| `internal` | Full body. Private operational context, but safe to enter an AI chat you control. |
+| `sensitive` | Full body + advisory. Private but still safe to enter chat when handled deliberately. |
+| `secret_adjacent` | Metadata only by default. May expose credentials, key paths, recovery flows, internal auth procedures, or escalation paths. Full body requires explicit request plus local unlock. |
 
-`secret_adjacent` is the marker for anything adjacent to credentials, CA
-keys, plaintext rotation procedures, etc. By default, the tool tells the LLM
-where the doc lives in Obsidian without returning the body.
+Use `sensitive` only for material that is private but acceptable to place in
+the assistant context. If a document could reveal credentials, private key
+locations, recovery procedures, token rotation steps, break-glass access,
+internal authentication flows, or escalation paths, mark it
+`secret_adjacent`.
+
+When in doubt, choose `secret_adjacent`. Mislabeling a secret-bearing procedure
+as merely `sensitive` will cause the body to be returned to the MCP client.
+
+## Threat Model
+
+- The server runs locally over stdio under your user account.
+- It does not expose an HTTP listener or remote API.
+- It can read files your local account can read inside the configured indexed
+  vault directories.
+- It reduces accidental disclosure to AI chat context; it does not sandbox a
+  malicious MCP host.
+- A compromised MCP host can still ask for allowed tools. The local unlock
+  prompt is the final boundary for `secret_adjacent` body release.
+- Store actual credentials and private keys outside indexed markdown whenever
+  possible.
 
 To release one secret-adjacent body through the MCP, all conditions must pass:
 
 - The caller requests `read_doc(..., include_secret_adjacent=True)`.
-- `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1` is set in the local MCP environment.
-- A salted unlock hash is configured in macOS Keychain, the hash file, or
-  `SKR_SECRET_ADJACENT_UNLOCK_HASH`.
-- The local hidden-input prompt on the Mac succeeds.
+- `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK=1` is set in the local MCP environment.
+- A salted unlock hash is configured in macOS Keychain, a local hash file, or
+  `SVMC_SECRET_ADJACENT_UNLOCK_HASH`.
+- The local hidden-input prompt succeeds.
 
 Do not type the unlock phrase into AI chat. The prompt is local-only, and the
 unlock is valid for one `read_doc` request.
@@ -243,33 +270,42 @@ security add-generic-password -U \
   -w "$HASH"
 ```
 
-Then enable prompts only in the MCP config where you want them:
+## Sample Vault
 
-```json
-{
-  "mcpServers": {
-    "severino-vault-mcp": {
-      "command": "severino-vault-mcp",
-      "env": {
-        "SKR_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
-      }
-    }
-  }
-}
-```
+The included sample vault models a small network/security operations
+environment:
 
-`search_body` never searches secret-adjacent bodies, even when its deprecated
-compatibility flag is set. Use `read_doc` for per-doc local unlock.
+- Client edge DNS and internal hostname resolution.
+- AdGuard Home as a DNS/security filtering component.
+- Nginx Proxy Manager for browser-facing internal services.
+- Local PKI and an offline CA example that exercises `secret_adjacent`
+  withholding.
 
----
+It is intentionally safe demo data, but it follows the same frontmatter
+contract as a real operations vault.
 
-## License
+## Documentation
 
-MIT — see `LICENSE`.
+| Doc | Purpose |
+|---|---|
+| `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
+| `CONTRIBUTING.md` | Local development, issue, PR, and release guidance. |
+| `STRUCTURE.md` | File-by-file repository map. |
+| `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
+| `docs/migration-guide.md` | Messy-vault onboarding, doctor usage, and bad-doc-to-fixed-doc examples. |
+| `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
+| `docs/release-checklist.md` | Public release checklist. |
+| `docs/ai-safety-security.md` | AI safety model, sensitivity gate, local unlock, audit logging, and threat assumptions. |
+| `config.example.toml` | Copyable local configuration template. |
+| `.github/SECURITY.md` | GitHub vulnerability reporting policy. |
 
 ## Status
 
-v1.0.0. Stable local stdio MCP for routing AI assistants to an
+v2.0.0. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
-vault, CI, docs, and secret-adjacent local unlock controls. HQ JSON integration
-(assets, expenses, projects) is deferred until HQ has a proper API token.
+vault, CI, docs, config-file support, and secret-adjacent local unlock controls.
+Downstream metadata-system integration is intentionally optional.
+
+## License
+
+MIT. See `LICENSE`.

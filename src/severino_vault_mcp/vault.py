@@ -5,7 +5,7 @@ Walks `<vault>/01 Projects/`, `<vault>/02 Infrastructure/`, `<vault>/03 Runbooks
 (configurable), parses YAML frontmatter from every `.md`, and caches an in-memory
 index for the configured `cache_seconds`. The frontmatter parser is hand-rolled
 to avoid a PyYAML dependency — it understands the constrained shape documented
-at `02 Infrastructure/Severino HQ/Frontmatter Schema.md` in the vault.
+at `02 Infrastructure/Operations Metadata/Frontmatter Schema.md` in the vault.
 
 If `fd` (https://github.com/sharkdp/fd) is on PATH, it's used to walk the vault
 because it's much faster than Python's pathlib at scale. Otherwise we fall

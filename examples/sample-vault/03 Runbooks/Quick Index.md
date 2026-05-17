@@ -1,8 +1,8 @@
 ---
 doc_id: report-playbook-mcp-index
-title: Severino Labs Quick Index
+title: Example Operations Vault Quick Index
 doc_type: public_article_draft
-system: Knowledge Router
+system: Vault MCP
 environment: other
 status: active
 sensitivity: internal
@@ -15,7 +15,7 @@ tags:
   - navigation
 ---
 
-# Severino Labs Quick Index
+# Example Operations Vault Quick Index
 
 Use this as the navigation hub for broad operational questions. Start here,
 then read the specific runbook or infrastructure note before answering.
@@ -23,8 +23,8 @@ then read the specific runbook or infrastructure note before answering.
 | Intent | Start Here | Then Read |
 |---|---|---|
 | Add HTTPS to an internal service | `rb-add-nginx-proxy-host` | `infra-adguard-home` |
-| Generate or renew a homelab certificate | `rb-generate-homelab-cert` | `infra-offline-ca` only if explicitly needed |
-| Understand local DNS | `infra-adguard-home` | `project-homelab-dns` |
+| Generate or renew an internal certificate | `rb-generate-internal-cert` | `infra-offline-ca` only if explicitly needed |
+| Understand local DNS | `infra-adguard-home` | `project-client-edge-dns` |
 
 ## AI Workflow
 
