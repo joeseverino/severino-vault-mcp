@@ -28,9 +28,11 @@ The `search_body` tests require `rg` on `PATH`.
 
 ## GitHub Actions
 
-CI is defined in `.github/workflows/ci.yml`.
+The repository runs five workflows, each scoped to a single concern.
 
-It runs on:
+### `ci.yml` — pytest + ruff
+
+Runs on:
 
 - push to `main`
 - pull requests targeting `main`
@@ -53,6 +55,30 @@ Steps:
 8. Reinstall the project non-editably and smoke-test the installed package:
    import `severino_vault_mcp` and run `severino-vault-mcp doctor` against
    `examples/sample-vault`.
+
+### `codeql.yml` — SAST
+
+GitHub CodeQL with the `security-and-quality` query suite for Python. Runs on
+push to `main`, pull requests targeting `main`, and weekly on Monday at
+06:17 UTC. Findings appear in the repository Security tab.
+
+### `pip-audit.yml` — SCA
+
+`pypa/gh-action-pip-audit` over the exported `uv` lock. Runs on push to `main`,
+pull requests targeting `main`, and weekly on Wednesday at 08:11 UTC so that
+new CVEs against pinned dependencies surface even when no code has changed.
+
+### `scorecard.yml` — project governance
+
+OSSF Scorecard. Runs on push to `main`, on branch protection rule changes, and
+weekly on Tuesday at 07:23 UTC. Results are published to scorecard.dev and
+uploaded as SARIF for the Security tab.
+
+### `dependabot.yml` — dependency update PRs
+
+Configured in `.github/dependabot.yml`. Opens PRs against `main` when
+dependencies have available updates. Complementary to `pip-audit`, which
+catches CVEs against the *current* pin.
 
 ## What the Tests Cover
 

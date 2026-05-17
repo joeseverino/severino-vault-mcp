@@ -123,6 +123,23 @@ The following are generally out of scope unless they enable an in-scope impact:
 - Treat MCP hosts as trusted local software. Do not connect this server to an
   untrusted host.
 
+## Security Tooling
+
+The repository runs the following checks automatically. None of them replace
+manual review or vulnerability reports, but together they provide layered
+signal across code, dependencies, and project governance.
+
+| Layer | Tool | Workflow |
+|---|---|---|
+| Static analysis (SAST) | CodeQL with the `security-and-quality` query suite | `.github/workflows/codeql.yml` |
+| Dependency CVEs (SCA) | `pip-audit` over the exported `uv` lock | `.github/workflows/pip-audit.yml` |
+| Dependency updates | Dependabot | `.github/dependabot.yml` |
+| Project governance | OSSF Scorecard, results published to scorecard.dev | `.github/workflows/scorecard.yml` |
+| Tests + lint | pytest + ruff across Python 3.11, 3.12, 3.13 | `.github/workflows/ci.yml` |
+
+Findings from CodeQL and Scorecard appear in the repository's Security tab.
+`pip-audit` failures appear as a failed check on the PR or scheduled run.
+
 ## Disclosure
 
 Public disclosure should wait until a fix or mitigation is available. Security

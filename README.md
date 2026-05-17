@@ -1,6 +1,9 @@
 # severino-vault-mcp
 
 [![CI](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/codeql.yml)
+[![pip-audit](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/pip-audit.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/joeseverino/severino-vault-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/joeseverino/severino-vault-mcp)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![MCP](https://img.shields.io/badge/MCP-stdio%20server-green)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -301,10 +304,12 @@ contract as a real operations vault.
 
 ## Status
 
-v2.0.0. Stable local stdio MCP for routing AI assistants to an
+v2.1.0. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, and secret-adjacent local unlock controls.
-Downstream metadata-system integration is intentionally optional.
+Layered security tooling (CodeQL, pip-audit, OSSF Scorecard, Dependabot) runs
+on every push, every PR, and weekly. Downstream metadata-system integration is
+intentionally optional.
 
 ## License
 

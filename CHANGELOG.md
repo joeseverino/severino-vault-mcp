@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-17
+
+Security tooling release. Adds layered, public-repo-grade security automation
+without changing the MCP surface or runtime behavior.
+
+### Added
+
+- `.github/workflows/codeql.yml` — GitHub CodeQL static analysis with the
+  `security-and-quality` query suite for Python. Runs on push, PR, and weekly.
+- `.github/workflows/pip-audit.yml` — PyPA `pip-audit` against the exported
+  `uv` lockfile, so known CVEs against the *current* pinned dependency set
+  surface even when no code has changed. Runs on push, PR, and weekly.
+- `.github/workflows/scorecard.yml` — OSSF Scorecard governance and supply
+  chain scoring. Publishes results to scorecard.dev and uploads SARIF to the
+  GitHub Security tab.
+- README badges for CodeQL, pip-audit, and OpenSSF Scorecard.
+- `Security Tooling` section in `.github/SECURITY.md` documenting the layered
+  SAST + SCA + governance model and where findings show up.
+- Per-workflow documentation in `docs/testing-ci.md`.
+
+### Changed
+
+- README `Status` section now reflects v2.1.0 and mentions the security
+  tooling layer.
+- Bumped package version to 2.1.0 in `pyproject.toml` and
+  `src/severino_vault_mcp/__init__.py`.
+
 ## [2.0.0] — 2026-05-17
 
 Public release. This version turns the project from a private local MCP into a
@@ -153,7 +180,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v1.0.0
 [0.2.0]: https://github.com/joeseverino/severino-vault-mcp/releases/tag/v0.2.0

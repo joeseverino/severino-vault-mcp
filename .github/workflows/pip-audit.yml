@@ -1,0 +1,38 @@
+name: pip-audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Wednesday 08:11 UTC, so a fresh CVE feed catches pinned deps
+    # even when nothing in the repo has changed.
+    - cron: "11 8 * * 3"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit pinned dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Export locked requirements
+        run: uv export --no-hashes --format requirements-txt > requirements-audit.txt
+
+      - name: Run pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: requirements-audit.txt
