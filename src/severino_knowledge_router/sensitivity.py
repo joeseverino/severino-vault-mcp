@@ -10,9 +10,9 @@ So the gate is narrow:
     public          — body released
     internal        — body released
     sensitive       — body released + advisory note ("handle carefully")
-    secret_adjacent — body withheld by default; caller can pass
-                      `include_secret_adjacent=True` to read_doc to override,
-                      and the response will mark that an override was used.
+    secret_adjacent — body withheld by default. `read_doc` can request a
+                      one-shot local unlock, but this module never treats a
+                      caller flag alone as sufficient authorization.
 
 The HQ Markdown / JSON exports use a stricter rule (sensitive → title+path
 only) — that's a separate consumer for AI-prep contexts.
@@ -45,12 +45,10 @@ class Sensitivity(StrEnum):
 def body_is_releasable(sensitivity: Sensitivity, *, include_secret_adjacent: bool = False) -> bool:
     """Whether `read_doc` should include the body.
 
-    Public / internal / sensitive: always yes. secret_adjacent only if the
-    caller explicitly opted in.
+    Public / internal / sensitive: always yes. secret_adjacent is never
+    released by this generic helper; `read_doc` handles the local unlock gate.
     """
-    if sensitivity is Sensitivity.SECRET_ADJACENT:
-        return include_secret_adjacent
-    return True
+    return sensitivity is not Sensitivity.SECRET_ADJACENT
 
 
 def advisory(sensitivity: Sensitivity, *, override_used: bool = False) -> str:
@@ -70,12 +68,13 @@ def advisory(sensitivity: Sensitivity, *, override_used: bool = False) -> str:
     if sensitivity is Sensitivity.SECRET_ADJACENT and not override_used:
         return (
             "Body withheld: sensitivity=secret_adjacent. This doc is adjacent "
-            "to credentials/keys. Pass include_secret_adjacent=True to read_doc "
-            "if you really need the body."
+            "to credentials/keys. To request release, rerun read_doc with "
+            "include_secret_adjacent=True; the local MCP will require an "
+            "interactive unlock on the Mac."
         )
     if sensitivity is Sensitivity.SECRET_ADJACENT and override_used:
         return (
-            "Body released under explicit override (include_secret_adjacent=True). "
+            "Body released after explicit request plus local interactive unlock. "
             "This doc is labeled secret_adjacent — be deliberate about what you "
             "do with the content."
         )

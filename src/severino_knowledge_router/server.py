@@ -23,6 +23,13 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import Config
 from .search import rank
+from .secret_unlock import (
+    SecretUnlockResult,
+    audit_secret_unlock,
+    load_unlock_hash,
+    prompt_unlock_phrase,
+    verify_unlock_phrase,
+)
 from .sensitivity import Sensitivity, advisory, body_is_releasable
 from .vault import VaultLoader, _split_frontmatter
 
@@ -91,8 +98,10 @@ SENSITIVITY GATE (don't be afraid of it):
   marked `sensitive` come with an `advisory` field; pass it along to the
   user but use the content.
 - secret_adjacent — `read_doc` withholds the body by default. Pass
-  `include_secret_adjacent=True` to override if the user needs it. These
-  are docs about CA keys, credential rotation, the offline CA, etc.
+  `include_secret_adjacent=True` only when the user explicitly needs it.
+  The local MCP still requires `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1` plus a
+  successful hidden local unlock prompt before releasing the body. These are
+  docs about CA keys, credential rotation, the offline CA, etc.
 
 WRITE TOOLS:
 
@@ -123,6 +132,64 @@ def _hit_to_dict(doc) -> dict[str, Any]:
         "tags": list(doc.tags),
         "last_reviewed": doc.last_reviewed,
     }
+
+
+def _withheld_secret_adjacent_response(base: dict[str, Any], result: str | None = None) -> dict[str, Any]:
+    base["body_released"] = False
+    base["advisory"] = advisory(Sensitivity.parse(str(base["sensitivity"])))
+    if result:
+        base["unlock"] = {
+            "allowed": False,
+            "result": result,
+            "message": _SECRET_UNLOCK_MESSAGES[result],
+        }
+    return base
+
+
+_SECRET_UNLOCK_MESSAGES = {
+    "not_requested": (
+        "Body withheld. To request release, rerun with include_secret_adjacent=True; "
+        "the local MCP will still require an interactive unlock on the Mac."
+    ),
+    "disabled": (
+        "Interactive unlock is disabled. Set SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1 "
+        "in the local MCP environment to allow local unlock prompts."
+    ),
+    "no_unlock_hash": (
+        "No local unlock hash is configured. Store a salted sha256 unlock hash "
+        "in Keychain, SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE, or "
+        "SKR_SECRET_ADJACENT_UNLOCK_HASH."
+    ),
+    "prompt_unavailable": "Local hidden-input prompt was unavailable or cancelled.",
+    "failed": "Local unlock phrase verification failed.",
+}
+
+
+def _secret_adjacent_unlock(doc_id: str, title: str) -> SecretUnlockResult:
+    if not _CONFIG.allow_secret_adjacent_unlock:
+        return SecretUnlockResult(False, "disabled", _SECRET_UNLOCK_MESSAGES["disabled"])
+
+    unlock_hash = load_unlock_hash(
+        env_hash=_CONFIG.secret_unlock_hash,
+        hash_file=_CONFIG.secret_unlock_hash_file,
+        keychain_service=_CONFIG.secret_unlock_keychain_service,
+        keychain_account=_CONFIG.secret_unlock_keychain_account,
+    )
+    if not unlock_hash:
+        return SecretUnlockResult(False, "no_unlock_hash", _SECRET_UNLOCK_MESSAGES["no_unlock_hash"])
+
+    phrase = prompt_unlock_phrase(doc_id, title)
+    if phrase is None:
+        return SecretUnlockResult(
+            False,
+            "prompt_unavailable",
+            _SECRET_UNLOCK_MESSAGES["prompt_unavailable"],
+        )
+
+    if not verify_unlock_phrase(phrase, unlock_hash):
+        return SecretUnlockResult(False, "failed", _SECRET_UNLOCK_MESSAGES["failed"])
+
+    return SecretUnlockResult(True, "released", "Local unlock succeeded for this request only.")
 
 
 # ----- resources --------------------------------------------------------------
@@ -245,13 +312,15 @@ def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, An
 
     `secret_adjacent` docs (Local PKI, Offline CA, age workflow, Wazuh
     credential rotation) withhold the body by default. If the user explicitly
-    needs one, pass `include_secret_adjacent=True`.
+    needs one, pass `include_secret_adjacent=True`; the local MCP still
+    requires `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1`, a configured unlock hash,
+    and a successful hidden local unlock prompt on the Mac.
 
     Args:
         doc_id: Stable identifier from the doc's frontmatter, e.g. "rb-add-nginx-proxy-host".
-        include_secret_adjacent: If True, also return the body of `secret_adjacent`
-            docs. Default False. Use only when the user asks for a doc
-            adjacent to actual credentials/keys.
+        include_secret_adjacent: If True, request the body of `secret_adjacent`
+            docs. Default False. This is only a request; local unlock policy
+            must still approve the release.
     """
     idx = _LOADER.index()
     doc = idx.by_doc_id.get(doc_id)
@@ -260,13 +329,29 @@ def read_doc(doc_id: str, include_secret_adjacent: bool = False) -> dict[str, An
 
     base: dict[str, Any] = {"doc_id": doc.doc_id, "found": True, **_hit_to_dict(doc)}
 
+    if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
+        if not include_secret_adjacent:
+            return _withheld_secret_adjacent_response(base, "not_requested")
+
+        unlock = _secret_adjacent_unlock(doc.doc_id, doc.title)
+        audit_secret_unlock(
+            _CONFIG.secret_unlock_audit_log,
+            doc_id=doc.doc_id,
+            result=unlock.result,
+        )
+        base["unlock"] = unlock.to_dict()
+        if unlock.allowed:
+            base["body"] = doc.body
+            base["body_released"] = True
+            base["override_used"] = True
+            base["advisory"] = advisory(doc.sensitivity, override_used=True)
+            return base
+        return _withheld_secret_adjacent_response(base, unlock.result)
+
     if body_is_releasable(doc.sensitivity, include_secret_adjacent=include_secret_adjacent):
         base["body"] = doc.body
         base["body_released"] = True
-        if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
-            base["override_used"] = True
-            base["advisory"] = advisory(doc.sensitivity, override_used=True)
-        elif doc.sensitivity is Sensitivity.SENSITIVE:
+        if doc.sensitivity is Sensitivity.SENSITIVE:
             base["advisory"] = advisory(doc.sensitivity)
     else:
         base["body_released"] = False
@@ -365,16 +450,18 @@ def search_body(
     Searches the content of every indexed `.md`, skipping matches that fall
     inside frontmatter blocks. Results are grouped by `doc_id`. Honors the
     sensitivity gate the same way `read_doc` does: `sensitive` docs are
-    included with an advisory; `secret_adjacent` docs are excluded by
-    default and require `include_secret_adjacent=True`.
+    included with an advisory; `secret_adjacent` docs are always excluded.
+    Use `read_doc(..., include_secret_adjacent=True)` for per-doc local
+    unlock requests.
 
     Args:
         query: Literal string or regex (ripgrep regex syntax).
         limit: Max number of distinct documents to return (default 10).
         context_lines: Lines of context above + below each match (default 1).
         case_sensitive: If True, match case. Default False.
-        include_secret_adjacent: If True, also search inside `secret_adjacent`
-            docs. Default False.
+        include_secret_adjacent: Deprecated compatibility flag. Secret-adjacent
+            bodies are never searched; per-doc local unlock is only available
+            through `read_doc`.
     """
     query = (query or "").strip()
     if not query:
@@ -459,7 +546,7 @@ def search_body(
             # File matched but isn't in our index (untagged, in 00 Templates/, etc.)
             excluded["unindexed_skipped"] += 1
             continue
-        if doc.sensitivity is Sensitivity.SECRET_ADJACENT and not include_secret_adjacent:
+        if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
             excluded["secret_adjacent_skipped"] += 1
             continue
         # Drop any hit that lands inside the frontmatter block.

@@ -26,7 +26,7 @@ Seven tools and two resource entry points, registered with any MCP host
 |---|---|---|
 | `find_runbook(query, limit=5)` | read | "How do I add an NPM proxy host?" |
 | `lookup_system(name)` | read | "Tell me about AdGuard Home" |
-| `read_doc(doc_id)` | read | Returns the markdown body for `public`, `internal`, and `sensitive` docs. `secret_adjacent` withholds body content unless explicitly overridden. |
+| `read_doc(doc_id)` | read | Returns the markdown body for `public`, `internal`, and `sensitive` docs. `secret_adjacent` requires explicit request plus local unlock. |
 | `inventory_for_project(slug)` | read | "What docs are part of homelab-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
 | `add_frontmatter(...)` | write | Prepends a fully-validated frontmatter block to a vault doc that doesn't have one. Refuses if frontmatter already exists. |
@@ -59,8 +59,8 @@ etc. HQ already syncs that frontmatter via `hq sync`; this MCP exposes the
 same data to any LLM that wants to ground a question against the vault.
 
 The sensitivity gate is the policy boundary: `secret_adjacent` docs can be
-searched and pointed at, but their bodies are withheld unless the caller makes
-an explicit override.
+searched as metadata and pointed at, but their bodies are withheld unless the
+caller requests access and the local Mac authorizes a one-request unlock.
 
 ---
 
@@ -101,7 +101,7 @@ In an MCP client, the intended AI workflow is:
 | Broad question: "How do I expose a service over HTTPS?" | Read `vault://quick-index` | Read `vault://doc/{doc_id}` for the target runbook |
 | Specific question: "What's the cert generation runbook?" | `find_runbook("cert generation")` | Read `vault://doc/{doc_id}` or call `read_doc` on the top hit |
 | System question: "Tell me about AdGuard Home" | `lookup_system("AdGuard Home")` | Read `vault://doc/{doc_id}` for the relevant doc |
-| Secret-adjacent question: "Show me the offline CA doc" | `read_doc("infra-offline-ca")` | Override only when explicitly needed |
+| Secret-adjacent question: "Show me the offline CA doc" | `read_doc("infra-offline-ca")` | `read_doc(..., include_secret_adjacent=True)` only when explicitly needed; local unlock still required |
 
 Expected demo behavior:
 
@@ -110,6 +110,8 @@ Expected demo behavior:
 - `find_runbook("generate homelab certificate")` returns `rb-generate-homelab-cert`.
 - `vault://doc/infra-offline-ca` and `read_doc("infra-offline-ca")` withhold
   the body by default because the doc is marked `secret_adjacent`.
+- `read_doc("infra-offline-ca", include_secret_adjacent=True)` still withholds
+  the body unless local interactive unlock is enabled and succeeds.
 
 See `docs/demo.md` for a short transcript of the intended assistant flow.
 
@@ -166,6 +168,12 @@ appear in the MCP picker.
 | `SKR_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks` | Colon-separated subdirs the loader recurses into |
 | `SKR_HQ_URL` | `https://hq.jseverino.com` | Reserved for the future HQ integration |
 | `SKR_CACHE_SECONDS` | `30` | How long the in-memory vault index stays warm |
+| `SKR_ALLOW_SECRET_ADJACENT_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_secret_adjacent=True)` |
+| `SKR_SECRET_ADJACENT_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
+| `SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-knowledge-router/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
+| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-knowledge-router` | macOS Keychain service name for the salted unlock hash |
+| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT` | `secret-adjacent-unlock` | macOS Keychain account name for the salted unlock hash |
+| `SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-knowledge-router/audit.log` | Local audit log for unlock attempts; no body content is logged |
 
 The package is single-user by design — there's no auth, no remote surface, no
 shared state. It runs in the same process as your MCP host and reads files
@@ -190,12 +198,50 @@ known prefixes (`rb-`, `infra-`, `report-`, `project-`, `note-`).
 | `public` | Full body |
 | `internal` | Full body |
 | `sensitive` | Full body + advisory |
-| `secret_adjacent` | Metadata only + policy note by default; full body only with an explicit override |
+| `secret_adjacent` | Metadata only + policy note by default; full body only after explicit request plus local unlock |
 
 `secret_adjacent` is the marker for anything adjacent to credentials, CA
 keys, plaintext rotation procedures, etc. By default, the tool tells the LLM
-where the doc lives in Obsidian without returning the body. Callers must pass
-`include_secret_adjacent=True` for the explicit override.
+where the doc lives in Obsidian without returning the body.
+
+To release one secret-adjacent body through the MCP, all conditions must pass:
+
+- The caller requests `read_doc(..., include_secret_adjacent=True)`.
+- `SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1` is set in the local MCP environment.
+- A salted unlock hash is configured in macOS Keychain, the hash file, or
+  `SKR_SECRET_ADJACENT_UNLOCK_HASH`.
+- The local hidden-input prompt on the Mac succeeds.
+
+Do not type the unlock phrase into AI chat. The prompt is local-only, and the
+unlock is valid for one `read_doc` request.
+
+Recommended macOS setup stores the salted hash in Keychain, not the phrase:
+
+```bash
+HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
+security add-generic-password -U \
+  -s severino-knowledge-router \
+  -a secret-adjacent-unlock \
+  -w "$HASH"
+```
+
+Then enable prompts only in the MCP config where you want them:
+
+```json
+{
+  "mcpServers": {
+    "severino-knowledge-router": {
+      "command": "severino-knowledge-router",
+      "env": {
+        "SKR_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
+      }
+    }
+  }
+}
+```
+
+`search_body` never searches secret-adjacent bodies, even when its deprecated
+compatibility flag is set. Use `read_doc` for per-doc local unlock.
 
 ---
 

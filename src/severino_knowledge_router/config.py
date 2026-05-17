@@ -24,12 +24,25 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     return [part for part in raw.split(":") if part]
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Config:
     vault_path: Path
     indexed_dirs: tuple[str, ...]
     hq_url: str
     cache_seconds: int
+    allow_secret_adjacent_unlock: bool
+    secret_unlock_hash: str | None
+    secret_unlock_hash_file: Path
+    secret_unlock_keychain_service: str
+    secret_unlock_keychain_account: str
+    secret_unlock_audit_log: Path
 
     @classmethod
     def from_env(cls) -> Config:
@@ -47,4 +60,25 @@ class Config:
                 "https://hq.jseverino.com",
             ),
             cache_seconds=int(os.environ.get("SKR_CACHE_SECONDS", "30")),
+            allow_secret_adjacent_unlock=_env_bool(
+                "SKR_ALLOW_SECRET_ADJACENT_UNLOCK",
+                False,
+            ),
+            secret_unlock_hash=os.environ.get("SKR_SECRET_ADJACENT_UNLOCK_HASH"),
+            secret_unlock_hash_file=_env_path(
+                "SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE",
+                "~/.config/severino-knowledge-router/secret-adjacent-unlock.sha256",
+            ),
+            secret_unlock_keychain_service=os.environ.get(
+                "SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
+                "severino-knowledge-router",
+            ),
+            secret_unlock_keychain_account=os.environ.get(
+                "SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT",
+                "secret-adjacent-unlock",
+            ),
+            secret_unlock_audit_log=_env_path(
+                "SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+                "~/.local/state/severino-knowledge-router/audit.log",
+            ),
         )

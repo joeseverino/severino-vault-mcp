@@ -113,3 +113,12 @@ fall back to:
 ```text
 Call tool: read_doc("infra-offline-ca", include_secret_adjacent=True)
 ```
+
+Expected behavior:
+
+```text
+The MCP only releases the body if SKR_ALLOW_SECRET_ADJACENT_UNLOCK=1 is set,
+a local unlock hash is configured, and the hidden-input prompt on the Mac
+succeeds. Otherwise it returns metadata, advisory text, and the unlock failure
+reason. The unlock phrase is never entered into chat.
+```

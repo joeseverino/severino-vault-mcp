@@ -7,6 +7,7 @@ vault on disk and exercises the loader / tools directly.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,11 @@ def _fresh_module(name: str):
     return importlib.import_module(name)
 
 
+def _encoded_unlock_hash(phrase: str, salt: bytes = b"test-salt") -> str:
+    digest = hashlib.sha256(salt + phrase.encode("utf-8")).hexdigest()
+    return f"sha256:{salt.hex()}:{digest}"
+
+
 def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
     vault_mod = _fresh_module("severino_knowledge_router.vault")
     from severino_knowledge_router.config import Config
@@ -134,13 +140,62 @@ def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
     assert "secret_adjacent" in result["advisory"].lower()
 
 
-def test_read_doc_overrides_secret_adjacent(fake_vault: Path) -> None:
+def test_read_doc_secret_adjacent_request_requires_local_unlock(fake_vault: Path) -> None:
     server = _fresh_module("severino_knowledge_router.server")
+    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    assert result["body_released"] is False
+    assert "body" not in result
+    assert result["unlock"]["result"] == "disabled"
+    assert "interactive unlock is disabled" in result["unlock"]["message"].lower()
+
+
+def test_read_doc_releases_secret_adjacent_after_local_unlock(
+    fake_vault: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("SKR_ALLOW_SECRET_ADJACENT_UNLOCK", "1")
+    monkeypatch.setenv("SKR_SECRET_ADJACENT_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
+    monkeypatch.setenv(
+        "SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+        str(fake_vault / "audit.log"),
+    )
+
+    server = _fresh_module("severino_knowledge_router.server")
+    monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "open sesame")
+
     result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
     assert result["body_released"] is True
     assert "CA private key" in result["body"]
     assert result["override_used"] is True
-    assert "override" in result["advisory"].lower()
+    assert result["unlock"]["result"] == "released"
+
+    audit = (fake_vault / "audit.log").read_text(encoding="utf-8")
+    assert "doc_id=infra-local-pki" in audit
+    assert "result=released" in audit
+
+
+def test_read_doc_keeps_secret_adjacent_locked_after_bad_unlock(
+    fake_vault: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("SKR_ALLOW_SECRET_ADJACENT_UNLOCK", "1")
+    monkeypatch.setenv("SKR_SECRET_ADJACENT_UNLOCK_HASH", _encoded_unlock_hash("open sesame"))
+    monkeypatch.setenv(
+        "SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
+        str(fake_vault / "audit.log"),
+    )
+
+    server = _fresh_module("severino_knowledge_router.server")
+    monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "wrong")
+
+    result = server.read_doc("infra-local-pki", include_secret_adjacent=True)
+    assert result["body_released"] is False
+    assert "body" not in result
+    assert result["unlock"]["result"] == "failed"
+
+    audit = (fake_vault / "audit.log").read_text(encoding="utf-8")
+    assert "doc_id=infra-local-pki" in audit
+    assert "result=failed" in audit
 
 
 def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
@@ -294,8 +349,8 @@ def test_search_body_excludes_secret_adjacent_by_default(fake_vault: Path) -> No
     assert default["excluded"]["secret_adjacent_skipped"] >= 1
 
     overridden = server.search_body("CA private key", include_secret_adjacent=True)
-    assert overridden["doc_count"] == 1
-    assert overridden["hits_by_doc"][0]["doc_id"] == "infra-local-pki"
+    assert overridden["doc_count"] == 0
+    assert overridden["excluded"]["secret_adjacent_skipped"] >= 1
 
 
 def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
