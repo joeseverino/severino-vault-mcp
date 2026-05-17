@@ -10,6 +10,8 @@
 
 Local-first MCP server for turning an Obsidian-style operations vault into
 usable AI context without exposing credential-adjacent material by default.
+It can run entirely on a Mac with a local model and a local MCP client, so
+private vault context does not have to be sent to a hosted model.
 
 It is built for security-minded operators, consultants, and small teams who
 keep runbooks, infrastructure notes, decision records, and client/lab
@@ -20,6 +22,8 @@ operator's actual documentation instead of generic model memory.
 ## Why It Is Useful
 
 - Grounds AI assistants in real runbooks before they answer.
+- Works with local models running on the operator's Mac, including small models
+  that need direct runbook hints instead of multi-step tool choreography.
 - Exposes stable resources such as `vault://quick-index` and
   `vault://doc/{doc_id}`.
 - Searches vault metadata and markdown bodies without requiring a database.
@@ -211,6 +215,13 @@ Claude Desktop:
 }
 ```
 
+Local model example using `qwen2.5-7b-instruct` on macOS with this MCP server:
+
+![Local model using severino-vault-mcp to answer a VPS SSH runbook question](docs/assets/local-model-vps-ssh.png)
+
+See [docs/demo.md](docs/demo.md) for a transcript-style walkthrough and more
+local usage examples.
+
 ## Configuration
 
 `config.example.toml` is the recommended starting point. Copy it to:
@@ -323,13 +334,14 @@ contract as a real operations vault.
 
 ## Status
 
-v2.2.0. Stable local stdio MCP for routing AI assistants to an
+v2.2.2. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, secret-adjacent local unlock controls,
-and a single-call `get_runbook` tool for smaller local models. Layered security
-tooling (CodeQL, pip-audit, OSSF Scorecard, Dependabot) runs on every push,
-every PR, and weekly. Downstream metadata-system integration is intentionally
-optional.
+and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
+responses for smaller local models. Demo screenshots show local-model usage on
+macOS. Layered security tooling (CodeQL, pip-audit, OSSF Scorecard,
+Dependabot) runs on every push, every PR, and weekly. Downstream
+metadata-system integration is intentionally optional.
 
 ## License
 

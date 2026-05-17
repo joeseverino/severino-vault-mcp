@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+## [2.2.2] — 2026-05-17
+
+Documentation proof-of-use patch. Adds real local-model screenshots showing
+`severino-vault-mcp` in use from a Mac-hosted MCP client.
+
+### Added
+
+- README usage screenshot showing `qwen2.5-7b-instruct` retrieving a VPS SSH
+  runbook answer through `severino-vault-mcp`.
+- Demo screenshots for VPS SSH access and homelab container restart flows.
+- Security documentation noting that local-model usage is possible.
+
+### Changed
+
+- Bumped package version to 2.2.2 in `pyproject.toml`,
+  `src/severino_vault_mcp/__init__.py`, `uv.lock`, and README status.
+- Updated README, `docs/demo.md`, and `STRUCTURE.md` to cover local usage and
+  the new usage assets.
+
+### Verification
+
+- `scripts/check.sh --quick` passes.
+
+## [2.2.1] — 2026-05-17
+
+Quick Index routing patch. Keeps the existing MCP resource behavior, but also
+embeds matching Quick Index rows directly in `find_runbook` and `get_runbook`
+responses so smaller local models see the exact operational command without
+having to remember to read `vault://quick-index` first.
+
+### Added
+
+- Structured `quick_index_matches` and top-level `recommended` hints for
+  `find_runbook` and `get_runbook` results when a Quick Index table row matches
+  the user's query.
+- Quick Index table parsing for common navigation tables using `Intent`,
+  `Symptom`, or `Topic` columns plus `Command`, `First step`, `Start Here`,
+  `Doc`, and `Then Read` cells.
+- Regression coverage for an AdGuard container-status query where metadata
+  ranking selects the architecture note, while the Quick Index recommendation
+  carries the exact `docker compose ps` command.
+
+### Changed
+
+- Bumped package version to 2.2.1 in `pyproject.toml`,
+  `src/severino_vault_mcp/__init__.py`, and README status.
+
+### Verification
+
+- `scripts/check.sh --quick` passes with 32 tests.
+
 ## [2.2.0] — 2026-05-17
 
 Retrieval reliability and schema-consistency release. Adds a safer one-call
@@ -260,7 +311,9 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...HEAD
+[2.2.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v1.0.0...v2.0.0

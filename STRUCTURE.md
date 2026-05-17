@@ -33,6 +33,8 @@ what each one is responsible for. Generated caches, local virtualenvs, and
 | Path | Purpose |
 |---|---|
 | `docs/demo.md` | Short transcript showing the intended MCP assistant flow with the sample vault. |
+| `docs/assets/local-model-vps-ssh.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a VPS SSH runbook question. |
+| `docs/assets/local-model-container-restart.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a homelab container restart question. |
 | `docs/migration-guide.md` | Messy-vault migration guide with doctor usage and frontmatter examples. |
 | `docs/release-checklist.md` | Public release checklist for repository hygiene, verification, packaging, and release notes. |
 | `docs/testing-ci.md` | Local test commands, CI behavior, and what the tests cover. |

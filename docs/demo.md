@@ -10,6 +10,16 @@ then the assistant reads the specific target doc before answering.
 SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 ```
 
+## Real Local Usage
+
+The screenshots below show the same flow against a private local operations
+vault from a Mac-hosted MCP client using `qwen2.5-7b-instruct`. They are
+included as usage proof; the copyable commands remain in the vault runbooks.
+
+![Local model retrieving a VPS SSH runbook answer](assets/local-model-vps-ssh.png)
+
+![Local model retrieving a homelab container restart procedure](assets/local-model-container-restart.png)
+
 ## Broad Operational Question
 
 User:

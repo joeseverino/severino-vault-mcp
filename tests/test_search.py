@@ -292,6 +292,57 @@ def test_get_runbook_returns_selected_body_in_one_call(fake_vault: Path) -> None
     assert "Expose an internal service" in result["selected"]["body"]
 
 
+def test_get_runbook_includes_quick_index_recommendation(fake_vault: Path) -> None:
+    (fake_vault / "02 Infrastructure" / "AdGuard Home Setup.md").write_text(
+        """---
+doc_id: infra-adguard-home
+title: AdGuard Home Setup
+doc_type: architecture_note
+system: AdGuard Home
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-17
+tags: [homelab, adguard, home]
+---
+
+# AdGuard Home Setup
+
+AdGuard Home runs as a Docker container.
+""",
+        encoding="utf-8",
+    )
+    (fake_vault / "03 Runbooks" / "Quick Index.md").write_text(
+        """---
+doc_id: report-playbook-mcp-index
+title: Example Operations Vault Quick Index
+doc_type: public_article_draft
+system: Vault MCP
+environment: other
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-01
+tags: [index, mcp, navigation]
+---
+
+# Example Operations Vault Quick Index
+
+| Intent | Command | Doc |
+|---|---|---|
+| Check AdGuard Home container status | `ssh homelab-server 'cd /opt/apps/adguard && docker compose ps'` | [[AdGuard Home Setup]] |
+""",
+        encoding="utf-8",
+    )
+
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("how do i check the status of the adguard home container?")
+    assert result["found"] is True
+    assert result["selected"]["doc_id"] == "infra-adguard-home"
+    assert result["recommended"]["source"] == "vault://quick-index"
+    assert result["recommended"]["target_doc_id"] == "infra-adguard-home"
+    assert "docker compose ps" in result["recommended"]["command"]
+
+
 def test_get_runbook_withholds_secret_adjacent_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.get_runbook("local pki")

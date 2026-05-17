@@ -4,6 +4,12 @@
 stdio. It is not a network service, and it does not expose an HTTP listener.
 The MCP host and this server run under the same local user account.
 
+It can also be used with local models running on the operator's Mac. In that
+setup, the vault, MCP server, MCP host, and model can all stay on the same
+machine, so operational context can be used without sending it to a hosted
+model provider. This does not remove the need for sensitivity labels or local
+unlock controls.
+
 ## Safety Goal
 
 The goal is to ground AI answers in the operator's vault while preventing the
@@ -17,6 +23,22 @@ The MCP should:
 - Require local human authorization before releasing a secret-adjacent body.
 - Avoid broad full-text search over secret-adjacent bodies.
 - Keep body content out of audit logs.
+
+## Local Model Usage
+
+Running the MCP against a local model is possible for private operations
+vaults:
+
+- Vault reads happen from local disk under the operator's user account.
+- MCP traffic stays on stdio between local processes.
+- Runbook context can be used without sending markdown bodies to a hosted model
+  provider.
+- Smaller local models can rely on `get_runbook` and Quick Index hints to
+  reduce hallucinated operational steps.
+
+The local-model path is still not a hard sandbox. A trusted local MCP host is
+required, and a compromised host can request allowed tools. `secret_adjacent`
+docs therefore remain withheld unless the explicit local unlock flow succeeds.
 
 ## Sensitivity Levels
 

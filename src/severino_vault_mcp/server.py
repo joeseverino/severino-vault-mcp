@@ -23,7 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import Config
 from .schema import DOC_ID_PREFIXES, DOC_TYPES, ENVIRONMENTS, SENSITIVITIES, STATUSES
-from .search import rank
+from .search import rank, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
     audit_secret_unlock,
@@ -118,6 +118,113 @@ def _hit_to_dict(doc) -> dict[str, Any]:
         "obsidian_path": doc.relative_path,
         "tags": list(doc.tags),
         "last_reviewed": doc.last_reviewed,
+    }
+
+
+def _split_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_table_separator(cells: list[str]) -> bool:
+    return bool(cells) and all(set(cell.replace(" ", "")) <= {"-", ":"} for cell in cells)
+
+
+def _wiki_targets(text: str) -> list[str]:
+    targets: list[str] = []
+    for part in text.split("[[")[1:]:
+        target = part.split("]]", 1)[0].split("|", 1)[0].split("#", 1)[0].strip()
+        if target:
+            targets.append(target)
+    return targets
+
+
+def _doc_for_reference(idx, reference: str):
+    clean = reference.strip().strip("`")
+    if not clean:
+        return None
+    if clean in idx.by_doc_id:
+        return idx.by_doc_id[clean]
+
+    targets = _wiki_targets(reference) or [clean]
+    by_title = {doc.title.lower(): doc for doc in idx.docs}
+    by_path_stem = {doc.path.stem.lower(): doc for doc in idx.docs}
+    for target in targets:
+        lowered = target.lower()
+        if lowered in by_title:
+            return by_title[lowered]
+        if lowered in by_path_stem:
+            return by_path_stem[lowered]
+    return None
+
+
+def _quick_index_matches(idx, query: str, *, limit: int = 3) -> list[dict[str, Any]]:
+    """Return high-signal Quick Index table rows matching the query.
+
+    This turns the Quick Index from an optional resource into a structured
+    routing hint for models that call tools but do not reliably read resources.
+    """
+    quick_index_doc = idx.by_doc_id.get(QUICK_INDEX_DOC_ID)
+    if quick_index_doc is None:
+        return []
+
+    query_tokens = tokenize(query)
+    if not query_tokens:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    headers: list[str] | None = None
+    for raw in quick_index_doc.body.splitlines():
+        line = raw.strip()
+        if not line.startswith("|") or not line.endswith("|"):
+            headers = None
+            continue
+
+        cells = _split_table_row(line)
+        if _is_table_separator(cells):
+            continue
+        if headers is None:
+            headers = cells
+            continue
+        if len(cells) != len(headers):
+            continue
+
+        row = dict(zip(headers, cells, strict=True))
+        intent = row.get("Intent") or row.get("Symptom") or row.get("Topic") or ""
+        command = row.get("Command") or row.get("First step") or row.get("Start Here") or ""
+        doc_ref = row.get("Doc") or row.get("Then Read") or ""
+
+        intent_overlap = len(query_tokens & tokenize(intent))
+        command_overlap = len(query_tokens & tokenize(command))
+        doc_overlap = len(query_tokens & tokenize(doc_ref))
+        score = 5 * intent_overlap + 3 * command_overlap + 2 * doc_overlap
+        if score == 0:
+            continue
+
+        target_doc = _doc_for_reference(idx, doc_ref) or _doc_for_reference(idx, command)
+        match: dict[str, Any] = {
+            "score": score,
+            "intent": intent,
+            "command": command,
+            "doc": doc_ref,
+            "quick_index_doc_id": quick_index_doc.doc_id,
+        }
+        if target_doc is not None:
+            match["target_doc_id"] = target_doc.doc_id
+            match["target_title"] = target_doc.title
+        rows.append(match)
+
+    rows.sort(key=lambda item: (item["score"], item["intent"]), reverse=True)
+    return rows[:limit]
+
+
+def _add_quick_index_recommendation(response: dict[str, Any], idx, query: str) -> None:
+    matches = _quick_index_matches(idx, query)
+    if not matches:
+        return
+    response["quick_index_matches"] = matches
+    response["recommended"] = {
+        "source": QUICK_INDEX_RESOURCE_URI,
+        **matches[0],
     }
 
 
@@ -259,11 +366,13 @@ def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
     """
     idx = _LOADER.index()
     hits = rank(idx.docs, query, limit=max(1, min(limit, 25)))
-    return {
+    response = {
         "query": query,
         "indexed_doc_count": len(idx.docs),
         "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
     }
+    _add_quick_index_recommendation(response, idx, query)
+    return response
 
 
 @mcp.tool()
@@ -286,6 +395,7 @@ def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         "indexed_doc_count": len(idx.docs),
         "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
     }
+    _add_quick_index_recommendation(response, idx, query)
     if not hits:
         response["found"] = False
         return response
