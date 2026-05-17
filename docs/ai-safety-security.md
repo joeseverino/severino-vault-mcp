@@ -1,6 +1,6 @@
 # AI Safety and Security Model
 
-`severino-knowledge-router` is designed for a local AI assistant using MCP over
+`severino-vault-mcp` is designed for a local AI assistant using MCP over
 stdio. It is not a network service, and it does not expose an HTTP listener.
 The MCP host and this server run under the same local user account.
 
@@ -93,7 +93,7 @@ The audit log never includes:
 The default audit path is:
 
 ```text
-~/.local/state/severino-knowledge-router/audit.log
+~/.local/state/severino-vault-mcp/audit.log
 ```
 
 ## Search Safety

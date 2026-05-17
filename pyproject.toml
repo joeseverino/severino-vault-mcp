@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "severino-knowledge-router"
-version = "0.2.1"
-description = "Local MCP server that routes AI assistants to the right doc in the Severino Labs vault and Severino HQ."
+name = "severino-vault-mcp"
+version = "1.0.0"
+description = "Local stdio MCP server that grounds AI assistants in Obsidian-style operational vaults with resources, runbooks, and safety gates."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Joseph Severino", email = "github@jseverino.com" }]
-keywords = ["mcp", "obsidian", "severino-hq", "knowledge-router"]
+keywords = ["mcp", "model-context-protocol", "obsidian", "runbooks", "local-first", "ai-tools"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
@@ -31,11 +31,12 @@ dev = [
 ]
 
 [project.scripts]
+severino-vault-mcp = "severino_knowledge_router.__main__:main"
 severino-knowledge-router = "severino_knowledge_router.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/joeseverino/severino-knowledge-router"
-Issues = "https://github.com/joeseverino/severino-knowledge-router/issues"
+Homepage = "https://github.com/joeseverino/severino-vault-mcp"
+Issues = "https://github.com/joeseverino/severino-vault-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/severino_knowledge_router"]

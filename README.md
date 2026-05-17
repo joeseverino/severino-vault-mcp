@@ -1,14 +1,15 @@
-# severino-knowledge-router
+# severino-vault-mcp
 
-[![CI](https://github.com/joeseverino/severino-knowledge-router/actions/workflows/ci.yml/badge.svg)](https://github.com/joeseverino/severino-knowledge-router/actions/workflows/ci.yml)
+[![CI](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![MCP](https://img.shields.io/badge/MCP-stdio%20server-green)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Local MCP server that routes an AI assistant to the right doc in the Severino
-Labs vault and Severino HQ. Reads vault frontmatter directly from disk;
-enforces the documented sensitivity policy so secret-adjacent material never
-leaks into an LLM context window.
+Local stdio MCP server that grounds AI assistants in Obsidian-style
+operational vaults with discoverable resources, runbooks, and safety gates.
+It reads vault frontmatter directly from disk and enforces the documented
+sensitivity policy so secret-adjacent material never leaks into an LLM context
+window by default.
 
 The same pattern works for any Obsidian-style operational vault with stable
 frontmatter IDs.
@@ -69,7 +70,7 @@ Severino Labs has three layers:
 
 - **Obsidian vault** — the deep knowledge (runbooks, infra docs, decision records).
 - **Severino HQ** — the operational ledger (assets, expenses, receipts, projects).
-- **`severino-knowledge-router`** (this MCP) — the bridge.
+- **`severino-vault-mcp`** (this MCP) — the bridge.
 
 Every vault `.md` under `01 Projects/`, `02 Infrastructure/`, `03 Runbooks/`
 has a YAML frontmatter block with `doc_id`, `system`, `sensitivity`, `tags`,
@@ -87,9 +88,9 @@ caller requests access and the local Mac authorizes a one-request unlock.
 Requires Python 3.11+. Uses `uv` to manage the install.
 
 ```bash
-git clone git@github.com:joeseverino/severino-knowledge-router.git \
-    ~/Documents/Code/Assets/severino-knowledge-router
-cd ~/Documents/Code/Assets/severino-knowledge-router
+git clone git@github.com:joeseverino/severino-vault-mcp.git \
+    ~/Documents/Code/Assets/severino-vault-mcp
+cd ~/Documents/Code/Assets/severino-vault-mcp
 uv sync --extra dev
 uv run pytest
 ```
@@ -109,7 +110,7 @@ uv run pytest
 Start the MCP against the sample vault:
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-knowledge-router
+SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
 ```
 
 In an MCP client, the intended AI workflow is:
@@ -133,26 +134,26 @@ Expected demo behavior:
 
 See `docs/demo.md` for a short transcript of the intended assistant flow.
 
-For day-to-day use, install as a `uv` tool so the `severino-knowledge-router`
+For day-to-day use, install as a `uv` tool so the `severino-vault-mcp`
 command lands on `$PATH`:
 
 ```bash
-uv tool install --from . severino-knowledge-router
+uv tool install --from . severino-vault-mcp
 ```
 
-Re-run after `git pull` with `uv tool upgrade severino-knowledge-router`.
+Re-run after `git pull` with `uv tool upgrade severino-vault-mcp`.
 
 ### Wire to Claude Code
 
 ```bash
-claude mcp add severino-knowledge-router severino-knowledge-router
+claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
 Or, if you didn't `uv tool install`, point Claude Code at the local checkout:
 
 ```bash
-claude mcp add severino-knowledge-router \
-    -- uv run --directory $HOME/Documents/Code/Assets/severino-knowledge-router severino-knowledge-router
+claude mcp add severino-vault-mcp \
+    -- uv run --directory $HOME/Documents/Code/Assets/severino-vault-mcp severino-vault-mcp
 ```
 
 ### Wire to Claude Desktop
@@ -162,8 +163,8 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "severino-knowledge-router": {
-      "command": "severino-knowledge-router",
+    "severino-vault-mcp": {
+      "command": "severino-vault-mcp",
       "env": {
         "SKR_VAULT_PATH": "/Users/josephseverino/Documents/Code/Severino Labs"
       }
@@ -187,10 +188,10 @@ appear in the MCP picker.
 | `SKR_CACHE_SECONDS` | `30` | How long the in-memory vault index stays warm |
 | `SKR_ALLOW_SECRET_ADJACENT_UNLOCK` | `false` | Enables hidden local unlock prompts for `read_doc(..., include_secret_adjacent=True)` |
 | `SKR_SECRET_ADJACENT_UNLOCK_HASH` | unset | Salted unlock hash, mainly for tests or temporary local use |
-| `SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-knowledge-router/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
-| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-knowledge-router` | macOS Keychain service name for the salted unlock hash |
+| `SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256` | Local file containing the salted unlock hash |
+| `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE` | `severino-vault-mcp` | macOS Keychain service name for the salted unlock hash |
 | `SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT` | `secret-adjacent-unlock` | macOS Keychain account name for the salted unlock hash |
-| `SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-knowledge-router/audit.log` | Local audit log for unlock attempts; no body content is logged |
+| `SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Local audit log for unlock attempts; no body content is logged |
 
 The package is single-user by design — there's no auth, no remote surface, no
 shared state. It runs in the same process as your MCP host and reads files
@@ -237,7 +238,7 @@ Recommended macOS setup stores the salted hash in Keychain, not the phrase:
 ```bash
 HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
 security add-generic-password -U \
-  -s severino-knowledge-router \
+  -s severino-vault-mcp \
   -a secret-adjacent-unlock \
   -w "$HASH"
 ```
@@ -247,8 +248,8 @@ Then enable prompts only in the MCP config where you want them:
 ```json
 {
   "mcpServers": {
-    "severino-knowledge-router": {
-      "command": "severino-knowledge-router",
+    "severino-vault-mcp": {
+      "command": "severino-vault-mcp",
       "env": {
         "SKR_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
       }
@@ -268,6 +269,7 @@ MIT — see `LICENSE`.
 
 ## Status
 
-v0.2.1. Read tools, frontmatter write tools, Quick Index resource discovery,
-and the reproducible sample vault are complete. HQ JSON integration (assets,
-expenses, projects) is deferred until HQ has a proper API token.
+v1.0.0. Stable local stdio MCP for routing AI assistants to an
+Obsidian-style operational vault, with resource discovery, reproducible sample
+vault, CI, docs, and secret-adjacent local unlock controls. HQ JSON integration
+(assets, expenses, projects) is deferred until HQ has a proper API token.

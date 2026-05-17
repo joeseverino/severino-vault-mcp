@@ -7,7 +7,7 @@ then the assistant reads the specific target doc before answering.
 ## Setup
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-knowledge-router
+SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
 ```
 
 ## Broad Operational Question

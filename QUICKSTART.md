@@ -1,6 +1,6 @@
 # Quickstart
 
-This guide gets `severino-knowledge-router` running as a local stdio MCP server
+This guide gets `severino-vault-mcp` running as a local stdio MCP server
 against either the included sample vault or your own Obsidian-style vault.
 
 ## Prerequisites
@@ -19,8 +19,8 @@ brew install uv ripgrep
 ## 1. Clone and Test
 
 ```bash
-git clone git@github.com:joeseverino/severino-knowledge-router.git
-cd severino-knowledge-router
+git clone git@github.com:joeseverino/severino-vault-mcp.git
+cd severino-vault-mcp
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
@@ -39,7 +39,7 @@ The sample vault is safe demo data and does not require access to a private
 Obsidian vault.
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-knowledge-router
+SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
 ```
 
 This starts the MCP server on stdio. It waits for an MCP client to talk to it,
@@ -52,14 +52,14 @@ From the repo directory:
 ```bash
 claude mcp add \
   -e SKR_VAULT_PATH="$PWD/examples/sample-vault" \
-  severino-knowledge-router \
-  -- uv run --directory "$PWD" severino-knowledge-router
+  severino-vault-mcp \
+  -- uv run --directory "$PWD" severino-vault-mcp
 ```
 
 Then ask your MCP client to verify:
 
 ```text
-Use the severino-knowledge-router MCP. Read vault://quick-index and tell me the first demo workflow.
+Use the severino-vault-mcp MCP. Read vault://quick-index and tell me the first demo workflow.
 ```
 
 Expected behavior:
@@ -82,16 +82,16 @@ Example using the sample vault:
 ```json
 {
   "mcpServers": {
-    "severino-knowledge-router": {
+    "severino-vault-mcp": {
       "command": "uv",
       "args": [
         "run",
         "--directory",
-        "/absolute/path/to/severino-knowledge-router",
-        "severino-knowledge-router"
+        "/absolute/path/to/severino-vault-mcp",
+        "severino-vault-mcp"
       ],
       "env": {
-        "SKR_VAULT_PATH": "/absolute/path/to/severino-knowledge-router/examples/sample-vault"
+        "SKR_VAULT_PATH": "/absolute/path/to/severino-vault-mcp/examples/sample-vault"
       }
     }
   }
@@ -130,7 +130,7 @@ tags:
 Point the MCP at your vault:
 
 ```bash
-SKR_VAULT_PATH="/absolute/path/to/your/vault" uv run severino-knowledge-router
+SKR_VAULT_PATH="/absolute/path/to/your/vault" uv run severino-vault-mcp
 ```
 
 If your vault uses different folders:
@@ -138,7 +138,7 @@ If your vault uses different folders:
 ```bash
 SKR_VAULT_PATH="/absolute/path/to/your/vault" \
 SKR_INDEXED_DIRS="Projects:Infrastructure:Runbooks" \
-uv run severino-knowledge-router
+uv run severino-vault-mcp
 ```
 
 ## 6. Recommended Vault Docs
@@ -167,19 +167,19 @@ vault://doc/{doc_id}
 For daily use:
 
 ```bash
-uv tool install --from . severino-knowledge-router
+uv tool install --from . severino-vault-mcp
 ```
 
 Then configure your MCP client with:
 
 ```text
-command: severino-knowledge-router
+command: severino-vault-mcp
 ```
 
 Upgrade after pulling new repo changes:
 
 ```bash
-uv tool upgrade severino-knowledge-router
+uv tool upgrade severino-vault-mcp
 ```
 
 ## 8. Optional: Enable Secret-Adjacent Local Unlock
@@ -192,7 +192,7 @@ in Keychain:
 ```bash
 HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
 security add-generic-password -U \
-  -s severino-knowledge-router \
+  -s severino-vault-mcp \
   -a secret-adjacent-unlock \
   -w "$HASH"
 ```

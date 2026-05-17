@@ -1,6 +1,6 @@
 # Security policy
 
-`severino-knowledge-router` runs as a local MCP server on Joe's Mac. It has no
+`severino-vault-mcp` runs as a local MCP server on Joe's Mac. It has no
 network listening surface — it speaks stdio to its parent process (Claude Code,
 Claude Desktop, etc.) and reads files the local user account can already read.
 

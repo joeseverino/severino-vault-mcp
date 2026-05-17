@@ -77,7 +77,7 @@ The sample vault lives at `examples/sample-vault/`.
 Run the server against it:
 
 ```bash
-SKR_VAULT_PATH=examples/sample-vault uv run severino-knowledge-router
+SKR_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
 ```
 
 Expected sample behavior:

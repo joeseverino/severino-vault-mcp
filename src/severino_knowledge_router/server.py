@@ -114,7 +114,7 @@ The vault root is `/Users/josephseverino/Documents/Code/Severino Labs/`.
 Indexed dirs are `01 Projects/`, `02 Infrastructure/`, `03 Runbooks/`.
 """
 
-mcp = FastMCP("severino-knowledge-router", instructions=_SERVER_INSTRUCTIONS)
+mcp = FastMCP("severino-vault-mcp", instructions=_SERVER_INSTRUCTIONS)
 
 
 # ----- helpers ----------------------------------------------------------------

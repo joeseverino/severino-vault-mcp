@@ -67,11 +67,11 @@ class Config:
             secret_unlock_hash=os.environ.get("SKR_SECRET_ADJACENT_UNLOCK_HASH"),
             secret_unlock_hash_file=_env_path(
                 "SKR_SECRET_ADJACENT_UNLOCK_HASH_FILE",
-                "~/.config/severino-knowledge-router/secret-adjacent-unlock.sha256",
+                "~/.config/severino-vault-mcp/secret-adjacent-unlock.sha256",
             ),
             secret_unlock_keychain_service=os.environ.get(
                 "SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
-                "severino-knowledge-router",
+                "severino-vault-mcp",
             ),
             secret_unlock_keychain_account=os.environ.get(
                 "SKR_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT",
@@ -79,6 +79,6 @@ class Config:
             ),
             secret_unlock_audit_log=_env_path(
                 "SKR_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
-                "~/.local/state/severino-knowledge-router/audit.log",
+                "~/.local/state/severino-vault-mcp/audit.log",
             ),
         )

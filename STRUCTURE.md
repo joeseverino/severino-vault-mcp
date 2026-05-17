@@ -1,6 +1,6 @@
 # Repository Structure
 
-This file maps every tracked file in `severino-knowledge-router` and explains
+This file maps every tracked file in `severino-vault-mcp` and explains
 what each one is responsible for. Generated caches, local virtualenvs, and
 `__pycache__` files are intentionally excluded.
 
