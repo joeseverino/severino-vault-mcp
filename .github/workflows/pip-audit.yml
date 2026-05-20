@@ -36,3 +36,9 @@ jobs:
         uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
         with:
           inputs: requirements-audit.txt
+          # PYSEC-2025-183: pyjwt "weak encryption" advisory. Disputed by the
+          # upstream supplier (key length is the application's choice) and has
+          # no fix version. pyjwt is a transitive dep of mcp's HTTP/OAuth
+          # transport, unused by this stdio server. Revisit if a fix ships.
+          ignore-vulns: |
+            PYSEC-2025-183
