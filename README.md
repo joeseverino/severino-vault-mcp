@@ -108,6 +108,11 @@ vault root.
 | `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
 | `search_body(query)` | read | Full-text body search with frontmatter skipped and `restricted` bodies excluded. |
+| `list_contact_submissions(limit=10)` | read | Recent `jseverino.com` contact submissions from the fixed Cloudflare D1 database. |
+| `list_csp_reports(limit=20, directive=None)` | read | Recent filtered CSP violation reports from the fixed Cloudflare D1 database. |
+| `count_csp_reports()` | read | Total and by-directive CSP report counts. |
+| `check_jseverino_security_headers(path="/")` | read | Live `jseverino.com` HEAD check for CSP/reporting/security headers. |
+| `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
 
@@ -119,6 +124,24 @@ severino-vault-mcp doctor --propose
 
 Validates required frontmatter fields in the configured vault and prints
 starter frontmatter for markdown files that are not yet indexed.
+
+### Local jseverino.com Ops Helpers
+
+The `jseverino.com` helpers are intentionally fixed-purpose wrappers, not a
+generic shell bridge. They call the operator's known Cloudflare D1 database
+(`jseverino-contact` by default) and live site origin (`https://jseverino.com`
+by default). Override these only for local testing:
+
+```bash
+SVMC_JSEVERINO_D1_DATABASE=alternate-db
+SVMC_JSEVERINO_SITE_REPO=~/Documents/Code/Projects/jseverino.com
+SVMC_JSEVERINO_SITE_ORIGIN=https://jseverino.com
+```
+
+`list_contact_submissions`, `list_csp_reports`, and `count_csp_reports` require
+`wrangler` on `PATH` and an authenticated Cloudflare session. The schema apply
+tool is the only jseverino.com write helper and refuses to run unless
+`confirm=True` is passed.
 
 ## Adopt It For Your Vault
 
