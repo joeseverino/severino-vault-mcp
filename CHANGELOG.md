@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-05-29
+
+Writeup-tooling release for the jseverino.com portfolio surface. Adds four
+read tools that turn writeup-publish prep from a series of grep calls into
+a single MCP query. Closes the most common loop of "is this writeup ready,
+what tags does it need, what other writeups reference this tag" without
+leaving the assistant.
+
+### Added
+
+- `list_writeups(filter)` — enumerate writeups under
+  `<vault>/05 Writeups/<slug>/index.md` with `published`, `featured`,
+  `featured_order`, and `technologies` summarized. Filters: `all`,
+  `published`, `draft`, `featured` (the last sorts by `featured_order`).
+- `get_technology_catalog()` — parse the slug catalog at
+  `<vault>/06 Pages/_technology-groups.md` and return slugs grouped by
+  section with their featured state.
+- `find_writeups_using_tag(slug)` — list writeups whose `technologies:`
+  reference a given tag. Use this to confirm a tag is referenced by at
+  least one published writeup before promoting it to featured.
+- `validate_writeup(slug)` — publish-readiness report covering frontmatter
+  completeness, technology slugs vs the catalog, and image references vs
+  files in the writeup's `images/` folder.
+- New module `writeups.py` for the writeup-specific frontmatter shape
+  (which differs from the doc_id-keyed schema the main vault loader uses).
+- New module `tech_groups.py` for parsing the technology-groups markdown
+  catalog (which the main loader skips because the filename is prefixed
+  with `_`).
+- Environment overrides for the writeup paths:
+  `SVMC_JSEVERINO_WRITEUPS_DIR` and `SVMC_JSEVERINO_TECH_GROUPS`. Both
+  default to vault-relative paths so most setups need no configuration.
+
+### Changed
+
+- Bumped package version to 2.4.0 in `pyproject.toml` and
+  `src/severino_vault_mcp/__init__.py`.
+
+### Verification
+
+- `uv run pytest -q` covers the new tools via `tests/test_writeups.py`
+  with fake-vault fixtures for ready / draft / lead writeups and a
+  two-section technology catalog.
+
 ## [2.3.0] — 2026-05-17
 
 Alias and restricted-sensitivity release. Adds a vault-local alias layer for
@@ -347,7 +390,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.0...v2.2.1

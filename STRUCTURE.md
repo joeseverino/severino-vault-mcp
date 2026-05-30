@@ -67,7 +67,9 @@ vault.
 | `src/severino_vault_mcp/secret_unlock.py` | Local one-request unlock gate for `secret_adjacent` doc bodies. |
 | `src/severino_vault_mcp/sensitivity.py` | Sensitivity enum, body-release policy helper, and advisory text. |
 | `src/severino_vault_mcp/server.py` | FastMCP server registration: resources, tools, read/write operations, and body search. |
+| `src/severino_vault_mcp/tech_groups.py` | Parser for the jseverino.com technology-groups catalog at `06 Pages/_technology-groups.md`. |
 | `src/severino_vault_mcp/vault.py` | Obsidian vault loader, frontmatter parser, indexed document model, and cache. |
+| `src/severino_vault_mcp/writeups.py` | Writeup loader for `05 Writeups/<slug>/index.md`, using the portfolio frontmatter shape (no `doc_id`, but `published`/`featured`/`technologies`). |
 
 ## Tests
 
@@ -75,6 +77,7 @@ vault.
 |---|---|
 | `tests/__init__.py` | Test package marker. |
 | `tests/test_search.py` | End-to-end unit tests for vault indexing, search, resources, sensitivity, local unlock, write tools, and sample-vault reproducibility. |
+| `tests/test_writeups.py` | Tests for the writeup loader, technology catalog parser, and the four writeup-specific MCP tools. |
 
 ## Runtime Shape
 

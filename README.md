@@ -112,6 +112,10 @@ vault root.
 | `list_csp_reports(limit=20, directive=None)` | read | Recent filtered CSP violation reports from the fixed Cloudflare D1 database. |
 | `count_csp_reports()` | read | Total and by-directive CSP report counts. |
 | `check_jseverino_security_headers(path="/")` | read | Live `jseverino.com` HEAD check for CSP/reporting/security headers. |
+| `list_writeups(filter="all")` | read | Enumerate writeups under `05 Writeups/<slug>/index.md` with `published`, `featured`, and `featured_order` summarized. Filters: `all`, `published`, `draft`, `featured`. |
+| `get_technology_catalog()` | read | Parse the slug catalog at `06 Pages/_technology-groups.md` and return slugs grouped by section with their featured state. |
+| `find_writeups_using_tag(slug)` | read | List writeups whose `technologies:` reference a given tag. Use to confirm a tag is earned before promoting it to featured on the home cloud. |
+| `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, and body image references vs files on disk. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
@@ -136,12 +140,20 @@ by default). Override these only for local testing:
 SVMC_JSEVERINO_D1_DATABASE=alternate-db
 SVMC_JSEVERINO_SITE_REPO=~/Documents/Code/Projects/jseverino.com
 SVMC_JSEVERINO_SITE_ORIGIN=https://jseverino.com
+SVMC_JSEVERINO_WRITEUPS_DIR=~/Documents/Code/Severino Labs/05 Writeups
+SVMC_JSEVERINO_TECH_GROUPS=~/Documents/Code/Severino Labs/06 Pages/_technology-groups.md
 ```
 
 `list_contact_submissions`, `list_csp_reports`, and `count_csp_reports` require
 `wrangler` on `PATH` and an authenticated Cloudflare session. The schema apply
 tool is the only jseverino.com write helper and refuses to run unless
 `confirm=True` is passed.
+
+`list_writeups`, `get_technology_catalog`, `find_writeups_using_tag`, and
+`validate_writeup` read the writeup folders and the technology catalog
+directly from the vault — no Cloudflare credentials, no network. They default
+to vault-relative paths (`05 Writeups/` and `06 Pages/_technology-groups.md`)
+so most setups need no configuration.
 
 ## Adopt It For Your Vault
 
@@ -384,14 +396,17 @@ contract as a real operations vault.
 
 ## Status
 
-v2.3.0. Stable local stdio MCP for routing AI assistants to an
+v2.4.0. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
-responses for smaller local models. Demo screenshots show local-model usage on
-macOS. Layered security tooling (CodeQL, pip-audit, OSSF Scorecard,
-Dependabot) runs on every push, every PR, and weekly. Downstream
-metadata-system integration is intentionally optional.
+responses for smaller local models. v2.4.0 adds four writeup-specific read
+tools (`list_writeups`, `get_technology_catalog`, `find_writeups_using_tag`,
+`validate_writeup`) for the jseverino.com portfolio surface that compress
+writeup-publish prep into a single MCP query. Demo screenshots show
+local-model usage on macOS. Layered security tooling (CodeQL, pip-audit,
+OSSF Scorecard, Dependabot) runs on every push, every PR, and weekly.
+Downstream metadata-system integration is intentionally optional.
 
 ## License
 

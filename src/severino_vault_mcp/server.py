@@ -35,7 +35,9 @@ from .secret_unlock import (
     verify_unlock_phrase,
 )
 from .sensitivity import Sensitivity, advisory, body_is_releasable
+from .tech_groups import load_technology_catalog
 from .vault import Doc, VaultLoader, _normalize_alias, _split_frontmatter
+from .writeups import extract_body_image_refs, load_writeups
 
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
 QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
@@ -54,6 +56,23 @@ JSEVERINO_SITE_ORIGIN = os.environ.get("SVMC_JSEVERINO_SITE_ORIGIN", "https://js
 
 _CONFIG = Config.from_env()
 _LOADER = VaultLoader(_CONFIG)
+
+JSEVERINO_WRITEUPS_DIR = Path(
+    os.path.expanduser(
+        os.environ.get(
+            "SVMC_JSEVERINO_WRITEUPS_DIR",
+            str(_CONFIG.vault_path / "05 Writeups"),
+        )
+    )
+)
+JSEVERINO_TECH_GROUPS = Path(
+    os.path.expanduser(
+        os.environ.get(
+            "SVMC_JSEVERINO_TECH_GROUPS",
+            str(_CONFIG.vault_path / "06 Pages" / "_technology-groups.md"),
+        )
+    )
+)
 
 _SERVER_INSTRUCTIONS = """\
 This MCP routes the calling AI session to the right runbook, infrastructure
@@ -1059,6 +1078,223 @@ def apply_jseverino_d1_schema(confirm: bool = False) -> dict[str, Any]:
         "stderr": proc.stderr.strip(),
     }
 
+
+# ----- jseverino.com writeup tools -------------------------------------------
+
+_WRITEUP_FILTERS = ("all", "published", "draft", "featured")
+
+
+def _writeup_summary(writeup) -> dict[str, Any]:
+    return writeup.to_summary()
+
+
+@mcp.tool()
+def list_writeups(filter: str = "all") -> dict[str, Any]:
+    """List jseverino.com writeups with key metadata.
+
+    Reads `<vault>/05 Writeups/<slug>/index.md` for every writeup folder
+    and returns a summary of each one. This replaces grepping writeup
+    frontmatter by hand when reasoning about publish state or featured
+    ordering.
+
+    Args:
+        filter: One of "all", "published", "draft", "featured". The
+            "featured" filter sorts by `featured_order` ascending.
+    """
+    chosen = (filter or "all").strip().lower()
+    if chosen not in _WRITEUP_FILTERS:
+        return {
+            "ok": False,
+            "error": f"unknown filter {filter!r}; expected one of {list(_WRITEUP_FILTERS)}",
+        }
+
+    if not JSEVERINO_WRITEUPS_DIR.is_dir():
+        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+
+    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    if chosen == "published":
+        writeups = [w for w in writeups if w.published]
+    elif chosen == "draft":
+        writeups = [w for w in writeups if not w.published]
+    elif chosen == "featured":
+        writeups = [w for w in writeups if w.featured]
+        writeups.sort(
+            key=lambda w: (
+                w.featured_order if w.featured_order is not None else 10**9,
+                w.slug,
+            )
+        )
+
+    return {
+        "ok": True,
+        "filter": chosen,
+        "writeups_dir": str(JSEVERINO_WRITEUPS_DIR),
+        "count": len(writeups),
+        "writeups": [_writeup_summary(w) for w in writeups],
+    }
+
+
+@mcp.tool()
+def get_technology_catalog() -> dict[str, Any]:
+    """Return the parsed jseverino.com technology slug catalog.
+
+    Reads `<vault>/06 Pages/_technology-groups.md` and returns slugs
+    grouped by section, each with its label and featured state. Use this
+    before featuring a tag or before adding a new technology to a writeup
+    so you do not introduce a slug the site build will warn about.
+    """
+    if not JSEVERINO_TECH_GROUPS.is_file():
+        return {"ok": False, "error": f"catalog not found: {JSEVERINO_TECH_GROUPS}"}
+
+    catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
+    if not catalog:
+        return {
+            "ok": False,
+            "error": f"catalog file present but no slugs parsed: {JSEVERINO_TECH_GROUPS}",
+        }
+
+    by_group: dict[str, list[dict[str, Any]]] = {}
+    for entry in catalog:
+        by_group.setdefault(entry.group, []).append(
+            {"slug": entry.slug, "label": entry.label, "featured": entry.featured}
+        )
+
+    featured_count = sum(1 for entry in catalog if entry.featured)
+    return {
+        "ok": True,
+        "catalog_path": str(JSEVERINO_TECH_GROUPS),
+        "total_slugs": len(catalog),
+        "featured_count": featured_count,
+        "by_group": by_group,
+    }
+
+
+@mcp.tool()
+def find_writeups_using_tag(slug: str) -> dict[str, Any]:
+    """Find jseverino.com writeups whose `technologies:` list references a slug.
+
+    The site's home technology cloud only renders tags that are both
+    `featured: yes` in the catalog AND referenced by at least one published
+    writeup. Use this to confirm a tag is earned before promoting it to
+    featured.
+
+    Args:
+        slug: Technology slug from the catalog, e.g. "obsidian".
+    """
+    slug = (slug or "").strip()
+    if not slug:
+        return {"ok": False, "error": "slug required"}
+
+    if not JSEVERINO_WRITEUPS_DIR.is_dir():
+        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+
+    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    matches = [w for w in writeups if slug in w.technologies]
+
+    return {
+        "ok": True,
+        "slug": slug,
+        "total_matches": len(matches),
+        "published_matches": sum(1 for w in matches if w.published),
+        "writeups": [
+            {
+                "slug": w.slug,
+                "title": w.title,
+                "published": w.published,
+                "featured": w.featured,
+            }
+            for w in matches
+        ],
+    }
+
+
+@mcp.tool()
+def validate_writeup(slug: str) -> dict[str, Any]:
+    """Publish-readiness report for a jseverino.com writeup.
+
+    Inspects:
+    - Frontmatter completeness (title, description, published, published_at,
+      cover_image, technologies).
+    - Tech slugs vs the catalog at `_technology-groups.md` — flags slugs
+      the site build will warn about.
+    - Images referenced from the body vs files present in the writeup's
+      `images/` folder.
+    - Soft nitpicks (description length, missing optional fields).
+
+    Returns `ok: true` only when there are no blockers, no missing tech
+    slugs, and no missing images. Nits are informational.
+
+    Args:
+        slug: Writeup slug, e.g. "building-a-custom-mcp-layer".
+    """
+    slug = (slug or "").strip()
+    if not slug:
+        return {"ok": False, "error": "slug required"}
+
+    if not JSEVERINO_WRITEUPS_DIR.is_dir():
+        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+
+    writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
+    if not writeup_dir.is_dir():
+        return {"ok": False, "error": f"writeup folder not found: {slug}"}
+
+    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    writeup = next((w for w in writeups if w.slug == slug), None)
+    if writeup is None:
+        return {"ok": False, "error": f"writeup has no frontmatter or index.md: {slug}"}
+
+    blockers: list[str] = []
+    nits: list[str] = []
+
+    if not writeup.title:
+        blockers.append("title missing")
+    if not writeup.description:
+        blockers.append("description missing")
+    elif len(writeup.description) > 300:
+        nits.append(f"description is {len(writeup.description)} chars (recommend <=300)")
+    if not writeup.published:
+        blockers.append("published is false — flip to true to ship")
+    if not writeup.published_at:
+        blockers.append("published_at empty — set ISO date when ready")
+    if not writeup.cover_image:
+        nits.append("cover_image missing")
+    if not writeup.technologies:
+        nits.append("technologies list empty")
+
+    catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
+    catalog_slugs = {entry.slug for entry in catalog}
+    missing_slugs: list[str] = []
+    if catalog_slugs:
+        missing_slugs = [s for s in writeup.technologies if s not in catalog_slugs]
+    else:
+        nits.append(f"technology catalog not found at {JSEVERINO_TECH_GROUPS}; skipping slug check")
+
+    body_image_refs = extract_body_image_refs(writeup.body)
+    images_dir = writeup_dir / "images"
+    present_images = (
+        {p.name for p in images_dir.iterdir() if p.is_file()}
+        if images_dir.is_dir()
+        else set()
+    )
+    missing_images: list[str] = []
+    for ref in body_image_refs:
+        ref_name = Path(ref).name
+        if ref_name and ref_name not in present_images:
+            missing_images.append(ref)
+
+    ok = not blockers and not missing_slugs and not missing_images
+    return {
+        "ok": ok,
+        "slug": slug,
+        "frontmatter": _writeup_summary(writeup),
+        "blockers": blockers,
+        "missing_tech_slugs": missing_slugs,
+        "missing_images": missing_images,
+        "nits": nits,
+    }
+
+
+# ----- jseverino.com live-site tools -----------------------------------------
 
 @mcp.tool()
 def check_jseverino_security_headers(path: str = "/") -> dict[str, Any]:
