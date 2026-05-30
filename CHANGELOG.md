@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-05-30
+
+Instruction-hardening patch. v2.4.0 shipped the four writeup-publish-prep
+tools but did not tell calling AI sessions to use them, so the first real
+publish workflow after v2.4.0 had an assistant grep frontmatter by hand,
+miscount the featured order, and ship the wrong `featured_order` value.
+This release adds an explicit "JSEVERINO.COM WRITEUP WORKFLOW" section to
+the server instructions so the next session is told (not just enabled) to
+call `list_writeups`, `validate_writeup`, `get_technology_catalog`, and
+`find_writeups_using_tag` instead of doing manual file work.
+
+### Changed
+
+- Server instructions (`_SERVER_INSTRUCTIONS` in `server.py`) now include
+  a mandatory writeup-workflow section listing the four v2.4.0 tools and
+  the specific manual operations they replace.
+- Bumped package version to 2.4.1 in `pyproject.toml` and
+  `src/severino_vault_mcp/__init__.py`.
+
+### Verification
+
+- `uv run pytest -q` still passes (53 tests, no behavior change).
+
 ## [2.4.0] — 2026-05-29
 
 Writeup-tooling release for the jseverino.com portfolio surface. Adds four
@@ -390,7 +413,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.1...v2.2.2

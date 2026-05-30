@@ -129,6 +129,39 @@ when the user asks to tag a doc, bump `last_reviewed`, deprecate something,
 etc. After successful writes, remind the user to run any downstream vault
 sync or indexing job their workflow requires.
 
+JSEVERINO.COM WRITEUP WORKFLOW (MANDATORY for portfolio work):
+
+When working on writeups in `05 Writeups/` or the technology catalog at
+`06 Pages/_technology-groups.md`, you MUST use the dedicated tools below
+instead of grepping or reading the files by hand. The manual workflow is
+how publishes ship with wrong `featured_order` values, missing tech-catalog
+slugs, or dangling image references; these tools exist to prevent that.
+
+1. `list_writeups(filter)` — for ANY question about which writeups
+   exist, what's published, what's featured, or what `featured_order`
+   each writeup has. Do NOT grep `05 Writeups/*/index.md` for these.
+   The `filter="featured"` view sorts by `featured_order` ascending and
+   is the only correct way to reason about the home-cloud order.
+
+2. `validate_writeup(slug)` — before claiming a writeup is publish-ready.
+   Returns a structured report on frontmatter completeness, tech-slug
+   coverage against the catalog, and image references vs files on disk.
+   "I read the file" is not the same as "I validated it."
+
+3. `get_technology_catalog()` — for any question about technology slugs,
+   their groups, or their featured state. Do NOT parse
+   `_technology-groups.md` markdown tables by hand.
+
+4. `find_writeups_using_tag(slug)` — before recommending that any tag be
+   promoted to featured. The site's home cloud rule is "featured AND
+   referenced by >=1 published writeup"; this tool answers the second
+   half directly without grep.
+
+If you find yourself about to grep frontmatter, parse the catalog
+markdown, or count featured writeups by hand: stop and call the
+corresponding tool above. Apply the same discipline as Rule 2 above
+about runbooks — don't reinvent what these tools already do.
+
 The configured vault root and indexed directories are controlled by
 `config.example.toml`-style settings or `SVMC_*` environment overrides.
 """
