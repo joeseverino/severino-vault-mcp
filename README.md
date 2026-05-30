@@ -116,7 +116,7 @@ vault root.
 | `get_technology_catalog()` | read | Parse the slug catalog at `06 Pages/_technology-groups.md` and return slugs grouped by section with their featured state. |
 | `find_writeups_using_tag(slug)` | read | List writeups whose `technologies:` reference a given tag. Use to confirm a tag is earned before promoting it to featured on the home cloud. |
 | `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, body images vs files on disk, and `related_projects` / `related_assets` resolvability against the indexed vault. |
-| `prepare_writeup_publish(slug)` | read | ONE-CALL publish prep. Composes `validate_writeup`, `list_writeups("featured")`, and per-tag `find_writeups_using_tag` checks. Use before every writeup commit instead of chaining the individual tools. |
+| `prepare_writeup_publish(slug, include_tag_usage=False)` | read | ONE-CALL publish prep. Composes `validate_writeup` and `list_writeups("featured")` in one response; `include_tag_usage=True` additionally composes per-tag `find_writeups_using_tag` (off by default to keep the payload small). Use before every writeup commit instead of chaining the individual tools. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
@@ -133,15 +133,17 @@ Validates required frontmatter fields in the configured vault and prints
 starter frontmatter for markdown files that are not yet indexed.
 
 ```bash
-severino-vault-mcp prepare-writeup-publish <slug>
+severino-vault-mcp prepare-writeup-publish <slug> [--pretty] [--include-tag-usage]
 ```
 
 Runs `prepare_writeup_publish` for one writeup slug, prints the JSON
-result to stdout, exits 0 if `ok: true` (safe to publish) or 1 if there
-are blockers, missing tech slugs, missing images, or unresolved
-`related_projects` / `related_assets`. Intended to be wrapped by shell
-tooling (the operator's `site publish-writeup <slug>` macro uses it as
-the pre-flight gate before `site publish-all`).
+result to stdout (compact by default; `--pretty` indents for humans),
+exits 0 if `ok: true` (safe to publish) or 1 if there are blockers,
+missing tech slugs, missing images, or unresolved `related_projects` /
+`related_assets`. Intended to be wrapped by shell tooling (the
+operator's `site publish-writeup <slug>` macro uses it as the
+pre-flight gate before `site publish-all`). Pass
+`--include-tag-usage` if you need the per-technology usage stats.
 
 ### Local jseverino.com Ops Helpers
 
@@ -410,7 +412,7 @@ contract as a real operations vault.
 
 ## Status
 
-v2.4.5. Stable local stdio MCP for routing AI assistants to an
+v2.4.6. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`

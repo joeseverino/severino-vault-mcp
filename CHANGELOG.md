@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [2.4.6] — 2026-05-30
+
+Tighter defaults — token-budget patch. `prepare_writeup_publish` was
+returning per-technology usage stats unconditionally, which added
+~300-500 tokens per call to MCP sessions even when the caller only
+wanted the go/no-go signal. The CLI subcommand was always
+pretty-printing JSON, which is wrong for piping into bash. Both are
+fixed.
+
+### Changed
+
+- `prepare_writeup_publish` now takes `include_tag_usage: bool = False`.
+  Default omits the `tag_usage` field from the response. Callers that
+  need per-tag stats pass `include_tag_usage=True`. Saves ~300-500
+  tokens per call in the common path.
+- `severino-vault-mcp prepare-writeup-publish <slug>` CLI now prints
+  compact JSON by default (no whitespace). Pass `--pretty` for
+  indented human-readable output. New `--include-tag-usage` flag mirrors
+  the MCP-tool parameter.
+- README documents both new flags + the parameter.
+- Bumped package version to 2.4.6.
+
+### Verification
+
+- `uv run pytest -q` passes (66 tests; the existing tag-usage test was
+  split into a default-off and an opt-in case).
+- `uv run ruff check .` passes.
+
 ## [2.4.5] — 2026-05-30
 
 CLI surface for shell tooling. Adds a `prepare-writeup-publish`
@@ -545,7 +573,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.5...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.6...HEAD
+[2.4.6]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.5...v2.4.6
 [2.4.5]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.4...v2.4.5
 [2.4.4]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...v2.4.3

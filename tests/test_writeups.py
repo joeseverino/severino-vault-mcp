@@ -343,9 +343,20 @@ def test_prepare_writeup_publish_reports_failed_validation(
     assert result["featured_set"]["this_writeup_position"] is None
 
 
-def test_prepare_writeup_publish_includes_tag_usage(fake_writeups_vault: Path) -> None:
+def test_prepare_writeup_publish_omits_tag_usage_by_default(
+    fake_writeups_vault: Path,
+) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.prepare_writeup_publish("ready-piece")
+    # Default off — saves ~300-500 tokens per call.
+    assert "tag_usage" not in result
+
+
+def test_prepare_writeup_publish_includes_tag_usage_when_requested(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.prepare_writeup_publish("ready-piece", include_tag_usage=True)
     # ready-piece has technologies: [docker, python] — both should show usage stats
     assert "docker" in result["tag_usage"]
     assert "python" in result["tag_usage"]

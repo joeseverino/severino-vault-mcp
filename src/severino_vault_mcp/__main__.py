@@ -38,6 +38,16 @@ def main() -> None:
         "slug",
         help="Writeup slug, e.g. building-a-custom-mcp-layer.",
     )
+    prepare_publish.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+    prepare_publish.add_argument(
+        "--include-tag-usage",
+        action="store_true",
+        help="Include per-technology usage stats in the response.",
+    )
 
     args = parser.parse_args()
     if args.command == "doctor":
@@ -45,8 +55,11 @@ def main() -> None:
 
     if args.command == "prepare-writeup-publish":
         from .server import prepare_writeup_publish
-        result = prepare_writeup_publish(args.slug)
-        print(json.dumps(result, indent=2))
+        result = prepare_writeup_publish(args.slug, include_tag_usage=args.include_tag_usage)
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
         raise SystemExit(0 if result.get("ok") else 1)
 
     from .server import run

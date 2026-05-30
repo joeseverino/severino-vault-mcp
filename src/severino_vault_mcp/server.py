@@ -1383,33 +1383,35 @@ def validate_writeup(slug: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def prepare_writeup_publish(slug: str) -> dict[str, Any]:
+def prepare_writeup_publish(
+    slug: str,
+    include_tag_usage: bool = False,
+) -> dict[str, Any]:
     """ONE-CALL publish prep. Use this BEFORE every writeup commit.
 
-    Composes `validate_writeup`, `list_writeups("featured")`, and tag
-    cross-checks so a single call returns everything you need to decide
-    "is this writeup safe to ship right now":
+    Composes `validate_writeup` and `list_writeups("featured")` (and
+    optionally per-tag `find_writeups_using_tag`) into one response:
 
     - `validation`: full `validate_writeup` result (blockers, missing
-      tech slugs, missing images, nits).
+      tech slugs, missing images, unresolved related_*, nits).
     - `featured_set`: current featured order, sorted ascending, plus
-      this writeup's position in it (or `null` if unfeatured). Confirms
-      the order without hand-counting across files.
-    - `tag_usage`: for each of this writeup's `technologies:`, how many
-      writeups reference it total and how many of those are published.
-      Surfaces tags that are over- or under-used.
+      this writeup's position (or `null` if unfeatured). No hand-counting.
+    - `tag_usage` (only when `include_tag_usage=True`): per-technology
+      "how many writeups use this tag" stats. Off by default to keep the
+      response small — opt in when you actually need to decide whether a
+      tag has earned its featured slot.
 
     `ok: true` means: frontmatter complete, all tech slugs exist in the
-    catalog, all referenced images exist on disk. If `ok` is true, the
-    writeup is safe to commit + push. If false, the `validation.blockers`
-    field tells you what to fix.
+    catalog, all referenced images exist on disk, related_* references
+    resolve. If `ok` is true, the writeup is safe to commit + push.
 
-    This replaces the 3-4 separate MCP calls you would otherwise chain.
     Prefer this over calling `validate_writeup` + `list_writeups` +
     `find_writeups_using_tag` individually.
 
     Args:
         slug: Writeup slug, e.g. "building-a-custom-mcp-layer".
+        include_tag_usage: If True, include per-technology usage stats
+            (adds ~300-500 tokens per call). Default False.
     """
     validation = validate_writeup(slug)
     featured = list_writeups("featured")
@@ -1421,21 +1423,7 @@ def prepare_writeup_publish(slug: str) -> dict[str, Any]:
             position = entry.get("featured_order")
             break
 
-    tag_usage: dict[str, dict[str, Any]] = {}
-    technologies = (
-        validation.get("frontmatter", {}).get("technologies", [])
-        if isinstance(validation, dict)
-        else []
-    )
-    for tag in technologies:
-        usage = find_writeups_using_tag(tag)
-        if isinstance(usage, dict) and usage.get("ok"):
-            tag_usage[tag] = {
-                "total_writeups": usage.get("total_matches", 0),
-                "published_writeups": usage.get("published_matches", 0),
-            }
-
-    return {
+    response: dict[str, Any] = {
         "ok": bool(validation.get("ok")) if isinstance(validation, dict) else False,
         "slug": slug,
         "validation": validation,
@@ -1447,8 +1435,25 @@ def prepare_writeup_publish(slug: str) -> dict[str, Any]:
             ],
             "this_writeup_position": position,
         },
-        "tag_usage": tag_usage,
     }
+
+    if include_tag_usage:
+        tag_usage: dict[str, dict[str, Any]] = {}
+        technologies = (
+            validation.get("frontmatter", {}).get("technologies", [])
+            if isinstance(validation, dict)
+            else []
+        )
+        for tag in technologies:
+            usage = find_writeups_using_tag(tag)
+            if isinstance(usage, dict) and usage.get("ok"):
+                tag_usage[tag] = {
+                    "total_writeups": usage.get("total_matches", 0),
+                    "published_writeups": usage.get("published_matches", 0),
+                }
+        response["tag_usage"] = tag_usage
+
+    return response
 
 
 # ----- writeup write tools ---------------------------------------------------
