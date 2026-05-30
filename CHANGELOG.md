@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [2.4.2] — 2026-05-30
+
+Writeup-tool ergonomics patch. v2.4.1 added the workflow rule but left
+the individual tool docstrings descriptive instead of directive, so a
+session reading the docstrings on their own (without the server-level
+instructions) still got "this tool reads files" rather than "use this
+instead of grepping." This release tightens that and adds one composite
+tool so the common publish-prep workflow is one MCP call instead of
+three.
+
+### Added
+
+- `prepare_writeup_publish(slug)` — composes `validate_writeup`,
+  `list_writeups("featured")`, and per-tag `find_writeups_using_tag`
+  checks into one response. Returns publish readiness, the current
+  featured order, this writeup's position in it, and tag usage stats.
+  Use this before every writeup commit instead of chaining the
+  individual tools by hand.
+
+### Changed
+
+- `list_writeups`, `validate_writeup`, `get_technology_catalog`, and
+  `find_writeups_using_tag` docstrings now open with directive
+  ("USE THIS", "CALL THIS BEFORE") language matching `find_runbook`'s
+  pattern. The descriptive opener was too easy to ignore.
+- Server instructions add a "VERIFY BEFORE SHIPPING" paragraph telling
+  callers to run validation immediately before commit/push, not after.
+  This patch exists because the first session to publish under v2.4.1
+  committed first, verified second.
+- Bumped package version to 2.4.2 in `pyproject.toml` and
+  `src/severino_vault_mcp/__init__.py`.
+
+### Verification
+
+- `uv run pytest -q` (53 tests + new prepare_writeup_publish test) passes.
+- `uv run ruff check .` passes.
+
 ## [2.4.1] — 2026-05-30
 
 Instruction-hardening patch. v2.4.0 shipped the four writeup-publish-prep
@@ -413,7 +450,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.2.2...v2.3.0

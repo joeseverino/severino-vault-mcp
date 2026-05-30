@@ -310,3 +310,44 @@ def test_validate_writeup_missing_folder(fake_writeups_vault: Path) -> None:
     result = server.validate_writeup("never-existed")
     assert result["ok"] is False
     assert "writeup folder not found" in result["error"]
+
+
+# ----- prepare_writeup_publish ----------------------------------------------
+
+
+def test_prepare_writeup_publish_composes_validate_and_featured(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.prepare_writeup_publish("ready-piece")
+
+    assert result["ok"] is True
+    assert result["slug"] == "ready-piece"
+    # validation passes through full report
+    assert result["validation"]["ok"] is True
+    assert result["validation"]["blockers"] == []
+    # featured set is sorted ascending
+    order_slots = [item["slot"] for item in result["featured_set"]["order"]]
+    assert order_slots == sorted(order_slots)
+    # this writeup's position is surfaced
+    assert result["featured_set"]["this_writeup_position"] == 2
+
+
+def test_prepare_writeup_publish_reports_failed_validation(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.prepare_writeup_publish("draft-piece")
+    assert result["ok"] is False
+    assert any("published is false" in b for b in result["validation"]["blockers"])
+    # unfeatured writeups have null position
+    assert result["featured_set"]["this_writeup_position"] is None
+
+
+def test_prepare_writeup_publish_includes_tag_usage(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.prepare_writeup_publish("ready-piece")
+    # ready-piece has technologies: [docker, python] — both should show usage stats
+    assert "docker" in result["tag_usage"]
+    assert "python" in result["tag_usage"]
+    assert result["tag_usage"]["docker"]["total_writeups"] >= 1

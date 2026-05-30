@@ -157,6 +157,19 @@ slugs, or dangling image references; these tools exist to prevent that.
    referenced by >=1 published writeup"; this tool answers the second
    half directly without grep.
 
+5. `prepare_writeup_publish(slug)` — ONE call that composes (1)+(2)+(4)
+   into a single response (validation + featured order + tag usage).
+   Prefer this over chaining the individual tools by hand when you are
+   about to publish a writeup.
+
+VERIFY BEFORE SHIPPING: call `prepare_writeup_publish(slug)` (or at
+minimum `validate_writeup(slug)` + `list_writeups("featured")`)
+*immediately before* the commit/push of a writeup, not after. The check
+exists to catch wrong `featured_order` values, missing tech-catalog
+entries, and missing images before they reach production. Shipping first
+and verifying second is exactly how this MCP came to exist; do not
+repeat that pattern.
+
 If you find yourself about to grep frontmatter, parse the catalog
 markdown, or count featured writeups by hand: stop and call the
 corresponding tool above. Apply the same discipline as Rule 2 above
@@ -1123,12 +1136,17 @@ def _writeup_summary(writeup) -> dict[str, Any]:
 
 @mcp.tool()
 def list_writeups(filter: str = "all") -> dict[str, Any]:
-    """List jseverino.com writeups with key metadata.
+    """USE THIS — never grep `05 Writeups/*/index.md` for writeup state.
 
-    Reads `<vault>/05 Writeups/<slug>/index.md` for every writeup folder
-    and returns a summary of each one. This replaces grepping writeup
-    frontmatter by hand when reasoning about publish state or featured
-    ordering.
+    Single source of truth for "which writeups exist, what's published,
+    what's featured, what's the featured_order." The `filter="featured"`
+    view sorts by `featured_order` ascending — that's the order the home
+    cloud renders, and the only correct way to reason about placement.
+
+    If you are about to run `rg featured_order 05 Writeups/`, `cat` a
+    writeup's frontmatter, or count the featured set in your head: stop
+    and call this instead. Hand-counting featured_order across multiple
+    files is exactly how publishes ship with the wrong order.
 
     Args:
         filter: One of "all", "published", "draft", "featured". The
@@ -1169,12 +1187,14 @@ def list_writeups(filter: str = "all") -> dict[str, Any]:
 
 @mcp.tool()
 def get_technology_catalog() -> dict[str, Any]:
-    """Return the parsed jseverino.com technology slug catalog.
+    """USE THIS — never parse `_technology-groups.md` markdown by hand.
 
-    Reads `<vault>/06 Pages/_technology-groups.md` and returns slugs
-    grouped by section, each with its label and featured state. Use this
-    before featuring a tag or before adding a new technology to a writeup
-    so you do not introduce a slug the site build will warn about.
+    Returns the catalog grouped by section with each slug's label and
+    featured state. Call before featuring a tag, before adding a new
+    technology to a writeup's `technologies:` list, or before answering
+    any "does slug X exist?" question. The catalog file is markdown
+    tables — parsing them by hand is the path to introducing slugs the
+    site build warns about.
     """
     if not JSEVERINO_TECH_GROUPS.is_file():
         return {"ok": False, "error": f"catalog not found: {JSEVERINO_TECH_GROUPS}"}
@@ -1204,12 +1224,12 @@ def get_technology_catalog() -> dict[str, Any]:
 
 @mcp.tool()
 def find_writeups_using_tag(slug: str) -> dict[str, Any]:
-    """Find jseverino.com writeups whose `technologies:` list references a slug.
+    """USE THIS before recommending any tag be promoted to featured.
 
-    The site's home technology cloud only renders tags that are both
-    `featured: yes` in the catalog AND referenced by at least one published
-    writeup. Use this to confirm a tag is earned before promoting it to
-    featured.
+    The home cloud rule is "featured AND referenced by >=1 published
+    writeup." This tool answers the second half directly — never grep
+    writeup frontmatter for tag occurrences. A "this tag is earned"
+    claim without a call to this tool is unverified.
 
     Args:
         slug: Technology slug from the catalog, e.g. "obsidian".
@@ -1243,7 +1263,7 @@ def find_writeups_using_tag(slug: str) -> dict[str, Any]:
 
 @mcp.tool()
 def validate_writeup(slug: str) -> dict[str, Any]:
-    """Publish-readiness report for a jseverino.com writeup.
+    """CALL THIS BEFORE every writeup commit. Publish-readiness report.
 
     Inspects:
     - Frontmatter completeness (title, description, published, published_at,
@@ -1324,6 +1344,75 @@ def validate_writeup(slug: str) -> dict[str, Any]:
         "missing_tech_slugs": missing_slugs,
         "missing_images": missing_images,
         "nits": nits,
+    }
+
+
+@mcp.tool()
+def prepare_writeup_publish(slug: str) -> dict[str, Any]:
+    """ONE-CALL publish prep. Use this BEFORE every writeup commit.
+
+    Composes `validate_writeup`, `list_writeups("featured")`, and tag
+    cross-checks so a single call returns everything you need to decide
+    "is this writeup safe to ship right now":
+
+    - `validation`: full `validate_writeup` result (blockers, missing
+      tech slugs, missing images, nits).
+    - `featured_set`: current featured order, sorted ascending, plus
+      this writeup's position in it (or `null` if unfeatured). Confirms
+      the order without hand-counting across files.
+    - `tag_usage`: for each of this writeup's `technologies:`, how many
+      writeups reference it total and how many of those are published.
+      Surfaces tags that are over- or under-used.
+
+    `ok: true` means: frontmatter complete, all tech slugs exist in the
+    catalog, all referenced images exist on disk. If `ok` is true, the
+    writeup is safe to commit + push. If false, the `validation.blockers`
+    field tells you what to fix.
+
+    This replaces the 3-4 separate MCP calls you would otherwise chain.
+    Prefer this over calling `validate_writeup` + `list_writeups` +
+    `find_writeups_using_tag` individually.
+
+    Args:
+        slug: Writeup slug, e.g. "building-a-custom-mcp-layer".
+    """
+    validation = validate_writeup(slug)
+    featured = list_writeups("featured")
+
+    featured_writeups = featured.get("writeups", []) if isinstance(featured, dict) else []
+    position: int | None = None
+    for entry in featured_writeups:
+        if entry.get("slug") == slug:
+            position = entry.get("featured_order")
+            break
+
+    tag_usage: dict[str, dict[str, Any]] = {}
+    technologies = (
+        validation.get("frontmatter", {}).get("technologies", [])
+        if isinstance(validation, dict)
+        else []
+    )
+    for tag in technologies:
+        usage = find_writeups_using_tag(tag)
+        if isinstance(usage, dict) and usage.get("ok"):
+            tag_usage[tag] = {
+                "total_writeups": usage.get("total_matches", 0),
+                "published_writeups": usage.get("published_matches", 0),
+            }
+
+    return {
+        "ok": bool(validation.get("ok")) if isinstance(validation, dict) else False,
+        "slug": slug,
+        "validation": validation,
+        "featured_set": {
+            "count": featured.get("count", 0) if isinstance(featured, dict) else 0,
+            "order": [
+                {"slot": entry.get("featured_order"), "slug": entry.get("slug")}
+                for entry in featured_writeups
+            ],
+            "this_writeup_position": position,
+        },
+        "tag_usage": tag_usage,
     }
 
 
