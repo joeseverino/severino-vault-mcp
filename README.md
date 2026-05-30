@@ -115,10 +115,13 @@ vault root.
 | `list_writeups(filter="all")` | read | Enumerate writeups under `05 Writeups/<slug>/index.md` with `published`, `featured`, and `featured_order` summarized. Filters: `all`, `published`, `draft`, `featured`. |
 | `get_technology_catalog()` | read | Parse the slug catalog at `06 Pages/_technology-groups.md` and return slugs grouped by section with their featured state. |
 | `find_writeups_using_tag(slug)` | read | List writeups whose `technologies:` reference a given tag. Use to confirm a tag is earned before promoting it to featured on the home cloud. |
-| `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, and body image references vs files on disk. |
+| `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, body images vs files on disk, and `related_projects` / `related_assets` resolvability against the indexed vault. |
+| `prepare_writeup_publish(slug)` | read | ONE-CALL publish prep. Composes `validate_writeup`, `list_writeups("featured")`, and per-tag `find_writeups_using_tag` checks. Use before every writeup commit instead of chaining the individual tools. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
 | `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
 | `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
+| `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, featured, featured_order). Mirrors `update_frontmatter` for the writeup schema; only changed lines are mutated. |
+| `reorder_featured(slug, position)` | write | Atomically reorders the featured-writeups list. Insert at `position`, move from current slot, or unfeature (`position=0`). Resulting order is guaranteed sequential 1..N. |
 
 CLI helper:
 
@@ -396,17 +399,20 @@ contract as a real operations vault.
 
 ## Status
 
-v2.4.0. Stable local stdio MCP for routing AI assistants to an
+v2.4.4. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
-responses for smaller local models. v2.4.0 adds four writeup-specific read
-tools (`list_writeups`, `get_technology_catalog`, `find_writeups_using_tag`,
-`validate_writeup`) for the jseverino.com portfolio surface that compress
-writeup-publish prep into a single MCP query. Demo screenshots show
-local-model usage on macOS. Layered security tooling (CodeQL, pip-audit,
-OSSF Scorecard, Dependabot) runs on every push, every PR, and weekly.
-Downstream metadata-system integration is intentionally optional.
+responses for smaller local models. The 2.4.x line adds a jseverino.com
+writeup-publish surface: four read tools (`list_writeups`,
+`get_technology_catalog`, `find_writeups_using_tag`, `validate_writeup`),
+a composite `prepare_writeup_publish`, and two write tools
+(`update_writeup_frontmatter`, `reorder_featured`) that make the publish
+workflow safe end-to-end — directive docstrings tell calling sessions
+to use these instead of grepping or hand-editing YAML. Demo screenshots
+show local-model usage on macOS. Layered security tooling (CodeQL,
+pip-audit, OSSF Scorecard, Dependabot) runs on every push, every PR, and
+weekly. Downstream metadata-system integration is intentionally optional.
 
 ## License
 

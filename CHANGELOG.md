@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [2.4.4] — 2026-05-30
+
+Docs catch-up after v2.4.3. v2.4.3 shipped the write tools and the
+dangling-ref validation but did not update the README tool table or the
+Status section. This release brings the public docs in sync with the
+v2.4.x surface — no code changes.
+
+### Changed
+
+- `README.md` tool table now lists `prepare_writeup_publish` (2.4.2),
+  `update_writeup_frontmatter` (2.4.3), and `reorder_featured` (2.4.3),
+  and the `validate_writeup` row now mentions the new
+  `related_projects` / `related_assets` resolvability check.
+- `README.md` Status section bumped to v2.4.4 with a summary of the
+  whole 2.4.x writeup-publish surface.
+- Bumped package version to 2.4.4.
+
+### Verification
+
+- `uv run pytest -q` still passes (65 tests, no behavior change).
+- `uv run ruff check .` passes.
+
 ## [2.4.3] — 2026-05-30
 
 Writeup-write tools + tighter validation. v2.4.2 made the read path safe;
@@ -491,7 +513,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.3...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.4...HEAD
+[2.4.4]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.4.1
