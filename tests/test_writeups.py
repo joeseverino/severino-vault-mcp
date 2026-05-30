@@ -38,8 +38,7 @@ technologies:
 featured: true
 featured_order: 2
 related_projects: []
-related_assets:
-  - some-asset
+related_assets: []
 ---
 
 # Ready Piece
@@ -173,7 +172,7 @@ def test_load_writeups_parses_typed_fields(fake_writeups_vault: Path) -> None:
     assert ready.featured is True
     assert ready.featured_order == 2
     assert ready.technologies == ["docker", "python"]
-    assert ready.related_assets == ["some-asset"]
+    assert ready.related_assets == []
     assert ready.published_at == "2026-05-29"
 
 
@@ -351,3 +350,117 @@ def test_prepare_writeup_publish_includes_tag_usage(fake_writeups_vault: Path) -
     assert "docker" in result["tag_usage"]
     assert "python" in result["tag_usage"]
     assert result["tag_usage"]["docker"]["total_writeups"] >= 1
+
+
+# ----- validate_writeup unresolved refs -------------------------------------
+
+
+def test_validate_writeup_flags_unresolved_related_assets(fake_writeups_vault: Path) -> None:
+    # Inject a dangling related_assets entry, then validate.
+    index = fake_writeups_vault / "05 Writeups" / "ready-piece" / "index.md"
+    text = index.read_text(encoding="utf-8")
+    text = text.replace(
+        "related_assets: []",
+        "related_assets:\n  - never-existed-thing",
+    )
+    index.write_text(text, encoding="utf-8")
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.validate_writeup("ready-piece")
+    assert any("never-existed-thing" in ref for ref in result["unresolved_refs"])
+    # ok should now be false because of the dangling ref
+    assert result["ok"] is False
+
+
+# ----- update_writeup_frontmatter -------------------------------------------
+
+
+def test_update_writeup_frontmatter_touches_last_reviewed(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.update_writeup_frontmatter("draft-piece", touch_last_reviewed=True)
+    assert result["ok"] is True
+    assert "last_reviewed" in result["changed_fields"]
+    body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
+        encoding="utf-8"
+    )
+    # New last_reviewed value should be in the file
+    from datetime import date as _date
+    assert f"last_reviewed: {_date.today().isoformat()}" in body
+
+
+def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.update_writeup_frontmatter("draft-piece", published=True, published_at="2026-05-30")
+    assert result["ok"] is True
+    assert set(result["changed_fields"]) == {"published", "published_at"}
+    body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
+        encoding="utf-8"
+    )
+    assert "published: true" in body
+    assert "published_at: 2026-05-30" in body
+
+
+def test_update_writeup_frontmatter_no_op_when_unchanged(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    # ready-piece already has published=True, so passing the same value is a no-op
+    result = server.update_writeup_frontmatter("ready-piece", published=True)
+    assert result["ok"] is True
+    assert result.get("no_op") is True
+
+
+def test_update_writeup_frontmatter_preserves_other_lines(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    before = path.read_text(encoding="utf-8")
+    server.update_writeup_frontmatter("draft-piece", cover_image="./images/new.png")
+    after = path.read_text(encoding="utf-8")
+    # Only the cover_image line should differ
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    assert len(before_lines) == len(after_lines)
+    diff = [(i, b, a) for i, (b, a) in enumerate(zip(before_lines, after_lines, strict=True)) if b != a]
+    assert len(diff) == 1
+    assert "cover_image:" in diff[0][1]
+
+
+# ----- reorder_featured ------------------------------------------------------
+
+
+def test_reorder_featured_inserts_unfeatured_writeup(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    # draft-piece is unfeatured; insert at position 2 (between lead and ready)
+    result = server.reorder_featured("draft-piece", position=2)
+    assert result["ok"] is True
+    assert result["new_position"] == 2
+    order = result["featured_order_after"]
+    slugs = [item["slug"] for item in order]
+    slots = [item["slot"] for item in order]
+    assert slugs == ["lead-piece", "draft-piece", "ready-piece"]
+    assert slots == [1, 2, 3]
+
+
+def test_reorder_featured_moves_existing_writeup(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    # lead-piece is at 1, ready-piece at 2. Move lead to position 2.
+    result = server.reorder_featured("lead-piece", position=2)
+    assert result["ok"] is True
+    slugs = [item["slug"] for item in result["featured_order_after"]]
+    assert slugs == ["ready-piece", "lead-piece"]
+
+
+def test_reorder_featured_unfeatures_with_position_zero(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.reorder_featured("lead-piece", position=0)
+    assert result["ok"] is True
+    assert result["new_position"] is None
+    slugs = [item["slug"] for item in result["featured_order_after"]]
+    # Only ready-piece remains featured, now at slot 1
+    assert slugs == ["ready-piece"]
+    assert result["featured_order_after"][0]["slot"] == 1
+
+
+def test_reorder_featured_rejects_out_of_range(fake_writeups_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    # Only 2 featured writeups + 1 unfeatured target = max insert position is 3.
+    result = server.reorder_featured("draft-piece", position=99)
+    assert result["ok"] is False
+    assert "out of range" in result["error"]

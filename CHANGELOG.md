@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [2.4.3] — 2026-05-30
+
+Writeup-write tools + tighter validation. v2.4.2 made the read path safe;
+this release closes the gap on the write path. Adds two write tools so
+writeup frontmatter mutations and featured-list reordering go through
+validated, atomic primitives instead of hand-editing YAML across multiple
+files (which is the failure mode v2.4.2's changelog called out).
+
+### Added
+
+- `update_writeup_frontmatter(slug, ...)` — single-writeup scalar
+  updates (title, description, published, published_at, last_reviewed,
+  cover_image, featured, featured_order). Mutates only changed lines;
+  surrounding formatting is preserved byte-for-byte. Supports
+  `touch_last_reviewed=True` for the common "I re-read this, bump the
+  date" operation.
+- `reorder_featured(slug, position)` — atomic cross-file shuffling of
+  the featured list. Insert at position N, move from current slot,
+  or unfeature (position=0). The resulting order is guaranteed
+  sequential 1..N with no gaps or duplicates. This replaces today's
+  failure mode of hand-editing featured_order across 5+ files in a row.
+
+### Changed
+
+- `validate_writeup` now checks that `related_projects` and
+  `related_assets` entries resolve to indexed vault docs. Unresolved
+  references are returned in a new `unresolved_refs` field and cause
+  `ok: false`. Previously these dangling references shipped silently
+  and only HQ's relation-check caught them, hours after publish.
+- Server instructions add a "WRITEUP MUTATIONS" section explicitly
+  routing frontmatter writes through the two new tools and forbidding
+  raw `Edit` on writeup YAML.
+- `.gitignore` now excludes `.claude/` (Claude Code session data).
+- Bumped package version to 2.4.3.
+
+### Verification
+
+- `uv run pytest -q` passes 65 tests (56 + 9 new for the write tools
+  and the validate extension).
+- `uv run ruff check .` passes.
+
 ## [2.4.2] — 2026-05-30
 
 Writeup-tool ergonomics patch. v2.4.1 added the workflow rule but left
@@ -450,7 +491,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.3...HEAD
+[2.4.3]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0

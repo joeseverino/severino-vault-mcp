@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -162,18 +163,32 @@ slugs, or dangling image references; these tools exist to prevent that.
    Prefer this over chaining the individual tools by hand when you are
    about to publish a writeup.
 
+WRITEUP MUTATIONS (use these, never `Edit` on writeup YAML):
+
+6. `update_writeup_frontmatter(slug, ...)` — for any single-writeup
+   frontmatter change (flip `published`, bump `last_reviewed`, change
+   `cover_image`, etc.). Mutates only the changed lines; surrounding
+   formatting is preserved.
+
+7. `reorder_featured(slug, position)` — for ANY change to the featured
+   list (insert new, move existing, unfeature). The tool guarantees the
+   resulting order is sequential 1..N. Hand-shuffling featured_order
+   across multiple files is the exact failure mode that produced v2.4.2.
+
 VERIFY BEFORE SHIPPING: call `prepare_writeup_publish(slug)` (or at
 minimum `validate_writeup(slug)` + `list_writeups("featured")`)
 *immediately before* the commit/push of a writeup, not after. The check
 exists to catch wrong `featured_order` values, missing tech-catalog
-entries, and missing images before they reach production. Shipping first
-and verifying second is exactly how this MCP came to exist; do not
-repeat that pattern.
+entries, missing images, and unresolved `related_projects` /
+`related_assets` references before they reach production. Shipping
+first and verifying second is exactly how this MCP came to exist; do
+not repeat that pattern.
 
 If you find yourself about to grep frontmatter, parse the catalog
-markdown, or count featured writeups by hand: stop and call the
-corresponding tool above. Apply the same discipline as Rule 2 above
-about runbooks — don't reinvent what these tools already do.
+markdown, count featured writeups by hand, or run `Edit` on a writeup's
+frontmatter block: stop and call the corresponding tool above. Apply
+the same discipline as Rule 2 above about runbooks — don't reinvent
+what these tools already do.
 
 The configured vault root and indexed directories are controlled by
 `config.example.toml`-style settings or `SVMC_*` environment overrides.
@@ -1335,7 +1350,26 @@ def validate_writeup(slug: str) -> dict[str, Any]:
         if ref_name and ref_name not in present_images:
             missing_images.append(ref)
 
-    ok = not blockers and not missing_slugs and not missing_images
+    # related_projects / related_assets must resolve to indexed vault docs.
+    # The convention is project-<slug> for projects; assets either share that
+    # prefix or match a vault doc filename stem. Anything that doesn't resolve
+    # is a soft-shipped dangling reference that HQ flags repeatedly.
+    unresolved_refs: list[str] = []
+    vault_idx = _LOADER.index()
+    project_doc_ids = {d.doc_id for d in vault_idx.docs}
+    doc_stems_lower = {d.path.stem.lower() for d in vault_idx.docs}
+    for ref in writeup.related_projects:
+        if f"project-{ref}" not in project_doc_ids and ref.lower() not in doc_stems_lower:
+            unresolved_refs.append(f"related_projects: {ref} (no matching vault doc)")
+    for ref in writeup.related_assets:
+        if (
+            f"project-{ref}" not in project_doc_ids
+            and ref not in project_doc_ids
+            and ref.lower() not in doc_stems_lower
+        ):
+            unresolved_refs.append(f"related_assets: {ref} (no matching vault doc)")
+
+    ok = not blockers and not missing_slugs and not missing_images and not unresolved_refs
     return {
         "ok": ok,
         "slug": slug,
@@ -1343,6 +1377,7 @@ def validate_writeup(slug: str) -> dict[str, Any]:
         "blockers": blockers,
         "missing_tech_slugs": missing_slugs,
         "missing_images": missing_images,
+        "unresolved_refs": unresolved_refs,
         "nits": nits,
     }
 
@@ -1413,6 +1448,259 @@ def prepare_writeup_publish(slug: str) -> dict[str, Any]:
             "this_writeup_position": position,
         },
         "tag_usage": tag_usage,
+    }
+
+
+# ----- writeup write tools ---------------------------------------------------
+
+_WRITEUP_SCALAR_KEYS = (
+    "title", "description", "published", "published_at", "last_reviewed",
+    "cover_image", "featured", "featured_order",
+)
+
+
+def _yaml_writeup_scalar(value: Any) -> str:
+    """Serialize a Python value to a YAML scalar for writeup frontmatter."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    s = str(value)
+    if s == "":
+        return ""
+    needs_quote = (
+        s != s.strip()
+        or s[0] in "&*!%@`>|"
+        or any(ch in s for ch in [":", "#"])
+    )
+    if needs_quote:
+        return '"' + s.replace('"', '\\"') + '"'
+    return s
+
+
+def _replace_writeup_scalar(text: str, key: str, raw_value: str) -> str:
+    """Replace the value of a scalar frontmatter key in writeup index.md.
+
+    If the key exists, only its value line is changed (preserving formatting
+    of every other line). If it doesn't exist, the key is inserted just
+    before the closing `---` of the frontmatter block.
+    """
+    pattern = re.compile(rf'^({re.escape(key)}):[^\n]*$', re.MULTILINE)
+    replacement = f"{key}: {raw_value}".rstrip()
+    if pattern.search(text):
+        return pattern.sub(replacement, text, count=1)
+
+    # Insert before the closing --- of the frontmatter block.
+    lines = text.split("\n")
+    fence_count = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            fence_count += 1
+            if fence_count == 2:
+                lines.insert(i, replacement)
+                return "\n".join(lines)
+    # No closing fence — prepend.
+    return replacement + "\n" + text
+
+
+def _load_writeup_or_error(slug: str) -> tuple[Any, dict[str, Any] | None]:
+    """Find a single writeup by slug or return an error response."""
+    if not JSEVERINO_WRITEUPS_DIR.is_dir():
+        return None, {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+    writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
+    if not writeup_dir.is_dir():
+        return None, {"ok": False, "error": f"writeup folder not found: {slug}"}
+    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    writeup = next((w for w in writeups if w.slug == slug), None)
+    if writeup is None:
+        return None, {"ok": False, "error": f"writeup has no frontmatter or index.md: {slug}"}
+    return writeup, None
+
+
+@mcp.tool()
+def update_writeup_frontmatter(
+    slug: str,
+    title: str | None = None,
+    description: str | None = None,
+    published: bool | None = None,
+    published_at: str | None = None,
+    last_reviewed: str | None = None,
+    touch_last_reviewed: bool = False,
+    cover_image: str | None = None,
+    featured: bool | None = None,
+    featured_order: int | None = None,
+) -> dict[str, Any]:
+    """USE THIS — never Edit YAML in `05 Writeups/<slug>/index.md` by hand.
+
+    Mirrors `update_frontmatter` but for the writeup schema (no doc_id,
+    has published/featured/featured_order). Mutates scalar fields with
+    minimal disruption to surrounding formatting; lines you don't touch
+    stay byte-identical.
+
+    For cross-writeup reordering of `featured_order` (slotting a new
+    writeup in at position N and shifting others), call
+    `reorder_featured(slug, position)` instead — this tool only mutates
+    one writeup at a time and won't keep the featured set sequential.
+
+    Args:
+        slug: Writeup slug.
+        title, description, published_at, cover_image: scalar updates.
+            None means leave unchanged.
+        published, featured: boolean updates. None means leave unchanged.
+        featured_order: integer slot, or null to clear. To fully
+            unfeature, pass `featured=False, featured_order=None`.
+        last_reviewed: ISO date (YYYY-MM-DD). Ignored if
+            `touch_last_reviewed=True`.
+        touch_last_reviewed: if True, set last_reviewed to today.
+    """
+    writeup, err = _load_writeup_or_error(slug)
+    if err:
+        return err
+
+    if touch_last_reviewed:
+        last_reviewed_value: str | None = date.today().isoformat()
+    else:
+        last_reviewed_value = last_reviewed
+
+    candidates: list[tuple[str, Any, Any]] = [
+        ("title", writeup.title, title),
+        ("description", writeup.description, description),
+        ("published", writeup.published, published),
+        ("published_at", writeup.published_at, published_at),
+        ("last_reviewed", writeup.last_reviewed, last_reviewed_value),
+        ("cover_image", writeup.cover_image, cover_image),
+        ("featured", writeup.featured, featured),
+        ("featured_order", writeup.featured_order, featured_order),
+    ]
+
+    updates: dict[str, Any] = {}
+    for key, current, new in candidates:
+        if new is None:
+            # `None` means "leave this field unchanged." To clear
+            # featured_order, callers should use reorder_featured(slug, 0).
+            continue
+        if current != new:
+            updates[key] = new
+
+    if not updates:
+        return {
+            "ok": True,
+            "no_op": True,
+            "slug": slug,
+            "message": "No fields differ — nothing written.",
+        }
+
+    text = writeup.path.read_text(encoding="utf-8")
+    for key, value in updates.items():
+        text = _replace_writeup_scalar(text, key, _yaml_writeup_scalar(value))
+    writeup.path.write_text(text, encoding="utf-8")
+
+    return {
+        "ok": True,
+        "slug": slug,
+        "relative_path": str(writeup.path.relative_to(_LOADER.config.vault_path)),
+        "changed_fields": sorted(updates.keys()),
+        "values": {k: (None if v is None else str(v)) for k, v in updates.items()},
+    }
+
+
+@mcp.tool()
+def reorder_featured(slug: str, position: int) -> dict[str, Any]:
+    """USE THIS — never hand-shuffle featured_order across multiple files.
+
+    Atomically reorders the featured-writeups list. The exact failure mode
+    this tool prevents is documented in CHANGELOG v2.4.2: hand-editing
+    featured_order across 5+ files in a row is how publishes ship with
+    the wrong slot value.
+
+    Behavior:
+
+    - position >= 1 and slug currently UNfeatured: insert at `position`,
+      shift everyone at >=position down by 1.
+    - position >= 1 and slug already featured: move from current slot
+      to `position`, shifting others to keep the list sequential 1..N.
+    - position == 0: unfeature `slug` (set featured=false, clear
+      featured_order); existing featured writeups shift up to close the
+      gap.
+
+    The resulting featured order is guaranteed sequential 1..N with no
+    gaps and no duplicates.
+
+    Args:
+        slug: Writeup slug to move.
+        position: Target slot (1-indexed) or 0 to unfeature.
+    """
+    if not isinstance(position, int) or position < 0:
+        return {"ok": False, "error": "position must be an integer >= 0"}
+
+    target, err = _load_writeup_or_error(slug)
+    if err:
+        return err
+
+    all_writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    featured_now = sorted(
+        (w for w in all_writeups if w.featured),
+        key=lambda w: (
+            w.featured_order if w.featured_order is not None else 10**9,
+            w.slug,
+        ),
+    )
+    others = [w for w in featured_now if w.slug != slug]
+
+    if position == 0:
+        new_order: list = list(others)
+        target_new_position: int | None = None
+    else:
+        max_position = len(others) + 1
+        if position > max_position:
+            return {
+                "ok": False,
+                "error": f"position {position} out of range (max {max_position})",
+            }
+        new_order = others[: position - 1] + [target] + others[position - 1 :]
+        target_new_position = position
+
+    changed_writeups: list[str] = []
+
+    # Update every writeup whose featured state or slot differs from the new
+    # plan. Target gets unfeatured if position==0; otherwise it joins
+    # new_order at the desired slot.
+    for i, w in enumerate(new_order, start=1):
+        desired_featured = True
+        desired_order = i
+        if w.featured != desired_featured or w.featured_order != desired_order:
+            text = w.path.read_text(encoding="utf-8")
+            text = _replace_writeup_scalar(text, "featured", _yaml_writeup_scalar(desired_featured))
+            text = _replace_writeup_scalar(text, "featured_order", _yaml_writeup_scalar(desired_order))
+            w.path.write_text(text, encoding="utf-8")
+            changed_writeups.append(w.slug)
+
+    if position == 0 and (target.featured or target.featured_order is not None):
+        text = target.path.read_text(encoding="utf-8")
+        text = _replace_writeup_scalar(text, "featured", _yaml_writeup_scalar(False))
+        text = _replace_writeup_scalar(text, "featured_order", _yaml_writeup_scalar(None))
+        target.path.write_text(text, encoding="utf-8")
+        if target.slug not in changed_writeups:
+            changed_writeups.append(target.slug)
+
+    # Re-read and report the resulting order.
+    after = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    featured_after = sorted(
+        (w for w in after if w.featured),
+        key=lambda w: (
+            w.featured_order if w.featured_order is not None else 10**9,
+            w.slug,
+        ),
+    )
+
+    return {
+        "ok": True,
+        "slug": slug,
+        "new_position": target_new_position,
+        "changed_writeups": changed_writeups,
+        "featured_order_after": [
+            {"slot": w.featured_order, "slug": w.slug} for w in featured_after
+        ],
     }
 
 
