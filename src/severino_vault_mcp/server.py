@@ -1505,12 +1505,6 @@ def prepare_writeup_publish(
 
 # ----- writeup write tools ---------------------------------------------------
 
-_WRITEUP_SCALAR_KEYS = (
-    "title", "description", "published", "published_at", "last_reviewed",
-    "cover_image", "featured", "featured_order",
-)
-
-
 def _yaml_writeup_scalar(value: Any) -> str:
     """Serialize a Python value to a YAML scalar for writeup frontmatter."""
     if value is None:
