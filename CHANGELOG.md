@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+## [2.4.5] — 2026-05-30
+
+CLI surface for shell tooling. Adds a `prepare-writeup-publish`
+subcommand to the console script so the operator's `site` bash macro
+can gate publishes on the same MCP validation that the AI session uses,
+without re-implementing the check in shell or shelling out through
+inline Python.
+
+### Added
+
+- `severino-vault-mcp prepare-writeup-publish <slug>` CLI subcommand.
+  Runs `prepare_writeup_publish` for the given writeup slug, prints
+  the JSON result to stdout, and exits with code 0 if `ok: true` or
+  code 1 if there are blockers, missing slugs, missing images, or
+  unresolved `related_projects` / `related_assets`. Intended to be
+  wrapped by `site publish-writeup` in
+  `~/Documents/Code/Assets/tools/site`.
+
+### Changed
+
+- `README.md` documents the new CLI subcommand alongside `doctor`.
+- Status section bumped to v2.4.5.
+- Bumped package version to 2.4.5.
+
+### Verification
+
+- `uv run pytest -q` still passes (65 tests, no behavior change).
+- `uv run ruff check .` passes.
+- Smoke-tested locally: `severino-vault-mcp prepare-writeup-publish
+  building-a-custom-mcp-layer` returns ok:true (exit 0) against the
+  operator's vault.
+
 ## [2.4.4] — 2026-05-30
 
 Docs catch-up after v2.4.3. v2.4.3 shipped the write tools and the
@@ -513,7 +545,8 @@ assistants without leaking secret-adjacent material.
 - 9 pytest cases covering loader behaviour, search ranking, sensitivity gate,
   and both write tools.
 
-[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.4...HEAD
+[Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.5...HEAD
+[2.4.5]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.4...v2.4.5
 [2.4.4]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.1...v2.4.2

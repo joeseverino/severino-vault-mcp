@@ -123,7 +123,7 @@ vault root.
 | `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, featured, featured_order). Mirrors `update_frontmatter` for the writeup schema; only changed lines are mutated. |
 | `reorder_featured(slug, position)` | write | Atomically reorders the featured-writeups list. Insert at `position`, move from current slot, or unfeature (`position=0`). Resulting order is guaranteed sequential 1..N. |
 
-CLI helper:
+CLI helpers:
 
 ```bash
 severino-vault-mcp doctor --propose
@@ -131,6 +131,17 @@ severino-vault-mcp doctor --propose
 
 Validates required frontmatter fields in the configured vault and prints
 starter frontmatter for markdown files that are not yet indexed.
+
+```bash
+severino-vault-mcp prepare-writeup-publish <slug>
+```
+
+Runs `prepare_writeup_publish` for one writeup slug, prints the JSON
+result to stdout, exits 0 if `ok: true` (safe to publish) or 1 if there
+are blockers, missing tech slugs, missing images, or unresolved
+`related_projects` / `related_assets`. Intended to be wrapped by shell
+tooling (the operator's `site publish-writeup <slug>` macro uses it as
+the pre-flight gate before `site publish-all`).
 
 ### Local jseverino.com Ops Helpers
 
@@ -399,7 +410,7 @@ contract as a real operations vault.
 
 ## Status
 
-v2.4.4. Stable local stdio MCP for routing AI assistants to an
+v2.4.5. Stable local stdio MCP for routing AI assistants to an
 Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
