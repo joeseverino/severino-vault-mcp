@@ -8,12 +8,17 @@
   documentation. The docs now distinguish the reusable vault MCP surface from
   the visible jseverino.com workflow pack while showing the concrete systems
   behind the operator tooling.
+- Added `list_featured_writeup_order()` as the low-token fast path for local
+  models answering "what is the current featured/home writeup order?"
 
 ### Changed
 
 - Updated security documentation to use the current `restricted` terminology,
   document every write boundary, and call out the jseverino.com path boundary.
 - Updated testing docs for the expanded writeup coverage.
+- `list_writeups` now includes compact `order` and `featured_order` fields so
+  small/local models do not need to infer ordering from verbose writeup
+  summaries.
 
 ### Security
 
@@ -25,7 +30,7 @@
 ### Verification
 
 - `scripts/check.sh --quick` passes.
-- `uv run pytest -q` passes (69 tests).
+- `uv run pytest -q` passes (71 tests).
 - `uv run ruff check .` passes.
 
 ## [2.4.6] — 2026-05-30

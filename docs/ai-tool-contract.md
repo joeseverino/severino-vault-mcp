@@ -38,6 +38,7 @@ when a vault doc or workflow tool exists.
 
 | User intent | Tool |
 |---|---|
+| What is the featured/home writeup order | `list_featured_writeup_order` |
 | Which writeups exist, are published, are drafts, or are featured | `list_writeups(filter)` |
 | What is the featured order | `list_writeups("featured")` |
 | Does a technology slug exist or belong in the home cloud | `get_technology_catalog` and `find_writeups_using_tag` |

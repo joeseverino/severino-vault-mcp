@@ -155,6 +155,7 @@ structured reads, and narrow writes.
 | `list_csp_reports(limit=20, directive=None)` | read | Recent filtered CSP violation reports from the fixed Cloudflare D1 database. |
 | `count_csp_reports()` | read | Total and by-directive CSP report counts. |
 | `check_jseverino_security_headers(path="/")` | read | Live `jseverino.com` HEAD check for CSP/reporting/security headers. |
+| `list_featured_writeup_order()` | read | Fast path for the current featured/home-cloud writeup order. Returns only slot, slug, title, published, and featured. |
 | `list_writeups(filter="all")` | read | Enumerate writeups under `05 Writeups/<slug>/index.md` with `published`, `featured`, and `featured_order` summarized. Filters: `all`, `published`, `draft`, `featured`. |
 | `get_technology_catalog()` | read | Parse the slug catalog at `06 Pages/_technology-groups.md` and return slugs grouped by section with their featured state. |
 | `find_writeups_using_tag(slug)` | read | List writeups whose `technologies:` reference a given tag. Use to confirm a tag is earned before promoting it to featured on the home cloud. |

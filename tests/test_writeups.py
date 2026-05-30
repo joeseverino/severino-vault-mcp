@@ -207,6 +207,32 @@ def test_load_technology_catalog_missing_file_returns_empty(tmp_path: Path) -> N
 # ----- list_writeups ---------------------------------------------------------
 
 
+def test_list_featured_writeup_order_returns_compact_order(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.list_featured_writeup_order()
+
+    assert result["ok"] is True
+    assert result["count"] == 2
+    assert result["order"] == [
+        {
+            "slot": 1,
+            "slug": "lead-piece",
+            "title": "Lead Piece",
+            "published": True,
+            "featured": True,
+        },
+        {
+            "slot": 2,
+            "slug": "ready-piece",
+            "title": "Ready Piece",
+            "published": True,
+            "featured": True,
+        },
+    ]
+
+
 def test_list_writeups_all_returns_every_indexed(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.list_writeups()
@@ -235,6 +261,35 @@ def test_list_writeups_featured_is_sorted_by_order(fake_writeups_vault: Path) ->
     result = server.list_writeups("featured")
     ordered = [w["slug"] for w in result["writeups"]]
     assert ordered == ["lead-piece", "ready-piece"]
+    assert [w["slug"] for w in result["order"]] == ["lead-piece", "ready-piece"]
+    assert result["order"][0]["slot"] == 1
+    assert [w["slug"] for w in result["featured_order"]] == ["lead-piece", "ready-piece"]
+
+
+def test_list_writeups_published_includes_compact_featured_order(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.list_writeups("published")
+
+    assert result["count"] == 2
+    assert [w["slug"] for w in result["featured_order"]] == ["lead-piece", "ready-piece"]
+    assert result["featured_order"] == [
+        {
+            "slot": 1,
+            "slug": "lead-piece",
+            "title": "Lead Piece",
+            "published": True,
+            "featured": True,
+        },
+        {
+            "slot": 2,
+            "slug": "ready-piece",
+            "title": "Ready Piece",
+            "published": True,
+            "featured": True,
+        },
+    ]
 
 
 def test_list_writeups_rejects_unknown_filter(fake_writeups_vault: Path) -> None:

@@ -134,8 +134,9 @@ catches CVEs against the *current* pin.
 
 - Writeup loading from `05 Writeups/<slug>/index.md`.
 - Technology catalog parsing from `06 Pages/_technology-groups.md`.
-- `list_writeups` filters, featured-order sorting, and configured-path
-  boundary checks.
+- `list_featured_writeup_order` compact home-cloud order output.
+- `list_writeups` filters, featured-order sorting, compact order fields, and
+  configured-path boundary checks.
 - `get_technology_catalog` grouped output and configured-path boundary checks.
 - `find_writeups_using_tag` usage lookup and input validation.
 - `validate_writeup` blockers, missing technology slugs, missing images, and

@@ -172,39 +172,45 @@ instead of grepping or reading the files by hand. The manual workflow is
 how publishes ship with wrong `featured_order` values, missing tech-catalog
 slugs, or dangling image references; these tools exist to prevent that.
 
-1. `list_writeups(filter)` — for ANY question about which writeups
+1. `list_featured_writeup_order()` — FAST PATH for any question about the
+   current featured/home-cloud order. It returns only slot, slug, title,
+   published, and featured. Use this before `list_writeups("featured")`
+   unless the user needs full frontmatter fields.
+
+2. `list_writeups(filter)` — for ANY question about which writeups
    exist, what's published, what's featured, or what `featured_order`
    each writeup has. Do NOT grep `05 Writeups/*/index.md` for these.
    The `filter="featured"` view sorts by `featured_order` ascending and
    is the only correct way to reason about the home-cloud order.
 
-2. `validate_writeup(slug)` — before claiming a writeup is publish-ready.
+3. `validate_writeup(slug)` — before claiming a writeup is publish-ready.
    Returns a structured report on frontmatter completeness, tech-slug
    coverage against the catalog, and image references vs files on disk.
    "I read the file" is not the same as "I validated it."
 
-3. `get_technology_catalog()` — for any question about technology slugs,
+4. `get_technology_catalog()` — for any question about technology slugs,
    their groups, or their featured state. Do NOT parse
    `_technology-groups.md` markdown tables by hand.
 
-4. `find_writeups_using_tag(slug)` — before recommending that any tag be
+5. `find_writeups_using_tag(slug)` — before recommending that any tag be
    promoted to featured. The site's home cloud rule is "featured AND
    referenced by >=1 published writeup"; this tool answers the second
    half directly without grep.
 
-5. `prepare_writeup_publish(slug)` — ONE call that composes (1)+(2)+(4)
+6. `prepare_writeup_publish(slug)` — ONE call that composes validation,
+   featured order, and optional tag usage
    into a single response (validation + featured order + tag usage).
    Prefer this over chaining the individual tools by hand when you are
    about to publish a writeup.
 
 WRITEUP MUTATIONS (use these, never `Edit` on writeup YAML):
 
-6. `update_writeup_frontmatter(slug, ...)` — for any single-writeup
+7. `update_writeup_frontmatter(slug, ...)` — for any single-writeup
    frontmatter change (flip `published`, bump `last_reviewed`, change
    `cover_image`, etc.). Mutates only the changed lines; surrounding
    formatting is preserved.
 
-7. `reorder_featured(slug, position)` — for ANY change to the featured
+8. `reorder_featured(slug, position)` — for ANY change to the featured
    list (insert new, move existing, unfeature). The tool guarantees the
    resulting order is sequential 1..N. Hand-shuffling featured_order
    across multiple files is the exact failure mode that produced v2.4.2.
@@ -1193,6 +1199,52 @@ def _writeup_summary(writeup) -> dict[str, Any]:
     return writeup.to_summary()
 
 
+def _writeup_order_entry(writeup, slot: int | None = None) -> dict[str, Any]:
+    return {
+        "slot": slot if slot is not None else writeup.featured_order,
+        "slug": writeup.slug,
+        "title": writeup.title,
+        "published": writeup.published,
+        "featured": writeup.featured,
+    }
+
+
+def _featured_writeup_order(writeups: list[Any]) -> list[dict[str, Any]]:
+    return [
+        _writeup_order_entry(w, slot=i)
+        for i, w in enumerate(
+            sorted(
+                (w for w in writeups if w.published and w.featured),
+                key=lambda w: (
+                    w.featured_order if w.featured_order is not None else 10**9,
+                    w.slug,
+                ),
+            ),
+            start=1,
+        )
+    ]
+
+
+@mcp.tool()
+def list_featured_writeup_order() -> dict[str, Any]:
+    """FAST PATH for "what is the featured/home writeup order?"
+
+    Returns only the compact home-cloud order: slot, slug, title, published,
+    and featured. Prefer this over `list_writeups("featured")` when the user
+    asks for the current order and does not need full frontmatter fields.
+    """
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return err
+
+    order = _featured_writeup_order(load_writeups(JSEVERINO_WRITEUPS_DIR))
+    return {
+        "ok": True,
+        "writeups_dir": str(JSEVERINO_WRITEUPS_DIR),
+        "count": len(order),
+        "order": order,
+    }
+
+
 @mcp.tool()
 def list_writeups(filter: str = "all") -> dict[str, Any]:
     """USE THIS — never grep `05 Writeups/*/index.md` for writeup state.
@@ -1222,6 +1274,7 @@ def list_writeups(filter: str = "all") -> dict[str, Any]:
         return err
 
     writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    all_writeups = list(writeups)
     if chosen == "published":
         writeups = [w for w in writeups if w.published]
     elif chosen == "draft":
@@ -1235,11 +1288,16 @@ def list_writeups(filter: str = "all") -> dict[str, Any]:
             )
         )
 
+    featured_order = _featured_writeup_order(all_writeups)
+    order = [_writeup_order_entry(w, slot=i) for i, w in enumerate(writeups, start=1)]
+
     return {
         "ok": True,
         "filter": chosen,
         "writeups_dir": str(JSEVERINO_WRITEUPS_DIR),
         "count": len(writeups),
+        "order": order,
+        "featured_order": featured_order,
         "writeups": [_writeup_summary(w) for w in writeups],
     }
 

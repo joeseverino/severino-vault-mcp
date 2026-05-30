@@ -72,6 +72,7 @@ against a real production workflow.
 | Review CSP reports | `list_csp_reports`, `count_csp_reports` |
 | Apply the fixed D1 schema | `apply_jseverino_d1_schema(confirm=True)` |
 | Check live security headers | `check_jseverino_security_headers` |
+| Get the featured home-cloud order | `list_featured_writeup_order` |
 | Inventory portfolio writeups | `list_writeups` |
 | Parse technology taxonomy | `get_technology_catalog` |
 | Check whether a tag is earned | `find_writeups_using_tag` |
