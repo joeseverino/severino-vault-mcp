@@ -33,6 +33,9 @@ what each one is responsible for. Generated caches, local virtualenvs, and
 | Path | Purpose |
 |---|---|
 | `docs/demo.md` | Short transcript showing the intended MCP assistant flow with the sample vault. |
+| `docs/architecture.md` | End-to-end architecture guide covering the runtime model, data contract, generic MCP surface, jseverino.com extension surface, write boundaries, and adoption guidance. |
+| `docs/operator-workflows.md` | Portfolio-facing workflow-pack guide showing the concrete systems behind the jseverino.com tools and how to adapt the pattern. |
+| `docs/ai-tool-contract.md` | Compact AI-facing tool-selection contract for fast, low-token MCP use. |
 | `docs/assets/local-model-vps-ssh.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a VPS SSH runbook question. |
 | `docs/assets/local-model-container-restart.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a homelab container restart question. |
 | `docs/migration-guide.md` | Messy-vault migration guide with doctor usage and frontmatter examples. |
@@ -50,7 +53,7 @@ vault.
 |---|---|
 | `examples/sample-vault/01 Projects/Client Edge DNS.md` | Example project index with frontmatter and related doc references. |
 | `examples/sample-vault/02 Infrastructure/AdGuard Home.md` | Example infrastructure note for DNS and client edge name resolution. |
-| `examples/sample-vault/02 Infrastructure/Offline CA.md` | Example `secret_adjacent` doc used to prove body withholding behavior. |
+| `examples/sample-vault/02 Infrastructure/Offline CA.md` | Example `restricted` doc used to prove body withholding behavior. |
 | `examples/sample-vault/03 Runbooks/Add Nginx Proxy Host.md` | Example runbook for adding an HTTPS proxy host. |
 | `examples/sample-vault/03 Runbooks/Generate Internal Service Certificate.md` | Example runbook for generating an `internal.example` certificate. |
 | `examples/sample-vault/03 Runbooks/Quick Index.md` | Example Quick Index backing `vault://quick-index`. |
@@ -64,7 +67,7 @@ vault.
 | `src/severino_vault_mcp/config.py` | TOML and environment-driven configuration: vault path, cache, optional integrations, unlock settings, and audit paths. |
 | `src/severino_vault_mcp/doctor.py` | Frontmatter validator and proposal helper for onboarding messy vaults. |
 | `src/severino_vault_mcp/search.py` | Lightweight lexical ranking for `find_runbook`. |
-| `src/severino_vault_mcp/secret_unlock.py` | Local one-request unlock gate for `secret_adjacent` doc bodies. |
+| `src/severino_vault_mcp/secret_unlock.py` | Local one-request unlock gate for `restricted` doc bodies. |
 | `src/severino_vault_mcp/sensitivity.py` | Sensitivity enum, body-release policy helper, and advisory text. |
 | `src/severino_vault_mcp/server.py` | FastMCP server registration: resources, tools, read/write operations, and body search. |
 | `src/severino_vault_mcp/tech_groups.py` | Parser for the jseverino.com technology-groups catalog at `06 Pages/_technology-groups.md`. |

@@ -19,6 +19,34 @@ procedures in markdown. The server runs over stdio, reads local files only,
 and gives MCP clients a reliable way to answer operational questions from the
 operator's actual documentation instead of generic model memory.
 
+## Architecture
+
+`severino-vault-mcp` is a local adapter between an MCP client and an
+operator-owned markdown vault. It does not host a web service, proxy arbitrary
+commands, or require a database. At startup it reads configuration, indexes the
+configured vault folders, registers FastMCP resources and tools, and serves
+requests over stdio from the MCP host. The important boundary is simple: the
+MCP can only see files the local user can read, under folders the operator
+explicitly indexes.
+
+The project has two first-class surfaces. The generic vault surface is reusable
+by anyone with an Obsidian-style operations vault: Quick Index navigation,
+stable `doc_id` lookups, runbook search, project inventory, body search with
+restricted-doc exclusion, and narrow frontmatter maintenance tools. The
+jseverino.com surface is the real operator workflow this MCP was built around:
+fixed-purpose tools for writeup readiness, technology taxonomy checks,
+featured-order maintenance, contact/CSP review, and live security-header
+checks. It is visible here on purpose as portfolio-grade evidence of how the
+generic pattern works in production; other operators can run the generic
+surface as-is and use the jseverino.com tools as a blueprint for their own
+fixed local workflows.
+
+See [`docs/architecture.md`](docs/architecture.md) for the full runtime model,
+data contract, extension pattern, and adoption guidance. See
+[`docs/operator-workflows.md`](docs/operator-workflows.md) for the real
+jseverino.com workflow pack and [`docs/ai-tool-contract.md`](docs/ai-tool-contract.md)
+for the compact tool-selection contract used to keep AI sessions fast.
+
 ## Why It Is Useful
 
 - Grounds AI assistants in real runbooks before they answer.
@@ -94,6 +122,10 @@ vault root.
 
 ## MCP Surface
 
+The generic surface works against any configured operations vault that follows
+the frontmatter contract in this README. These tools are the reusable product
+surface.
+
 | Resource | Type | What it returns |
 |---|---|---|
 | `vault://quick-index` | resource | The Quick Index navigation hub (`report-playbook-mcp-index`) |
@@ -108,6 +140,17 @@ vault root.
 | `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
 | `search_body(query)` | read | Full-text body search with frontmatter skipped and `restricted` bodies excluded. |
+| `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
+| `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
+
+The jseverino.com surface is the production workflow pack. It stays explicit
+because it is the fastest path for the author's publishing and operations
+workflows, and because it shows reviewers the concrete systems this MCP
+orchestrates. The portable part is the pattern: fixed paths, fixed schemas,
+structured reads, and narrow writes.
+
+| Tool | Read or write | What it answers |
+|---|---|---|
 | `list_contact_submissions(limit=10)` | read | Recent `jseverino.com` contact submissions from the fixed Cloudflare D1 database. |
 | `list_csp_reports(limit=20, directive=None)` | read | Recent filtered CSP violation reports from the fixed Cloudflare D1 database. |
 | `count_csp_reports()` | read | Total and by-directive CSP report counts. |
@@ -118,8 +161,6 @@ vault root.
 | `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, body images vs files on disk, and `related_projects` / `related_assets` resolvability against the indexed vault. |
 | `prepare_writeup_publish(slug, include_tag_usage=False)` | read | ONE-CALL publish prep. Composes `validate_writeup` and `list_writeups("featured")` in one response; `include_tag_usage=True` additionally composes per-tag `find_writeups_using_tag` (off by default to keep the payload small). Use before every writeup commit instead of chaining the individual tools. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
-| `add_frontmatter(...)` | write | Prepends a validated frontmatter block to a vault doc that does not have one. |
-| `update_frontmatter(...)` | write | Updates frontmatter fields. `doc_id` is immutable. |
 | `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, featured, featured_order). Mirrors `update_frontmatter` for the writeup schema; only changed lines are mutated. |
 | `reorder_featured(slug, position)` | write | Atomically reorders the featured-writeups list. Insert at `position`, move from current slot, or unfeature (`position=0`). Resulting order is guaranteed sequential 1..N. |
 
@@ -403,6 +444,9 @@ contract as a real operations vault.
 | `scripts/release.sh` | One-command release wrapper for checks, tagging, pushing, and GitHub release creation. |
 | `.gitmessage` | Commit message template for descriptive, reviewable commits. |
 | `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
+| `docs/architecture.md` | Runtime model, data contract, generic surface, operator-extension pattern, and adoption guidance. |
+| `docs/operator-workflows.md` | Real jseverino.com workflow pack, systems in use, and the portable workflow-pack pattern. |
+| `docs/ai-tool-contract.md` | Compact AI-facing rules for fast tool selection and low-token workflow use. |
 | `docs/migration-guide.md` | Messy-vault onboarding, doctor usage, and bad-doc-to-fixed-doc examples. |
 | `docs/testing-ci.md` | Local test commands, CI matrix, and test coverage notes. |
 | `docs/release-checklist.md` | Public release checklist. |

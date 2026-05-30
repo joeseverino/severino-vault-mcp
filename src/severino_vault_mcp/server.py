@@ -75,6 +75,40 @@ JSEVERINO_TECH_GROUPS = Path(
     )
 )
 
+def _vault_root() -> Path:
+    return _LOADER.config.vault_path.resolve()
+
+
+def _path_within_vault(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(_vault_root())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _operator_path_error(path: Path, label: str, kind: str) -> dict[str, Any] | None:
+    """Validate operator-extension paths before reads or writes.
+
+    The jseverino.com tools are fixed-purpose, but they still touch local
+    files. Keep their blast radius inside the configured vault root so an env
+    override cannot silently redirect writeup mutations elsewhere.
+    """
+    if not _path_within_vault(path):
+        return {
+            "ok": False,
+            "error": (
+                f"{label} must stay inside configured vault root "
+                f"{_vault_root()}: {path}"
+            ),
+        }
+    if kind == "dir" and not path.is_dir():
+        return {"ok": False, "error": f"{label} not found: {path}"}
+    if kind == "file" and not path.is_file():
+        return {"ok": False, "error": f"{label} not found: {path}"}
+    return None
+
+
 _SERVER_INSTRUCTIONS = """\
 This MCP routes the calling AI session to the right runbook, infrastructure
 doc, or project metadata in the configured Obsidian-style operational vault.
@@ -310,11 +344,19 @@ def _quick_index_matches(idx, query: str, *, limit: int = 3) -> list[dict[str, A
     return rows[:limit]
 
 
-def _add_quick_index_recommendation(response: dict[str, Any], idx, query: str) -> None:
+def _add_quick_index_recommendation(
+    response: dict[str, Any],
+    idx,
+    query: str,
+    *,
+    top_doc_id: str | None = None,
+) -> None:
     matches = _quick_index_matches(idx, query)
     if not matches:
         return
     response["quick_index_matches"] = matches
+    if top_doc_id and matches[0].get("target_doc_id") != top_doc_id:
+        return
     response["recommended"] = {
         "source": QUICK_INDEX_RESOURCE_URI,
         **matches[0],
@@ -646,7 +688,8 @@ def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         "indexed_doc_count": len(idx.docs),
         "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
     }
-    _add_quick_index_recommendation(response, idx, query)
+    top_doc_id = hits[0].doc.doc_id if hits else None
+    _add_quick_index_recommendation(response, idx, query, top_doc_id=top_doc_id)
     return response
 
 
@@ -670,7 +713,8 @@ def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         "indexed_doc_count": len(idx.docs),
         "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
     }
-    _add_quick_index_recommendation(response, idx, query)
+    top_doc_id = hits[0].doc.doc_id if hits else None
+    _add_quick_index_recommendation(response, idx, query, top_doc_id=top_doc_id)
     if not hits:
         response["found"] = False
         return response
@@ -1174,8 +1218,8 @@ def list_writeups(filter: str = "all") -> dict[str, Any]:
             "error": f"unknown filter {filter!r}; expected one of {list(_WRITEUP_FILTERS)}",
         }
 
-    if not JSEVERINO_WRITEUPS_DIR.is_dir():
-        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return err
 
     writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
     if chosen == "published":
@@ -1211,8 +1255,8 @@ def get_technology_catalog() -> dict[str, Any]:
     tables — parsing them by hand is the path to introducing slugs the
     site build warns about.
     """
-    if not JSEVERINO_TECH_GROUPS.is_file():
-        return {"ok": False, "error": f"catalog not found: {JSEVERINO_TECH_GROUPS}"}
+    if err := _operator_path_error(JSEVERINO_TECH_GROUPS, "technology catalog", "file"):
+        return err
 
     catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
     if not catalog:
@@ -1253,8 +1297,8 @@ def find_writeups_using_tag(slug: str) -> dict[str, Any]:
     if not slug:
         return {"ok": False, "error": "slug required"}
 
-    if not JSEVERINO_WRITEUPS_DIR.is_dir():
-        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return err
 
     writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
     matches = [w for w in writeups if slug in w.technologies]
@@ -1299,8 +1343,8 @@ def validate_writeup(slug: str) -> dict[str, Any]:
     if not slug:
         return {"ok": False, "error": "slug required"}
 
-    if not JSEVERINO_WRITEUPS_DIR.is_dir():
-        return {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return err
 
     writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
     if not writeup_dir.is_dir():
@@ -1329,13 +1373,16 @@ def validate_writeup(slug: str) -> dict[str, Any]:
     if not writeup.technologies:
         nits.append("technologies list empty")
 
-    catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
-    catalog_slugs = {entry.slug for entry in catalog}
     missing_slugs: list[str] = []
-    if catalog_slugs:
-        missing_slugs = [s for s in writeup.technologies if s not in catalog_slugs]
+    if catalog_err := _operator_path_error(JSEVERINO_TECH_GROUPS, "technology catalog", "file"):
+        nits.append(f"{catalog_err['error']}; skipping slug check")
     else:
-        nits.append(f"technology catalog not found at {JSEVERINO_TECH_GROUPS}; skipping slug check")
+        catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
+        catalog_slugs = {entry.slug for entry in catalog}
+        if catalog_slugs:
+            missing_slugs = [s for s in writeup.technologies if s not in catalog_slugs]
+        else:
+            nits.append(f"no technology slugs parsed from {JSEVERINO_TECH_GROUPS}; skipping slug check")
 
     body_image_refs = extract_body_image_refs(writeup.body)
     images_dir = writeup_dir / "images"
@@ -1510,8 +1557,8 @@ def _replace_writeup_scalar(text: str, key: str, raw_value: str) -> str:
 
 def _load_writeup_or_error(slug: str) -> tuple[Any, dict[str, Any] | None]:
     """Find a single writeup by slug or return an error response."""
-    if not JSEVERINO_WRITEUPS_DIR.is_dir():
-        return None, {"ok": False, "error": f"writeups dir not found: {JSEVERINO_WRITEUPS_DIR}"}
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return None, err
     writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
     if not writeup_dir.is_dir():
         return None, {"ok": False, "error": f"writeup folder not found: {slug}"}
@@ -1603,7 +1650,7 @@ def update_writeup_frontmatter(
     return {
         "ok": True,
         "slug": slug,
-        "relative_path": str(writeup.path.relative_to(_LOADER.config.vault_path)),
+        "relative_path": str(writeup.path.resolve().relative_to(_vault_root())),
         "changed_fields": sorted(updates.keys()),
         "values": {k: (None if v is None else str(v)) for k, v in updates.items()},
     }

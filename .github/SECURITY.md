@@ -27,7 +27,7 @@ Do not open a public GitHub issue for security reports. Include:
 - Minimal reproduction steps.
 - Expected result and actual result.
 - Whether the issue caused markdown body content, unlock phrases, paths, or
-  secret-adjacent metadata to appear somewhere unexpected.
+  restricted metadata to appear somewhere unexpected.
 
 Expected handling:
 
@@ -57,11 +57,12 @@ It does:
 - Read markdown files under configured indexed vault directories.
 - Return `public`, `internal`, and `sensitive` document bodies to the MCP
   client.
-- Withhold `secret_adjacent` document bodies by default.
-- Require explicit `include_secret_adjacent=True` plus local unlock
-  configuration and a successful hidden local prompt before releasing one
-  `secret_adjacent` body.
+- Withhold `restricted` document bodies by default.
+- Require explicit `include_restricted=True` plus local unlock configuration
+  and a successful hidden local prompt before releasing one `restricted` body.
 - Log unlock attempts without logging document bodies or unlock phrases.
+- Expose narrow write tools for known file shapes; it does not expose a
+  general file editor.
 
 ## Sensitivity Labels
 
@@ -72,20 +73,26 @@ The most important operator responsibility is labeling documents correctly.
 | `public` | Safe to publish. | Returned. |
 | `internal` | Private operational context, safe to enter an AI chat you control. | Returned. |
 | `sensitive` | Private but still chat-acceptable when handled deliberately. | Returned with advisory. |
-| `secret_adjacent` | May reveal credentials, private key paths, recovery flows, token rotation steps, internal auth procedures, break-glass access, or escalation paths. | Withheld by default; local unlock required. |
+| `restricted` | May reveal credentials, private key paths, recovery flows, token rotation steps, internal auth procedures, break-glass access, or escalation paths. | Withheld by default; local unlock required. |
 
 Misclassifying a secret-bearing document as `sensitive` is operator error and
-will cause the body to be returned. When in doubt, use `secret_adjacent`.
+will cause the body to be returned. When in doubt, use `restricted`.
+
+Older `secret_adjacent` labels and `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` are
+accepted as compatibility aliases, but new vaults should use `restricted` and
+`SVMC_ALLOW_RESTRICTED_UNLOCK`.
 
 ## In Scope
 
 Reports are most useful when they show one of these impacts:
 
-- `secret_adjacent` bodies released without explicit request and successful
+- `restricted` bodies released without explicit request and successful
   local unlock.
-- `search_body` exposing `secret_adjacent` snippets.
+- `search_body` exposing `restricted` snippets.
 - Path traversal or write-tool behavior that writes outside the configured
   vault root.
+- jseverino.com writeup tools reading or mutating writeup/catalog files outside
+  the configured vault root.
 - Frontmatter validation bypass that lets invalid enum values or mutable
   `doc_id` changes through write tools.
 - Document body content, unlock phrases, or unlock hashes written to logs,
@@ -113,15 +120,32 @@ The following are generally out of scope unless they enable an in-scope impact:
 
 - Keep actual credentials, private keys, recovery codes, and token material out
   of indexed markdown whenever possible.
-- Mark credential-adjacent procedures as `secret_adjacent`.
+- Mark credential-adjacent procedures as `restricted`.
 - Run `severino-vault-mcp doctor --propose` before onboarding a messy vault.
 - Review proposed frontmatter manually; do not blindly accept sensitivity
   labels.
-- Store the secret-adjacent unlock hash in macOS Keychain or a local file with
+- Store the restricted unlock hash in macOS Keychain or a local file with
   restrictive permissions. Do not store the unlock phrase itself.
 - Do not type the unlock phrase into AI chat. The prompt is local-only.
 - Treat MCP hosts as trusted local software. Do not connect this server to an
   untrusted host.
+
+## Write Boundaries
+
+The write tools are intentionally schema-specific:
+
+| Tool | Boundary |
+|---|---|
+| `add_frontmatter` | Existing markdown file under the configured vault root and indexed folders; refuses existing frontmatter. |
+| `update_frontmatter` | Existing frontmatter block under the configured vault root and indexed folders; `doc_id` is immutable. |
+| `update_writeup_frontmatter` | Scalar fields in one `05 Writeups/<slug>/index.md` file under the configured vault root. |
+| `reorder_featured` | `featured` and `featured_order` fields across writeup `index.md` files under the configured vault root. |
+| `apply_jseverino_d1_schema` | Fixed `db/schema.sql` applied to the configured Cloudflare D1 database; requires `confirm=True`. |
+
+The jseverino.com writeup directory and technology catalog are configurable,
+but they must resolve inside the configured vault root. This keeps portfolio
+frontmatter writes inside the same filesystem trust boundary as the generic
+vault tools.
 
 ## Security Tooling
 

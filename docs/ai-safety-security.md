@@ -129,14 +129,29 @@ request instead.
 
 ## Write Safety
 
-Write tools are intentionally narrow:
+Write tools are intentionally narrow. They do not expose a general "edit this
+file" or "run this command" capability.
 
-- `add_frontmatter` only prepends validated frontmatter to an existing vault doc
-  that does not already have frontmatter.
-- `update_frontmatter` only updates fields in an existing frontmatter block.
-- Both validate enum fields.
-- Both reject paths that escape the configured vault root.
-- `doc_id` is immutable on updates.
+| Tool | Mutation boundary |
+|---|---|
+| `add_frontmatter` | Prepends a validated frontmatter block to an existing markdown file under the configured vault root and indexed folders when that file does not already have frontmatter. |
+| `update_frontmatter` | Updates allowed fields inside an existing frontmatter block for one indexed vault doc. `doc_id` is immutable. |
+| `update_writeup_frontmatter` | Updates scalar frontmatter fields in one `05 Writeups/<slug>/index.md` file: `title`, `description`, `published`, `published_at`, `last_reviewed`, `cover_image`, `featured`, and `featured_order`. |
+| `reorder_featured` | Updates only `featured` and `featured_order` across `05 Writeups/<slug>/index.md` files so the featured list stays sequential after insert, move, or unfeature operations. |
+| `apply_jseverino_d1_schema` | Applies the fixed `db/schema.sql` from the configured jseverino.com site repo to the configured remote Cloudflare D1 database; requires `confirm=True`. |
+
+Common constraints:
+
+- Vault-file writes reject paths that escape the configured vault root.
+- Generic frontmatter writes validate enum fields before touching disk.
+- jseverino.com writeup paths and technology-catalog paths must resolve inside
+  the configured vault root.
+- Writeup frontmatter writes preserve unrelated lines and only change the
+  requested scalar keys.
+- `reorder_featured` reports every writeup it changed and the resulting
+  featured order.
+- `apply_jseverino_d1_schema` is not an arbitrary SQL runner; it applies one
+  known schema file to one configured database.
 
 Markdown body edits are not exposed as a broad MCP write tool.
 

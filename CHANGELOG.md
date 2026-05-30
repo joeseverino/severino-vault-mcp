@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added portfolio-grade architecture, operator workflow, and AI tool-contract
+  documentation. The docs now distinguish the reusable vault MCP surface from
+  the visible jseverino.com workflow pack while showing the concrete systems
+  behind the operator tooling.
+
+### Changed
+
+- Updated security documentation to use the current `restricted` terminology,
+  document every write boundary, and call out the jseverino.com path boundary.
+- Updated testing docs for the expanded writeup coverage.
+
+### Security
+
+- jseverino.com writeup and technology-catalog paths must now resolve inside
+  the configured vault root before read or write tools use them. This keeps the
+  portfolio workflow pack inside the same filesystem trust boundary as the
+  generic vault tools.
+
+### Verification
+
+- `scripts/check.sh --quick` passes.
+- `uv run pytest -q` passes (69 tests).
+- `uv run ruff check .` passes.
+
 ## [2.4.6] — 2026-05-30
 
 Tighter defaults — token-budget patch. `prepare_writeup_publish` was

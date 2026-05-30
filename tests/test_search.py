@@ -365,6 +365,41 @@ tags: [index, mcp, navigation]
     assert "docker compose ps" in result["recommended"]["command"]
 
 
+def test_get_runbook_does_not_recommend_conflicting_quick_index_doc(
+    fake_vault: Path,
+) -> None:
+    (fake_vault / "03 Runbooks" / "Quick Index.md").write_text(
+        """---
+doc_id: report-playbook-mcp-index
+title: Example Operations Vault Quick Index
+doc_type: public_article_draft
+system: Vault MCP
+environment: other
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-01
+tags: [index, mcp, navigation]
+---
+
+# Example Operations Vault Quick Index
+
+| Intent | Command | Doc |
+|---|---|---|
+| Run Vault MCP tests | `cd repo && scripts/check.sh` | [[Generate Internal Service Certificate]] |
+| Check Vault MCP config index | `severino-vault-mcp doctor` | [[Generate Internal Service Certificate]] |
+""",
+        encoding="utf-8",
+    )
+
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("restart vault mcp")
+
+    assert result["found"] is True
+    assert result["selected"]["doc_id"] != "rb-generate-internal-cert"
+    assert "quick_index_matches" in result
+    assert "recommended" not in result
+
+
 def test_get_runbook_withholds_secret_adjacent_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.get_runbook("local pki")

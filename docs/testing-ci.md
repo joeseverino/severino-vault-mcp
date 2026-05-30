@@ -4,6 +4,10 @@ This project is tested as a local stdio MCP server package. The tests exercise
 the Python functions directly and also verify FastMCP resource registration
 where that matters.
 
+The current suite has 69 tests split across the generic vault surface
+(`tests/test_search.py`) and the jseverino.com writeup surface
+(`tests/test_writeups.py`).
+
 ## Local Commands
 
 Use the wrapper for normal local verification:
@@ -118,11 +122,28 @@ catches CVEs against the *current* pin.
 - `vault://quick-index` resource behavior.
 - `vault://doc/{doc_id}` resource-template behavior.
 - Real FastMCP registration for resources and resource templates.
+- Quick Index recommendations only becoming `recommended` when they agree with
+  the top-ranked doc.
 - Frontmatter creation and update validation.
 - Full-text body search with frontmatter skipping.
 - Permanent exclusion of `restricted` bodies from `search_body`.
 - Project inventory lookup.
 - Reproducibility of `examples/sample-vault`.
+
+`tests/test_writeups.py` covers:
+
+- Writeup loading from `05 Writeups/<slug>/index.md`.
+- Technology catalog parsing from `06 Pages/_technology-groups.md`.
+- `list_writeups` filters, featured-order sorting, and configured-path
+  boundary checks.
+- `get_technology_catalog` grouped output and configured-path boundary checks.
+- `find_writeups_using_tag` usage lookup and input validation.
+- `validate_writeup` blockers, missing technology slugs, missing images, and
+  unresolved related vault references.
+- `prepare_writeup_publish` composition, featured-position reporting, and
+  optional tag-usage expansion.
+- `update_writeup_frontmatter` scalar updates with formatting preservation.
+- `reorder_featured` insert, move, unfeature, and range validation behavior.
 
 ## Sample Vault Reproducibility
 
@@ -152,3 +173,5 @@ contracts are regression-tested:
 - `search_body` cannot reveal restricted snippets.
 - Path validation prevents write tools from escaping the vault root.
 - Frontmatter enum validation rejects malformed metadata writes.
+- jseverino.com writeup/catalog path validation keeps portfolio workflow files
+  inside the configured vault root.

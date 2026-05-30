@@ -244,6 +244,22 @@ def test_list_writeups_rejects_unknown_filter(fake_writeups_vault: Path) -> None
     assert "unknown filter" in result["error"]
 
 
+def test_list_writeups_rejects_path_outside_vault(
+    fake_writeups_vault: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-writeups"
+    outside.mkdir()
+    monkeypatch.setenv("SVMC_JSEVERINO_WRITEUPS_DIR", str(outside))
+    server = _fresh_module("severino_vault_mcp.server")
+
+    result = server.list_writeups()
+
+    assert result["ok"] is False
+    assert "inside configured vault root" in result["error"]
+
+
 # ----- get_technology_catalog ------------------------------------------------
 
 
@@ -254,6 +270,22 @@ def test_get_technology_catalog_returns_grouped(fake_writeups_vault: Path) -> No
     assert result["total_slugs"] == 4
     assert result["featured_count"] == 3
     assert {"slug": "yaml", "label": "YAML", "featured": False} in result["by_group"]["Languages"]
+
+
+def test_get_technology_catalog_rejects_path_outside_vault(
+    fake_writeups_vault: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-catalog.md"
+    outside.write_text("# Catalog\n", encoding="utf-8")
+    monkeypatch.setenv("SVMC_JSEVERINO_TECH_GROUPS", str(outside))
+    server = _fresh_module("severino_vault_mcp.server")
+
+    result = server.get_technology_catalog()
+
+    assert result["ok"] is False
+    assert "inside configured vault root" in result["error"]
 
 
 # ----- find_writeups_using_tag ----------------------------------------------

@@ -70,7 +70,7 @@ Expected behavior:
 - `find_runbook("generate internal certificate")` returns
   `rb-generate-internal-cert`.
 - `vault://doc/infra-offline-ca` withholds the body because it is
-  `secret_adjacent`.
+  `restricted`.
 
 Validate the sample vault from another terminal:
 
@@ -177,7 +177,7 @@ For best results, create:
 - Infrastructure docs with stable `infra-*` IDs.
 - Project indexes with stable `project-*` IDs.
 - Deliberate `sensitivity` values: `public`, `internal`, `sensitive`, or
-  `secret_adjacent`.
+  `restricted`.
 
 The Quick Index backs:
 
@@ -211,9 +211,9 @@ Upgrade after pulling new repo changes:
 uv tool upgrade severino-vault-mcp
 ```
 
-## 8. Optional: Enable Secret-Adjacent Local Unlock
+## 8. Optional: Enable Restricted Local Unlock
 
-By default, `secret_adjacent` docs return metadata only.
+By default, `restricted` docs return metadata only.
 
 To allow one-request local unlocks on macOS, first store a salted unlock hash
 in Keychain:
@@ -222,7 +222,7 @@ in Keychain:
 HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
 security add-generic-password -U \
   -s severino-vault-mcp \
-  -a secret-adjacent-unlock \
+  -a restricted-unlock \
   -w "$HASH"
 ```
 
@@ -231,14 +231,28 @@ Then add this env var to the MCP client config:
 ```json
 {
   "env": {
-    "SVMC_ALLOW_SECRET_ADJACENT_UNLOCK": "1"
+    "SVMC_ALLOW_RESTRICTED_UNLOCK": "1"
   }
 }
 ```
 
 Never type the unlock phrase into AI chat. The prompt is local-only.
 
-## 9. Common Adoption Checks
+Older `secret_adjacent` labels and `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` still
+work as compatibility aliases, but new vaults should use `restricted`.
+
+## 9. Optional: Study Or Adapt The Operator Workflow Pack
+
+The jseverino.com tools are a concrete workflow pack built on the generic
+vault pattern. They show how this MCP handles real portfolio publishing,
+technology taxonomy checks, contact/CSP review, D1 schema application, and live
+security-header verification without becoming a generic shell bridge.
+
+Read [`docs/operator-workflows.md`](docs/operator-workflows.md) for the systems
+in use and the workflow-pack pattern for building a similar pack around your
+own local workflow.
+
+## 10. Common Adoption Checks
 
 Run these locally before opening a PR or publishing your own fork:
 
@@ -253,6 +267,9 @@ Read:
 - `CONTRIBUTING.md` for development workflow.
 - `STRUCTURE.md` for the repository map.
 - `docs/demo.md` for a sample assistant transcript.
+- `docs/architecture.md` for runtime shape and extension pattern.
+- `docs/operator-workflows.md` for the real jseverino.com workflow pack.
+- `docs/ai-tool-contract.md` for model-facing tool-selection rules.
 - `docs/migration-guide.md` for messy vault migration.
 - `docs/testing-ci.md` for test and CI details.
 - `docs/ai-safety-security.md` for safety model and threat assumptions.
