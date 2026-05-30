@@ -172,10 +172,17 @@ instead of grepping or reading the files by hand. The manual workflow is
 how publishes ship with wrong `featured_order` values, missing tech-catalog
 slugs, or dangling image references; these tools exist to prevent that.
 
+IMPORTANT FOR LOCAL MODELS:
+- Do not print fake tool-call text such as `list_writeups("published")`.
+- Actually invoke the MCP tool, wait for the JSON result, then answer from it.
+- If the user asks "what is the order", "currently published writeups",
+  "featured order", "home order", or "writeup order", call
+  `list_featured_writeup_order()` first.
+
 1. `list_featured_writeup_order()` — FAST PATH for any question about the
-   current featured/home-cloud order. It returns only slot, slug, title,
-   published, and featured. Use this before `list_writeups("featured")`
-   unless the user needs full frontmatter fields.
+   current featured/home-cloud/currently published writeup order. It returns
+   only slot, slug, title, published, and featured. Use this before
+   `list_writeups("featured")` unless the user needs full frontmatter fields.
 
 2. `list_writeups(filter)` — for ANY question about which writeups
    exist, what's published, what's featured, or what `featured_order`
@@ -1227,11 +1234,13 @@ def _featured_writeup_order(writeups: list[Any]) -> list[dict[str, Any]]:
 
 @mcp.tool()
 def list_featured_writeup_order() -> dict[str, Any]:
-    """FAST PATH for "what is the featured/home writeup order?"
+    """FAST PATH for "what is the featured/currently published writeup order?"
 
     Returns only the compact home-cloud order: slot, slug, title, published,
     and featured. Prefer this over `list_writeups("featured")` when the user
-    asks for the current order and does not need full frontmatter fields.
+    asks for the current order, currently published order, featured order,
+    home order, portfolio order, or writeup order and does not need full
+    frontmatter fields.
     """
     if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
         return err

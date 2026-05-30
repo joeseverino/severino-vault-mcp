@@ -19,6 +19,9 @@
 - `list_writeups` now includes compact `order` and `featured_order` fields so
   small/local models do not need to infer ordering from verbose writeup
   summaries.
+- Tightened the MCP server instructions for local models: do not print fake
+  tool-call text, and route "currently published writeup order" phrasing to
+  `list_featured_writeup_order()`.
 
 ### Security
 
