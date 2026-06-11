@@ -3,16 +3,45 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+from pathlib import Path
 
 from .config import Config
 from .doctor import run_doctor
+
+
+def _fingerprint() -> str:
+    """Stable hash of this (installed) package's Python sources.
+
+    `site doctor` computes the same hash over the source repo and compares,
+    so a stale `uv tool` install is caught even when the version was never
+    bumped. Keep the hashing scheme in sync with cmd_doctor in the tools
+    repo's bin/site.
+    """
+    package_dir = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for source in sorted(package_dir.glob("*.py")):
+        digest.update(source.name.encode())
+        digest.update(b"\0")
+        digest.update(source.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="severino-vault-mcp",
         description="Local stdio MCP server for Obsidian-style operations vaults.",
+    )
+    parser.add_argument(
+        "--fingerprint",
+        action="store_true",
+        help=(
+            "Print a hash of the installed package's Python sources and exit. "
+            "Compared against the source repo by `site doctor` to detect a "
+            "stale install."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -147,6 +176,10 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    if args.fingerprint:
+        print(_fingerprint())
+        raise SystemExit(0)
+
     if args.command == "doctor":
         raise SystemExit(run_doctor(Config.from_env(), propose=args.propose))
 
