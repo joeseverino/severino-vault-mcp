@@ -4,6 +4,31 @@
 
 ### Added
 
+- Console-script subcommands `list-writeups [--filter]`,
+  `technology-catalog`, `validate-all-writeups [--include-drafts]`,
+  `reorder-featured <slug> <position>`, and
+  `update-writeup <slug> [--title|--description|--published|...]`, printing
+  the same JSON as the matching MCP tools. They back `site featured`,
+  `site tech`, `site manage`, and the slug-free gate inside `site publish`,
+  keeping all writeup-frontmatter and catalog parsing in this package.
+  (A redundant `set-writeup-published` subcommand existed briefly pre-release;
+  publish flips go through `update-writeup --published`.)
+- Writeup summaries (`list_writeups`, `validate_writeup.frontmatter`) now
+  include `description`, `cover_image`, and `cover_alt`, so the `site manage`
+  detail view can render and edit the full scalar frontmatter surface.
+- `update_writeup_frontmatter` now accepts `cover_alt`, a one-sentence
+  description of what the cover image shows. The site's listing card and
+  article hero use it as the `<img alt>` (falling back to the writeup title),
+  which improves image SEO and screen-reader output. `prepare_writeup_publish`
+  flags missing `cover_alt` as a nit when a `cover_image` is present.
+- The vault indexer now recognizes the slim reference frontmatter shape
+  (`type: reference, tags, created`) and synthesizes a `ref-<stem>` doc_id
+  for those docs so they surface in `search_body` and `find_runbook` results
+  without forcing them to adopt the HQ shape. Defaults: `doc_type: reference`,
+  `sensitivity: public`.
+- `validate_all_writeups(only_published=True)` — batch validation across every
+  writeup, returning aggregated blockers/nits and the failing-slug list in one
+  call. Replaces the implicit "loop validate_writeup over N slugs" pattern.
 - Added portfolio-grade architecture, operator workflow, and AI tool-contract
   documentation. The docs now distinguish the reusable vault MCP surface from
   the visible jseverino.com workflow pack while showing the concrete systems

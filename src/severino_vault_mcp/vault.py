@@ -214,8 +214,20 @@ class VaultLoader:
                 except OSError:
                     continue
                 fm, body, body_start_line = _split_frontmatter(text)
-                if not fm or not fm.get("doc_id"):
+                if not fm:
                     continue
+                if not fm.get("doc_id"):
+                    # Reference docs use a slim frontmatter shape
+                    # (`type: reference, tags, created`) without doc_id.
+                    # Synthesize one from the file path so they're searchable
+                    # alongside HQ-shape runbooks and decision records.
+                    if str(fm.get("type") or "").strip().lower() == "reference":
+                        slug = path.stem.lower().replace(" ", "-").replace("_", "-")
+                        fm["doc_id"] = f"ref-{slug}"
+                        fm.setdefault("doc_type", "reference")
+                        fm.setdefault("sensitivity", "public")
+                    else:
+                        continue
                 idx.add(self._mk_doc(path, fm, body, body_start_line))
         idx.aliases, idx.invalid_aliases = self._load_aliases(idx)
         return idx

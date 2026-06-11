@@ -1437,6 +1437,8 @@ def validate_writeup(slug: str) -> dict[str, Any]:
         blockers.append("published_at empty — set ISO date when ready")
     if not writeup.cover_image:
         nits.append("cover_image missing")
+    if writeup.cover_image and not writeup.cover_alt:
+        nits.append("cover_alt missing — describe the actual image so the card and hero stop reusing the title")
     if not writeup.technologies:
         nits.append("technologies list empty")
 
@@ -1493,6 +1495,72 @@ def validate_writeup(slug: str) -> dict[str, Any]:
         "missing_images": missing_images,
         "unresolved_refs": unresolved_refs,
         "nits": nits,
+    }
+
+
+@mcp.tool()
+def validate_all_writeups(only_published: bool = True) -> dict[str, Any]:
+    """Batch validate every writeup. Returns blockers/nits aggregated.
+
+    Surfaces the "is every writeup publishable" view in one call instead of
+    requiring N `validate_writeup` invocations to find the failing ones.
+    Each writeup's entry mirrors the shape of `validate_writeup`.
+
+    Args:
+        only_published: When True (default), skips drafts. Pass False to
+            include `published: false` writeups too.
+    """
+    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
+        return err
+
+    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
+    if only_published:
+        writeups = [w for w in writeups if w.published]
+
+    summaries: list[dict[str, Any]] = []
+    failing_slugs: list[str] = []
+    total_blockers = 0
+    total_nits = 0
+    total_missing_slugs = 0
+    total_missing_images = 0
+
+    for writeup in writeups:
+        result = validate_writeup(writeup.slug)
+        if "error" in result:
+            continue
+        blockers = result.get("blockers", []) or []
+        nits = result.get("nits", []) or []
+        missing_slugs = result.get("missing_tech_slugs", []) or []
+        missing_images = result.get("missing_images", []) or []
+        is_ok = bool(result.get("ok"))
+
+        summaries.append(
+            {
+                "slug": writeup.slug,
+                "ok": is_ok,
+                "blockers": blockers,
+                "missing_tech_slugs": missing_slugs,
+                "missing_images": missing_images,
+                "nits": nits,
+            }
+        )
+        if not is_ok:
+            failing_slugs.append(writeup.slug)
+        total_blockers += len(blockers)
+        total_nits += len(nits)
+        total_missing_slugs += len(missing_slugs)
+        total_missing_images += len(missing_images)
+
+    return {
+        "ok": len(failing_slugs) == 0,
+        "count": len(summaries),
+        "failing_count": len(failing_slugs),
+        "failing_slugs": failing_slugs,
+        "total_blockers": total_blockers,
+        "total_nits": total_nits,
+        "total_missing_tech_slugs": total_missing_slugs,
+        "total_missing_images": total_missing_images,
+        "writeups": summaries,
     }
 
 
@@ -1640,6 +1708,7 @@ def update_writeup_frontmatter(
     last_reviewed: str | None = None,
     touch_last_reviewed: bool = False,
     cover_image: str | None = None,
+    cover_alt: str | None = None,
     featured: bool | None = None,
     featured_order: int | None = None,
 ) -> dict[str, Any]:
@@ -1657,8 +1726,8 @@ def update_writeup_frontmatter(
 
     Args:
         slug: Writeup slug.
-        title, description, published_at, cover_image: scalar updates.
-            None means leave unchanged.
+        title, description, published_at, cover_image, cover_alt: scalar
+            updates. None means leave unchanged.
         published, featured: boolean updates. None means leave unchanged.
         featured_order: integer slot, or null to clear. To fully
             unfeature, pass `featured=False, featured_order=None`.
@@ -1682,6 +1751,7 @@ def update_writeup_frontmatter(
         ("published_at", writeup.published_at, published_at),
         ("last_reviewed", writeup.last_reviewed, last_reviewed_value),
         ("cover_image", writeup.cover_image, cover_image),
+        ("cover_alt", writeup.cover_alt, cover_alt),
         ("featured", writeup.featured, featured),
         ("featured_order", writeup.featured_order, featured_order),
     ]

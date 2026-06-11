@@ -136,7 +136,7 @@ file" or "run this command" capability.
 |---|---|
 | `add_frontmatter` | Prepends a validated frontmatter block to an existing markdown file under the configured vault root and indexed folders when that file does not already have frontmatter. |
 | `update_frontmatter` | Updates allowed fields inside an existing frontmatter block for one indexed vault doc. `doc_id` is immutable. |
-| `update_writeup_frontmatter` | Updates scalar frontmatter fields in one `05 Writeups/<slug>/index.md` file: `title`, `description`, `published`, `published_at`, `last_reviewed`, `cover_image`, `featured`, and `featured_order`. |
+| `update_writeup_frontmatter` | Updates scalar frontmatter fields in one `05 Writeups/<slug>/index.md` file: `title`, `description`, `published`, `published_at`, `last_reviewed`, `cover_image`, `cover_alt`, `featured`, and `featured_order`. |
 | `reorder_featured` | Updates only `featured` and `featured_order` across `05 Writeups/<slug>/index.md` files so the featured list stays sequential after insert, move, or unfeature operations. |
 | `apply_jseverino_d1_schema` | Applies the fixed `db/schema.sql` from the configured jseverino.com site repo to the configured remote Cloudflare D1 database; requires `confirm=True`. |
 

@@ -81,6 +81,20 @@ The important fields are:
 | `sensitivity` | Controls body release behavior. |
 | `tags` | Supports discovery and filtering. |
 
+### Reference-shape slim frontmatter
+
+Concept-level reference docs (under `04 Reference/` in the operator's vault) can use a slim three-field frontmatter shape:
+
+```yaml
+---
+type: reference
+tags: [topic, area]
+created: YYYY-MM-DD
+---
+```
+
+When the loader encounters a doc with `type: reference` and no `doc_id`, it synthesizes one from the file path (`ref-<kebab-case-stem>`), defaults `doc_type: reference` and `sensitivity: public`, and indexes the doc. This keeps primers and explainers searchable via `search_body` and `find_runbook` without forcing them to adopt the heavyweight HQ shape.
+
 `doctor` validates this contract and can propose starter frontmatter for messy
 vaults:
 
