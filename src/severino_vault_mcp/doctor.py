@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
+from .frontmatter import split_frontmatter
 from .schema import (
     DOC_ID_PREFIXES,
     DOC_TYPES,
@@ -15,7 +16,7 @@ from .schema import (
     SENSITIVITIES,
     STATUSES,
 )
-from .vault import _coerce_list, _split_frontmatter
+from .vault import _coerce_list
 
 
 @dataclass
@@ -53,7 +54,7 @@ def validate_vault(config: Config, *, propose: bool = False) -> DoctorReport:
             report.add(DoctorFinding(relative_path, "error", f"cannot read file: {exc}"))
             continue
 
-        fm, _body, _body_start_line = _split_frontmatter(text)
+        fm, _body, _body_start_line = split_frontmatter(text)
         if not fm:
             report.add(DoctorFinding(
                 relative_path,

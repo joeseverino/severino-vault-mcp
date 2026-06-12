@@ -41,6 +41,42 @@ The server runs under the local user account. It can read files that account
 can read, but only files under the configured vault root and indexed folders
 are part of the generic vault index. There is no inbound network surface.
 
+### Module ownership
+
+- `server.py` registers MCP resources and tools. Tool bodies are thin: they
+  delegate to the service modules below rather than holding logic.
+- `frontmatter.py` owns the single constrained-YAML toolkit — parsing
+  (`split_frontmatter`) and serialization (`serialize_frontmatter`,
+  `yaml_escape`). Both the generic vault writers and the writeup
+  line-replacement path quote scalars through this one `yaml_escape`, so
+  escaping rules cannot fork between tools.
+- `atomic_write.py` owns durable file replacement. `atomic_write_text` (one
+  file) and `transactional_replace` (many files, locked, rollback) share one
+  staged-tempfile + `fsync` + `os.replace` primitive, so there is a single
+  implementation of "replace a file without truncating it on failure."
+- `paths.py` owns vault path validation. `validate_indexed_path` (writes must
+  land on a file under an indexed dir) and `path_within_root` (operator tools
+  must stay inside the vault root) are defined once and shared.
+- `vault.py` owns indexing, alias resolution, and duplicate-ID exclusion.
+- `vault_write_service.py` owns generic frontmatter mutation
+  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping
+  `touch_reviewed` fast path used by the drift guards.
+- `vault_query_service.py` owns the two shell-backed read tools
+  (`recent_changes` over `git log`, `search_body` over ripgrep) and the
+  shared `doc_to_hit` projection every search response uses.
+- `writeup_service.py` owns writeup reads, validation, and transactions.
+- `site_ops_service.py` owns the jseverino.com operator integrations —
+  Cloudflare D1 readers, the confirmed schema apply, and the live
+  security-header check — behind a `SiteOpsRuntime` config holder.
+- `hq_manifest.py` owns HQ manifest synthesis using the shared frontmatter
+  parser, so HQ and the MCP can never drift on how a doc is read.
+
+Every service module is FastMCP-free. Standalone CLI commands call them
+directly and never import FastMCP registration just to perform file, manifest,
+or D1 work. All of them report failures with one envelope:
+`{"ok": false, "error": "<message>"}` — the shape the `site` CLI and
+`site manage` already parse.
+
 ## Data Contract
 
 The reusable vault surface expects markdown files with YAML frontmatter under
@@ -107,6 +143,11 @@ For first-time adoption, start with
 [`docs/migration-guide.md`](migration-guide.md) to migrate a real vault in
 small slices.
 
+`doc_id` is a uniqueness boundary, not a last-write-wins key. If the index
+finds the same ID in multiple files, it excludes every conflicting document
+from runtime lookup and search. Direct reads return an explicit ambiguous
+response with all paths, and `doctor` reports the files to fix.
+
 ## Generic MCP Surface
 
 The generic surface is the part intended for other operators to run as-is:
@@ -153,12 +194,18 @@ boundaries are documented in
 The write model is intentionally schema-specific:
 
 - No tool accepts an arbitrary file path and arbitrary replacement text.
-- Vault writes validate paths against the configured vault root.
+- Vault writes validate paths against the configured vault root through the
+  shared `paths.py` helpers — one implementation, not one per writer.
 - Generic frontmatter writes validate enum fields and keep `doc_id` immutable.
+- Generic frontmatter writes stage a sibling file, flush it, and replace the
+  target atomically; failed replacement leaves the original unchanged.
 - Writeup writes know the exact `05 Writeups/<slug>/index.md` shape and mutate
   only named scalar fields.
 - Featured-list reordering is centralized in `reorder_featured` so assistants
   do not hand-edit slot values across multiple files.
+- Multi-writeup changes are planned in memory, staged to sibling temporary
+  files, checked for concurrent modification, and replaced under a lock.
+  Replacement failures trigger rollback of files already changed.
 
 This is the core pattern for safe MCP writes: if the server cannot name the
 file shape, validate the fields, and report exactly what changed, it should not
@@ -174,13 +221,20 @@ The jseverino.com tools demonstrate a second, operator-specific surface:
 | `apply_jseverino_d1_schema` | Apply one known schema file to one configured database after `confirm=True`. |
 | Security-header checker | Run a focused HEAD check against the configured site origin. |
 | Writeup readers | Inspect portfolio writeups, published state, featured order, technology slugs, and tag usage. |
-| Writeup validators | Check frontmatter completeness, image references, taxonomy coverage, and related-vault refs. |
-| Writeup writers | Update scalar frontmatter and maintain featured ordering without manual YAML edits. |
+| Writeup validators | Reuse one writeup/catalog/vault snapshot for single, batch, and dashboard validation. |
+| Writeup dashboard | Return summaries, featured order, and validation in one low-latency response for interactive clients. |
+| Writeup writers | Update scalar frontmatter or apply a complete multi-writeup plan without manual YAML edits. |
 
 These tools are not a generic shell bridge. They are narrow wrappers around
-known local paths, known file schemas, and known service bindings. That makes
-them useful portfolio evidence: the project shows both a reusable MCP product
-surface and a concrete production workflow built with the same safety rules.
+known local paths, known file schemas, and known service bindings. The D1 and
+header tools live in `site_ops_service.py` behind a `SiteOpsRuntime`, mirroring
+the writeup and vault-write services. That makes them useful portfolio
+evidence: the project shows both a reusable MCP product surface and a concrete
+production workflow built with the same safety rules.
+
+Standalone console commands import these services directly rather than
+importing `server.py`. FastMCP registration remains isolated to the MCP server
+path, reducing startup cost for short-lived shell and TUI calls.
 
 ## Running It Yourself
 
@@ -207,12 +261,14 @@ To adapt the extension pattern for another operator workflow:
 
 ## Verification
 
-The current suite has 69 tests. It covers vault indexing, config overrides,
+The current suite has 80 tests. It covers vault indexing, config overrides,
 doctor validation, runbook ranking, body release policy, restricted local
 unlock behavior, audit logging, resources/resource templates, body search,
-frontmatter writes, sample-vault reproducibility, writeup loading, taxonomy
-parsing, configured-path boundary checks, Quick Index recommendation alignment,
-publish-readiness validation, composite publish prep, and writeup
+duplicate-ID runtime exclusion, shared multiline frontmatter parsing, atomic
+write failure behavior, HQ manifest generation, sample-vault reproducibility,
+writeup loading, taxonomy parsing, configured-path boundary checks, Quick Index
+recommendation alignment, publish-readiness validation, one-snapshot dashboard
+behavior, composite publish prep, transactional writeup plans, rollback, and
 frontmatter/featured-order mutations.
 
 See [`docs/testing-ci.md`](testing-ci.md) for local commands, CI behavior, and

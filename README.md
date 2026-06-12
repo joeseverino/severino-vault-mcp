@@ -136,7 +136,7 @@ surface.
 | `find_runbook(query, limit=5)` | read | "How do I add an HTTPS proxy host?" |
 | `get_runbook(query, limit=5)` | read | Single-call search + selected doc body for local models that are weaker at multi-step tool use. |
 | `lookup_system(name)` | read | "Tell me about AdGuard Home" |
-| `read_doc(doc_id)` | read | Returns one doc by stable ID or configured local alias. Missing-doc responses tell the assistant which discovery tool to use next. |
+| `read_doc(doc_id)` | read | Returns one doc by stable ID or configured local alias. Duplicate IDs are rejected as ambiguous and list every conflicting path. |
 | `inventory_for_project(slug)` | read | "What docs are part of client-edge-dns?" |
 | `recent_changes(days=7)` | read | Recent vault commits within indexed folders |
 | `search_body(query)` | read | Full-text body search with frontmatter skipped and `restricted` bodies excluded. |
@@ -160,10 +160,13 @@ structured reads, and narrow writes.
 | `get_technology_catalog()` | read | Parse the slug catalog at `06 Pages/_technology-groups.md` and return slugs grouped by section with their featured state. |
 | `find_writeups_using_tag(slug)` | read | List writeups whose `technologies:` reference a given tag. Use to confirm a tag is earned before promoting it to featured on the home cloud. |
 | `validate_writeup(slug)` | read | Publish-readiness report for a writeup: frontmatter completeness, tech slugs vs the catalog, body images vs files on disk, and `related_projects` / `related_assets` resolvability against the indexed vault. |
+| `validate_all_writeups(only_published=True)` | read | Batch validation using one shared writeup/catalog/vault snapshot instead of reloading state per writeup. |
 | `prepare_writeup_publish(slug, include_tag_usage=False)` | read | ONE-CALL publish prep. Composes `validate_writeup` and `list_writeups("featured")` in one response; `include_tag_usage=True` additionally composes per-tag `find_writeups_using_tag` (off by default to keep the payload small). Use before every writeup commit instead of chaining the individual tools. |
+| `writeup_dashboard()` | read | Low-latency interactive-client snapshot: all writeup summaries, featured order, and validation results loaded once. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
-| `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, featured, featured_order). Mirrors `update_frontmatter` for the writeup schema; only changed lines are mutated. |
-| `reorder_featured(slug, position)` | write | Atomically reorders the featured-writeups list. Insert at `position`, move from current slot, or unfeature (`position=0`). Resulting order is guaranteed sequential 1..N. |
+| `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, cover_alt). Featured state goes through the ordering tools. |
+| `reorder_featured(slug, position)` | write | Transactionally reorders the featured-writeups list. All files are staged before replacement and rolled back on failure. Resulting order is sequential 1..N. |
+| `apply_writeup_plan(plan)` | write | Applies multiple scalar updates plus the complete featured order in one locked, staged transaction with rollback. |
 
 CLI helpers:
 
@@ -183,20 +186,46 @@ result to stdout (compact by default; `--pretty` indents for humans),
 exits 0 if `ok: true` (safe to publish) or 1 if there are blockers,
 missing tech slugs, missing images, or unresolved `related_projects` /
 `related_assets`. Intended to be wrapped by shell tooling (the
-operator's `site publish-writeup <slug>` macro uses it as the
-pre-flight gate before `site publish-all`). Pass
-`--include-tag-usage` if you need the per-technology usage stats.
+operator's `site validate <slug>` command uses it for targeted reports).
+Pass `--include-tag-usage` if you need the per-technology usage stats.
+
+```bash
+severino-vault-mcp writeup-dashboard [--pretty]
+```
+
+Returns all writeup summaries and publish-readiness results from one shared
+snapshot. Interactive clients should use this instead of launching separate
+`list-writeups` and `validate-all-writeups` processes.
+
+```bash
+printf '%s' '{"updates":[],"featured_order":["first","second"]}' \
+  | severino-vault-mcp apply-writeup-plan
+```
+
+Reads a JSON plan from stdin. Scalar updates and the complete featured order
+are validated, staged, and applied under a lock. A failed replacement triggers
+rollback of files already replaced.
 
 ```bash
 severino-vault-mcp touch-reviewed "<vault-relative-path>" [--pretty]
 ```
 
-Sets `last_reviewed` to today on one vault doc, via `update_frontmatter`
-(schema-validated, reloads the vault cache), prints the JSON result, and
-exits 0 if `ok: true` or 1 otherwise. Intended to be wrapped by shell
-tooling: the operator's drift guards (`cf-dns` / `adguard` / `nginx` /
-`ts-acl`) call it after a successful `pull` so the vault mirror's review
-date moves with the pull — a pull is a review.
+Sets `last_reviewed` to today on one vault doc. It shares the path validation
+and frontmatter serializer used by the write tools but deliberately skips the
+vault-cache rebuild, since the drift guards only need the file on disk updated.
+Prints the JSON result and exits 0 if `ok: true` or 1 otherwise. Intended to be
+wrapped by shell tooling: the operator's drift guards (`cf-dns` / `adguard` /
+`nginx` / `ts-acl`) call it after a successful `pull` so the vault mirror's
+review date moves with the pull — a pull is a review.
+
+```bash
+severino-vault-mcp hq-manifest <vault-root> <dir-a:dir-b>
+```
+
+Builds the Severino HQ import manifest with the same frontmatter parser used
+by vault indexing and writes. Duplicate `doc_id` values fail the command
+instead of producing an ambiguous manifest. The tools repository's
+`hq manifest` and `hq sync` commands delegate here.
 
 ### Local jseverino.com Ops Helpers
 
@@ -473,10 +502,10 @@ Obsidian-style operational vault, with resource discovery, reproducible sample
 vault, CI, docs, config-file support, restricted local unlock controls,
 and Quick Index recommendations embedded in `find_runbook` / `get_runbook`
 responses for smaller local models. The 2.4.x line adds a jseverino.com
-writeup-publish surface: four read tools (`list_writeups`,
-`get_technology_catalog`, `find_writeups_using_tag`, `validate_writeup`),
-a composite `prepare_writeup_publish`, and two write tools
-(`update_writeup_frontmatter`, `reorder_featured`) that make the publish
+writeup-publish surface with focused readers, shared-snapshot validation,
+`prepare_writeup_publish`, the low-latency `writeup_dashboard`, and
+transactional write tools (`update_writeup_frontmatter`, `reorder_featured`,
+`apply_writeup_plan`) that make the publish
 workflow safe end-to-end — directive docstrings tell calling sessions
 to use these instead of grepping or hand-editing YAML. Demo screenshots
 show local-model usage on macOS. Layered security tooling (CodeQL,

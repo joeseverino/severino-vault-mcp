@@ -4,11 +4,22 @@
 
 ### Added
 
-- Console-script subcommand `touch-reviewed <relative-path> [--pretty]`,
-  wrapping `update_frontmatter(touch_last_reviewed=True)` to stamp a vault
-  doc's `last_reviewed` to today through the schema-validated writer (which
-  also reloads the vault cache). Prints the same JSON as the MCP tool and
-  exits 0/1 on `ok`. It backs the tools-repo drift guards
+- `writeup_dashboard()` and the matching `writeup-dashboard` console command
+  return all writeup summaries, featured order, and validation results from
+  one shared snapshot.
+- `apply_writeup_plan(plan)` and the matching stdin-driven
+  `apply-writeup-plan` console command apply multiple scalar updates plus the
+  complete featured order in one locked transaction.
+- Transaction tests simulate a mid-replacement failure and verify rollback.
+- Shared `frontmatter.py` parsing now serves vault indexing, generic writes,
+  doctor validation, writeups, and HQ manifest generation.
+- `hq-manifest <vault> <dir-a:dir-b>` replaces the tools repository's separate
+  manifest parser.
+- Console-script subcommand `touch-reviewed <relative-path> [--pretty]` stamps
+  a vault doc's `last_reviewed` to today. It shares the path validation and
+  frontmatter serializer used by the write tools but skips the vault-cache
+  rebuild, since the drift guards only need the file on disk updated. Prints
+  JSON and exits 0/1 on `ok`. It backs the tools-repo drift guards
   (`cf-dns` / `adguard` / `nginx` / `ts-acl`): a successful `pull` calls it
   so the vault mirror's review date moves with the pull — a pull is a review.
 
@@ -46,6 +57,53 @@
 
 ### Changed
 
+- Standalone writeup console commands now import a FastMCP-free service layer
+  instead of importing the full MCP server registration module.
+- `server.py` now delegates generic writes, writeup operations, and the
+  jseverino.com D1/header tools to focused service modules instead of carrying
+  duplicate implementations; tool bodies are thin pass-throughs.
+- Consolidated the write path so logic exists once: the constrained-YAML
+  serializer (`serialize_frontmatter`/`yaml_escape`) lives only in
+  `frontmatter.py`, and vault path validation (`validate_indexed_path`,
+  `path_within_root`) lives only in the new `paths.py`. Previously each writer
+  carried its own copy.
+- Extracted the jseverino.com Cloudflare D1 readers, confirmed schema apply,
+  and live security-header check into a FastMCP-free `site_ops_service.py`
+  behind a `SiteOpsRuntime`, matching the writeup and vault-write services.
+- Standardized every service failure on a single `{"ok": false, "error": "…"}`
+  envelope (schema validation joins multiple messages), so the MCP, the `site`
+  CLI, and `site manage` parse one shape.
+- Folded the standalone `touch_reviewed` writer into `vault_write_service.py`
+  (removing the duplicate `frontmatter_service.py`) and dropped dead code:
+  the unused operator path-guard trio and stale writeup-dir constants in
+  `server.py`, and the `_writeup_summary`/`_render_frontmatter` wrappers.
+- Unified durable file replacement in a new `atomic_write.py`: `atomic_write_text`
+  (single file) and the writeup `transactional_replace` (multi-file, locked,
+  rollback) now share one staged-tempfile + `fsync` + `os.replace` primitive
+  instead of hand-rolling the dance twice.
+- Writeup frontmatter writes now escape scalars through the same
+  `frontmatter.yaml_escape` the generic serializer uses, so a writeup field
+  with YAML-special characters (`[`, `,`, `:`) quotes identically to the same
+  text in a vault doc. Previously the writeup path used a divergent ruleset.
+- Extracted the two shell-backed read tools (`recent_changes`, `search_body`)
+  and the shared `doc_to_hit` projection into a FastMCP-free
+  `vault_query_service.py`, leaving `server.py` as registration-and-delegation
+  only (~1,180 lines, down from ~1,390).
+- `get_technology_catalog` reuses a `WriteupContext` snapshot's catalog when one
+  is passed, matching the context-sharing pattern of the other writeup readers
+  instead of re-reading the catalog markdown.
+- Condensed the writeup-workflow section of the MCP server instructions: the
+  per-tool paraphrases that duplicated each tool's docstring are now a grouped
+  read/validate/mutate mandate, preserving every rule (fast path, never-grep,
+  never-Edit-YAML, transactional reorder, verify-before-shipping).
+- Duplicate `doc_id` values are excluded from runtime lookup and search;
+  direct reads return an explicit ambiguity response with all conflicting
+  paths.
+- Generic frontmatter writers now replace files atomically.
+- `validate_all_writeups` now loads writeups, technology taxonomy, and vault
+  references once per request rather than rescanning them for every writeup.
+- `reorder_featured` now stages all changed files before replacement, checks
+  for concurrent changes under a lock, and rolls back partial replacements.
 - Updated security documentation to use the current `restricted` terminology,
   document every write boundary, and call out the jseverino.com path boundary.
 - Updated testing docs for the expanded writeup coverage.
@@ -66,7 +124,7 @@
 ### Verification
 
 - `scripts/check.sh --quick` passes.
-- `uv run pytest -q` passes (71 tests).
+- `uv run pytest -q` passes (80 tests).
 - `uv run ruff check .` passes.
 
 ## [2.4.6] — 2026-05-30

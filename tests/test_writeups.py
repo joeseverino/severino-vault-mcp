@@ -450,6 +450,48 @@ def test_prepare_writeup_publish_includes_tag_usage_when_requested(
     assert result["tag_usage"]["docker"]["total_writeups"] >= 1
 
 
+# ----- shared validation context / dashboard --------------------------------
+
+
+def test_validate_all_writeups_loads_writeups_once(
+    fake_writeups_vault: Path,
+    monkeypatch,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.writeup_service")
+    original = service.load_writeups
+    calls = 0
+
+    def counted(path):
+        nonlocal calls
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(service, "load_writeups", counted)
+    result = service.validate_all_writeups(
+        service.WriteupRuntime.from_env(),
+        only_published=False,
+    )
+
+    assert result["count"] == 3
+    assert calls == 1
+
+
+def test_writeup_dashboard_combines_listing_and_validation(
+    fake_writeups_vault: Path,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.writeup_service")
+    result = service.writeup_dashboard(service.WriteupRuntime.from_env())
+
+    assert result["ok"] is True
+    assert {writeup["slug"] for writeup in result["writeups"]} == {
+        "draft-piece",
+        "lead-piece",
+        "ready-piece",
+    }
+    assert result["validation"]["count"] == 3
+    assert result["featured_order"][0]["slug"] == "lead-piece"
+
+
 # ----- validate_writeup unresolved refs -------------------------------------
 
 
@@ -520,6 +562,26 @@ def test_update_writeup_frontmatter_preserves_other_lines(fake_writeups_vault: P
     assert "cover_image:" in diff[0][1]
 
 
+def test_update_writeup_frontmatter_quotes_yaml_special_chars(
+    fake_writeups_vault: Path,
+) -> None:
+    # The writeup line-replacement path routes scalars through the shared
+    # frontmatter.yaml_escape, so a description with flow-collection chars
+    # (`[`, `,`) is quoted exactly as a generic vault write would quote it,
+    # and parses back to the original string.
+    server = _fresh_module("severino_vault_mcp.server")
+    frontmatter = _fresh_module("severino_vault_mcp.frontmatter")
+    path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    tricky = "Notes on [arrays], colons: and commas"
+    result = server.update_writeup_frontmatter("draft-piece", description=tricky)
+    assert result["ok"] is True
+    body = path.read_text(encoding="utf-8")
+    assert f'description: "{tricky}"' in body
+    parsed, _body, _start = frontmatter.split_frontmatter(body)
+    assert parsed is not None
+    assert parsed["description"] == tricky
+
+
 # ----- reorder_featured ------------------------------------------------------
 
 
@@ -562,3 +624,75 @@ def test_reorder_featured_rejects_out_of_range(fake_writeups_vault: Path) -> Non
     result = server.reorder_featured("draft-piece", position=99)
     assert result["ok"] is False
     assert "out of range" in result["error"]
+
+
+def test_apply_writeup_plan_updates_fields_and_complete_featured_order(
+    fake_writeups_vault: Path,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.writeup_service")
+    result = service.apply_writeup_plan(
+        service.WriteupRuntime.from_env(),
+        {
+            "updates": [
+                {
+                    "slug": "draft-piece",
+                    "description": "Ready after one transactional save.",
+                    "published": True,
+                    "published_at": "2026-06-11",
+                }
+            ],
+            "featured_order": [
+                "ready-piece",
+                "draft-piece",
+                "lead-piece",
+            ],
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["featured_order_after"] == [
+        "ready-piece",
+        "draft-piece",
+        "lead-piece",
+    ]
+    after = service.writeup_dashboard(service.WriteupRuntime.from_env())
+    by_slug = {writeup["slug"]: writeup for writeup in after["writeups"]}
+    assert by_slug["draft-piece"]["published"] is True
+    assert by_slug["ready-piece"]["featured_order"] == 1
+    assert by_slug["draft-piece"]["featured_order"] == 2
+    assert by_slug["lead-piece"]["featured_order"] == 3
+
+
+def test_apply_writeup_plan_rolls_back_partial_replace_failure(
+    fake_writeups_vault: Path,
+    monkeypatch,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.writeup_service")
+    lead = fake_writeups_vault / "05 Writeups" / "lead-piece" / "index.md"
+    ready = fake_writeups_vault / "05 Writeups" / "ready-piece" / "index.md"
+    originals = {lead: lead.read_bytes(), ready: ready.read_bytes()}
+    real_replace = service.os.replace
+    calls = 0
+
+    def fail_second_replace(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated replacement failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(service.os, "replace", fail_second_replace)
+    result = service.apply_writeup_plan(
+        service.WriteupRuntime.from_env(),
+        {
+            "updates": [
+                {"slug": "lead-piece", "title": "Changed Lead"},
+                {"slug": "ready-piece", "title": "Changed Ready"},
+            ]
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["rolled_back"] is True
+    assert lead.read_bytes() == originals[lead]
+    assert ready.read_bytes() == originals[ready]

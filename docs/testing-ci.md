@@ -4,9 +4,9 @@ This project is tested as a local stdio MCP server package. The tests exercise
 the Python functions directly and also verify FastMCP resource registration
 where that matters.
 
-The current suite has 69 tests split across the generic vault surface
-(`tests/test_search.py`) and the jseverino.com writeup surface
-(`tests/test_writeups.py`).
+The current suite has 80 tests split across the generic vault surface
+(`tests/test_search.py`), HQ manifest generation (`tests/test_hq_manifest.py`),
+and the jseverino.com writeup surface (`tests/test_writeups.py`).
 
 ## Local Commands
 
@@ -125,10 +125,17 @@ catches CVEs against the *current* pin.
 - Quick Index recommendations only becoming `recommended` when they agree with
   the top-ranked doc.
 - Frontmatter creation and update validation.
+- Duplicate `doc_id` values are excluded from search/read results and reported
+  as ambiguous with every conflicting path.
+- Multiline frontmatter values survive generic mutations.
+- Simulated atomic replacement failure leaves the original document unchanged.
 - Full-text body search with frontmatter skipping.
 - Permanent exclusion of `restricted` bodies from `search_body`.
 - Project inventory lookup.
 - Reproducibility of `examples/sample-vault`.
+
+`tests/test_hq_manifest.py` covers shared multiline parsing and fail-closed
+duplicate-ID handling for HQ imports.
 
 `tests/test_writeups.py` covers:
 
@@ -141,10 +148,15 @@ catches CVEs against the *current* pin.
 - `find_writeups_using_tag` usage lookup and input validation.
 - `validate_writeup` blockers, missing technology slugs, missing images, and
   unresolved related vault references.
+- Shared-context batch validation loads writeups once per request.
+- `writeup_dashboard` combines summaries, featured order, and validation from
+  one snapshot.
 - `prepare_writeup_publish` composition, featured-position reporting, and
   optional tag-usage expansion.
 - `update_writeup_frontmatter` scalar updates with formatting preservation.
 - `reorder_featured` insert, move, unfeature, and range validation behavior.
+- `apply_writeup_plan` complete-order updates and rollback after a simulated
+  mid-transaction replacement failure.
 
 ## Sample Vault Reproducibility
 

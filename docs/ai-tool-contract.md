@@ -23,6 +23,7 @@ when a vault doc or workflow tool exists.
 | System context | `lookup_system` | Read the selected doc before summarizing. |
 | Body search | `search_body` | Use returned snippets only as discovery; read the doc before final instructions. |
 | Missing metadata | `add_frontmatter` or `update_frontmatter` | Report changed fields and next sync step. |
+| Duplicate doc ID response | `doctor` | Do not choose one path; report every conflict and require repair. |
 
 ## Sensitivity Handling
 
@@ -44,8 +45,10 @@ when a vault doc or workflow tool exists.
 | Does a technology slug exist or belong in the home cloud | `get_technology_catalog` and `find_writeups_using_tag` |
 | Is a writeup ready to publish | `prepare_writeup_publish(slug)` |
 | Need detailed blockers for one writeup | `validate_writeup(slug)` |
+| Need summaries and readiness for every writeup | `writeup_dashboard()` |
 | Flip publish state, date, cover, title, description, or review date | `update_writeup_frontmatter(slug, ...)` |
 | Insert, move, or unfeature a featured writeup | `reorder_featured(slug, position)` |
+| Apply several edits and a complete featured order | `apply_writeup_plan(plan)` |
 | Review contact form state | `list_contact_submissions` |
 | Review CSP report state | `list_csp_reports` or `count_csp_reports` |
 | Check live headers | `check_jseverino_security_headers(path)` |
@@ -60,4 +63,8 @@ featured order manually. The dedicated tools are faster and preserve invariants.
 - If no matching doc exists, say that before offering general guidance.
 - Use `prepare_writeup_publish(slug)` by default; enable tag usage only when
   making a tag-promotion decision.
+- Use `writeup_dashboard()` when a client needs both inventory and validation;
+  do not issue separate list and batch-validation calls.
+- Use `apply_writeup_plan(plan)` for multi-writeup interactive saves so all
+  affected files commit together or roll back together.
 - For write tools, report only the changed fields and any required follow-up.

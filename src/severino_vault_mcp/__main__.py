@@ -5,10 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
-
-from .config import Config
-from .doctor import run_doctor
 
 
 def _fingerprint() -> str:
@@ -132,6 +130,32 @@ def main() -> None:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    dashboard = subparsers.add_parser(
+        "writeup-dashboard",
+        help=(
+            "Return every writeup summary and validation result from one "
+            "shared vault snapshot. Used by `site manage` for fast startup."
+        ),
+    )
+    dashboard.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
+    apply_plan = subparsers.add_parser(
+        "apply-writeup-plan",
+        help=(
+            "Read a JSON writeup mutation plan from stdin and apply all "
+            "scalar updates plus the complete featured order transactionally."
+        ),
+    )
+    apply_plan.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     reorder = subparsers.add_parser(
         "reorder-featured",
         help=(
@@ -197,17 +221,38 @@ def main() -> None:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    hq_manifest = subparsers.add_parser(
+        "hq-manifest",
+        help=(
+            "Build the Severino HQ manifest with the package's shared "
+            "frontmatter parser."
+        ),
+    )
+    hq_manifest.add_argument("vault", help="Vault root path.")
+    hq_manifest.add_argument(
+        "subdirs",
+        help="Colon-separated vault subdirectories to index.",
+    )
+
     args = parser.parse_args()
     if args.fingerprint:
         print(_fingerprint())
         raise SystemExit(0)
 
     if args.command == "doctor":
+        from .config import Config
+        from .doctor import run_doctor
+
         raise SystemExit(run_doctor(Config.from_env(), propose=args.propose))
 
     if args.command == "prepare-writeup-publish":
-        from .server import prepare_writeup_publish
-        result = prepare_writeup_publish(args.slug, include_tag_usage=args.include_tag_usage)
+        from .writeup_service import WriteupRuntime, prepare_writeup_publish
+
+        result = prepare_writeup_publish(
+            WriteupRuntime.from_env(),
+            args.slug,
+            include_tag_usage=args.include_tag_usage,
+        )
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
@@ -215,8 +260,9 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "list-writeups":
-        from .server import list_writeups as list_writeups_tool
-        result = list_writeups_tool(args.filter)
+        from .writeup_service import WriteupRuntime, list_writeups
+
+        result = list_writeups(WriteupRuntime.from_env(), args.filter)
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
@@ -224,8 +270,9 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "technology-catalog":
-        from .server import get_technology_catalog
-        result = get_technology_catalog()
+        from .writeup_service import WriteupRuntime, get_technology_catalog
+
+        result = get_technology_catalog(WriteupRuntime.from_env())
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
@@ -233,8 +280,37 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "validate-all-writeups":
-        from .server import validate_all_writeups
-        result = validate_all_writeups(only_published=not args.include_drafts)
+        from .writeup_service import WriteupRuntime, validate_all_writeups
+
+        result = validate_all_writeups(
+            WriteupRuntime.from_env(),
+            only_published=not args.include_drafts,
+        )
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "writeup-dashboard":
+        from .writeup_service import WriteupRuntime, writeup_dashboard
+
+        result = writeup_dashboard(WriteupRuntime.from_env())
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "apply-writeup-plan":
+        from .writeup_service import WriteupRuntime, apply_writeup_plan
+
+        try:
+            plan = json.load(sys.stdin)
+        except json.JSONDecodeError as exc:
+            result = {"ok": False, "error": f"invalid JSON plan: {exc}"}
+        else:
+            result = apply_writeup_plan(WriteupRuntime.from_env(), plan)
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
@@ -242,8 +318,13 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "reorder-featured":
-        from .server import reorder_featured
-        result = reorder_featured(args.slug, args.position)
+        from .writeup_service import WriteupRuntime, reorder_featured
+
+        result = reorder_featured(
+            WriteupRuntime.from_env(),
+            args.slug,
+            args.position,
+        )
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
@@ -251,8 +332,13 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "update-writeup":
-        from .server import update_writeup_frontmatter
+        from .writeup_service import (
+            WriteupRuntime,
+            update_writeup_frontmatter,
+        )
+
         result = update_writeup_frontmatter(
+            WriteupRuntime.from_env(),
             args.slug,
             title=args.title,
             description=args.description,
@@ -270,13 +356,39 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "touch-reviewed":
-        from .server import update_frontmatter
-        result = update_frontmatter(args.relative_path, touch_last_reviewed=True)
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import touch_reviewed
+
+        result = touch_reviewed(VaultLoader(Config.from_env()), args.relative_path)
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
             print(json.dumps(result, separators=(",", ":")))
         raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "hq-manifest":
+        from .hq_manifest import build_hq_manifest
+
+        result = build_hq_manifest(
+            Path(args.vault).expanduser(),
+            [part for part in args.subdirs.split(":") if part],
+        )
+        if not result.get("ok"):
+            print(json.dumps(result, indent=2), file=sys.stderr)
+            raise SystemExit(1)
+        for subdir in result["missing_dirs"]:
+            print(f"warn: {subdir} not under vault, skipping", file=sys.stderr)
+        missing = result["missing_frontmatter"]
+        if missing:
+            print(
+                f"warn: {len(missing)} file(s) missing frontmatter "
+                "(skipped) — run `hq doctor` to list them",
+                file=sys.stderr,
+            )
+        print(json.dumps(result["entries"], indent=2))
+        print(f"ok: {result['count']} entries", file=sys.stderr)
+        raise SystemExit(0)
 
     from .server import run
 

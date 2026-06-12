@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .vault import _split_frontmatter
+from .frontmatter import split_frontmatter
 
 IMAGE_REF_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
@@ -106,7 +106,7 @@ def load_writeups(writeups_root: Path) -> list[Writeup]:
             text = index.read_text(encoding="utf-8")
         except OSError:
             continue
-        fm, body, _ = _split_frontmatter(text)
+        fm, body, _ = split_frontmatter(text)
         if not fm:
             continue
         out.append(

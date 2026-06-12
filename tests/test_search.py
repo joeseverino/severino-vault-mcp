@@ -253,6 +253,45 @@ sensitivity: internal
     assert any("duplicate doc_id" in message for message in messages)
 
 
+def test_duplicate_doc_id_is_excluded_and_reported_at_runtime(
+    fake_vault: Path,
+) -> None:
+    duplicate = fake_vault / "03 Runbooks" / "Duplicate.md"
+    duplicate.write_text(
+        """---
+doc_id: rb-add-nginx-proxy-host
+title: Duplicate Nginx Runbook
+doc_type: runbook
+system: Duplicate
+environment: other
+status: active
+sensitivity: internal
+---
+
+# Duplicate
+""",
+        encoding="utf-8",
+    )
+
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("rb-add-nginx-proxy-host")
+    assert result["found"] is False
+    assert result["ambiguous"] is True
+    assert sorted(result["paths"]) == [
+        "03 Runbooks/Add Nginx Proxy Host.md",
+        "03 Runbooks/Duplicate.md",
+    ]
+
+    search = server.find_runbook("nginx proxy")
+    assert all(
+        hit["doc_id"] != "rb-add-nginx-proxy-host"
+        for hit in search["hits"]
+    )
+    resource = server.vault_doc("rb-add-nginx-proxy-host")
+    assert "# Duplicate Vault Doc ID" in resource
+    assert "03 Runbooks/Duplicate.md" in resource
+
+
 def test_find_runbook_ranks_nginx_query(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.find_runbook("nginx proxy")
@@ -583,7 +622,7 @@ def test_add_frontmatter_validates_enums(fake_vault: Path) -> None:
         system="Foo",
     )
     assert result["ok"] is False
-    assert any("doc_id" in e for e in result["errors"])
+    assert "doc_id" in result["error"]
 
 
 def test_add_frontmatter_accepts_homelab_environment(fake_vault: Path) -> None:
@@ -627,7 +666,7 @@ def test_add_frontmatter_refuses_overwrite(fake_vault: Path) -> None:
         system="X",
     )
     assert result["ok"] is False
-    assert "already starts with" in result["errors"][0]
+    assert "already starts with" in result["error"]
 
 
 def test_update_frontmatter_touches_last_reviewed(fake_vault: Path) -> None:
@@ -646,6 +685,61 @@ def test_update_frontmatter_touches_last_reviewed(fake_vault: Path) -> None:
     assert "doc_id: rb-add-nginx-proxy-host" in body
 
 
+def test_update_frontmatter_preserves_multiline_scalar(fake_vault: Path) -> None:
+    path = fake_vault / "03 Runbooks" / "Add Nginx Proxy Host.md"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace(
+            "tags:\n  - nginx\n  - network-operations\n",
+            "tags:\n  - nginx\n  - network-operations\n"
+            "notes: >-\n"
+            "  First line of context.\n"
+            "  Second line of context.\n",
+        ),
+        encoding="utf-8",
+    )
+
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.update_frontmatter(
+        relative_path="03 Runbooks/Add Nginx Proxy Host.md",
+        title="Add an Nginx Proxy Host",
+    )
+    assert result["ok"] is True
+
+    frontmatter = _fresh_module(
+        "severino_vault_mcp.frontmatter"
+    ).read_frontmatter(path)
+    assert frontmatter is not None
+    assert frontmatter["notes"] == (
+        "First line of context. Second line of context."
+    )
+
+
+def test_update_frontmatter_keeps_original_on_atomic_write_failure(
+    fake_vault: Path,
+    monkeypatch,
+) -> None:
+    path = fake_vault / "03 Runbooks" / "Add Nginx Proxy Host.md"
+    original = path.read_text(encoding="utf-8")
+    server = _fresh_module("severino_vault_mcp.server")
+
+    def fail_write(_path, _text) -> None:
+        raise OSError("simulated replacement failure")
+
+    monkeypatch.setattr(
+        server.vault_write_service,
+        "atomic_write_text",
+        fail_write,
+    )
+    result = server.update_frontmatter(
+        relative_path="03 Runbooks/Add Nginx Proxy Host.md",
+        title="Should Not Persist",
+    )
+    assert result["ok"] is False
+    assert "simulated replacement failure" in result["error"]
+    assert path.read_text(encoding="utf-8") == original
+
+
 def test_update_frontmatter_refuses_without_frontmatter(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     result = server.update_frontmatter(
@@ -653,7 +747,7 @@ def test_update_frontmatter_refuses_without_frontmatter(fake_vault: Path) -> Non
         status="active",
     )
     assert result["ok"] is False
-    assert "no frontmatter" in result["errors"][0].lower()
+    assert "no frontmatter" in result["error"].lower()
 
 
 def test_search_body_finds_text_in_body(fake_vault: Path) -> None:

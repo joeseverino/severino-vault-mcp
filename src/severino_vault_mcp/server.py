@@ -12,21 +12,18 @@ the vault's navigation hub without spending a search-tool call.
 
 from __future__ import annotations
 
-import json
-import os
-import re
-import shutil
-import subprocess
-import urllib.error
-import urllib.request
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from . import (
+    site_ops_service,
+    vault_query_service,
+    vault_write_service,
+    writeup_service,
+)
 from .config import Config
-from .schema import DOC_ID_PREFIXES, DOC_TYPES, ENVIRONMENTS, SENSITIVITIES, STATUSES
 from .search import rank, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
@@ -36,77 +33,21 @@ from .secret_unlock import (
     verify_unlock_phrase,
 )
 from .sensitivity import Sensitivity, advisory, body_is_releasable
-from .tech_groups import load_technology_catalog
-from .vault import Doc, VaultLoader, _normalize_alias, _split_frontmatter
-from .writeups import extract_body_image_refs, load_writeups
+from .vault import Doc, VaultLoader, _normalize_alias
+from .vault_query_service import doc_to_hit as _hit_to_dict
 
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
 QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
 DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
-JSEVERINO_D1_DATABASE = os.environ.get("SVMC_JSEVERINO_D1_DATABASE", "jseverino-contact")
-JSEVERINO_SITE_REPO = Path(
-    os.path.expanduser(
-        os.environ.get(
-            "SVMC_JSEVERINO_SITE_REPO",
-            "~/Documents/Code/Projects/jseverino.com",
-        )
-    )
-)
-JSEVERINO_SITE_ORIGIN = os.environ.get("SVMC_JSEVERINO_SITE_ORIGIN", "https://jseverino.com")
 
 
 _CONFIG = Config.from_env()
 _LOADER = VaultLoader(_CONFIG)
-
-JSEVERINO_WRITEUPS_DIR = Path(
-    os.path.expanduser(
-        os.environ.get(
-            "SVMC_JSEVERINO_WRITEUPS_DIR",
-            str(_CONFIG.vault_path / "05 Writeups"),
-        )
-    )
+_WRITEUP_RUNTIME = writeup_service.WriteupRuntime.from_config(
+    _CONFIG,
+    loader=_LOADER,
 )
-JSEVERINO_TECH_GROUPS = Path(
-    os.path.expanduser(
-        os.environ.get(
-            "SVMC_JSEVERINO_TECH_GROUPS",
-            str(_CONFIG.vault_path / "06 Pages" / "_technology-groups.md"),
-        )
-    )
-)
-
-def _vault_root() -> Path:
-    return _LOADER.config.vault_path.resolve()
-
-
-def _path_within_vault(path: Path) -> bool:
-    try:
-        path.resolve().relative_to(_vault_root())
-    except (OSError, ValueError):
-        return False
-    return True
-
-
-def _operator_path_error(path: Path, label: str, kind: str) -> dict[str, Any] | None:
-    """Validate operator-extension paths before reads or writes.
-
-    The jseverino.com tools are fixed-purpose, but they still touch local
-    files. Keep their blast radius inside the configured vault root so an env
-    override cannot silently redirect writeup mutations elsewhere.
-    """
-    if not _path_within_vault(path):
-        return {
-            "ok": False,
-            "error": (
-                f"{label} must stay inside configured vault root "
-                f"{_vault_root()}: {path}"
-            ),
-        }
-    if kind == "dir" and not path.is_dir():
-        return {"ok": False, "error": f"{label} not found: {path}"}
-    if kind == "file" and not path.is_file():
-        return {"ok": False, "error": f"{label} not found: {path}"}
-    return None
+_SITE_OPS = site_ops_service.SiteOpsRuntime.from_env()
 
 
 _SERVER_INSTRUCTIONS = """\
@@ -175,67 +116,31 @@ slugs, or dangling image references; these tools exist to prevent that.
 IMPORTANT FOR LOCAL MODELS:
 - Do not print fake tool-call text such as `list_writeups("published")`.
 - Actually invoke the MCP tool, wait for the JSON result, then answer from it.
-- If the user asks "what is the order", "currently published writeups",
-  "featured order", "home order", or "writeup order", call
-  `list_featured_writeup_order()` first.
+- For any "what is the order / currently published / featured / home order"
+  question, call `list_featured_writeup_order()` first (fast path).
 
-1. `list_featured_writeup_order()` — FAST PATH for any question about the
-   current featured/home-cloud/currently published writeup order. It returns
-   only slot, slug, title, published, and featured. Use this before
-   `list_writeups("featured")` unless the user needs full frontmatter fields.
+Each tool's own description is authoritative; pick by intent, not by grep:
 
-2. `list_writeups(filter)` — for ANY question about which writeups
-   exist, what's published, what's featured, or what `featured_order`
-   each writeup has. Do NOT grep `05 Writeups/*/index.md` for these.
-   The `filter="featured"` view sorts by `featured_order` ascending and
-   is the only correct way to reason about the home-cloud order.
+- READ state — `list_featured_writeup_order` (compact order), `list_writeups`
+  (full inventory; `filter="featured"` is the only correct home-cloud order),
+  `get_technology_catalog` (slugs/groups), `find_writeups_using_tag` (is a tag
+  earned a featured slot?). Never `cat`/`rg` `05 Writeups/*/index.md` or hand-
+  parse `_technology-groups.md` for these.
+- VALIDATE — `validate_writeup` / `validate_all_writeups`. "I read the file" is
+  not "I validated it." `writeup_dashboard` returns inventory + validation from
+  one snapshot; use it instead of separate calls for the same screen.
+- MUTATE (never `Edit` writeup YAML) — `update_writeup_frontmatter` for one
+  writeup's scalars; `reorder_featured` / `apply_writeup_plan` for the featured
+  list, which they keep sequential 1..N transactionally. Hand-shuffling
+  `featured_order` across files is the exact failure mode that produced v2.4.2.
 
-3. `validate_writeup(slug)` — before claiming a writeup is publish-ready.
-   Returns a structured report on frontmatter completeness, tech-slug
-   coverage against the catalog, and image references vs files on disk.
-   "I read the file" is not the same as "I validated it."
-
-4. `get_technology_catalog()` — for any question about technology slugs,
-   their groups, or their featured state. Do NOT parse
-   `_technology-groups.md` markdown tables by hand.
-
-5. `find_writeups_using_tag(slug)` — before recommending that any tag be
-   promoted to featured. The site's home cloud rule is "featured AND
-   referenced by >=1 published writeup"; this tool answers the second
-   half directly without grep.
-
-6. `prepare_writeup_publish(slug)` — ONE call that composes validation,
-   featured order, and optional tag usage
-   into a single response (validation + featured order + tag usage).
-   Prefer this over chaining the individual tools by hand when you are
-   about to publish a writeup.
-
-WRITEUP MUTATIONS (use these, never `Edit` on writeup YAML):
-
-7. `update_writeup_frontmatter(slug, ...)` — for any single-writeup
-   frontmatter change (flip `published`, bump `last_reviewed`, change
-   `cover_image`, etc.). Mutates only the changed lines; surrounding
-   formatting is preserved.
-
-8. `reorder_featured(slug, position)` — for ANY change to the featured
-   list (insert new, move existing, unfeature). The tool guarantees the
-   resulting order is sequential 1..N. Hand-shuffling featured_order
-   across multiple files is the exact failure mode that produced v2.4.2.
-
-VERIFY BEFORE SHIPPING: call `prepare_writeup_publish(slug)` (or at
-minimum `validate_writeup(slug)` + `list_writeups("featured")`)
-*immediately before* the commit/push of a writeup, not after. The check
-exists to catch wrong `featured_order` values, missing tech-catalog
-entries, missing images, and unresolved `related_projects` /
-`related_assets` references before they reach production. Shipping
-first and verifying second is exactly how this MCP came to exist; do
-not repeat that pattern.
-
-If you find yourself about to grep frontmatter, parse the catalog
-markdown, count featured writeups by hand, or run `Edit` on a writeup's
-frontmatter block: stop and call the corresponding tool above. Apply
-the same discipline as Rule 2 above about runbooks — don't reinvent
-what these tools already do.
+VERIFY BEFORE SHIPPING: call `prepare_writeup_publish(slug)` (or at minimum
+`validate_writeup(slug)` + `list_writeups("featured")`) *immediately before*
+the commit/push of a writeup, not after. It catches wrong `featured_order`,
+missing tech-catalog entries, missing images, and unresolved `related_projects`
+/ `related_assets` before they reach production. Shipping first and verifying
+second is exactly how this MCP came to exist; do not repeat that pattern. Apply
+the same discipline as Rule 2 above about runbooks.
 
 The configured vault root and indexed directories are controlled by
 `config.example.toml`-style settings or `SVMC_*` environment overrides.
@@ -245,21 +150,6 @@ mcp = FastMCP("severino-vault-mcp", instructions=_SERVER_INSTRUCTIONS)
 
 
 # ----- helpers ----------------------------------------------------------------
-
-def _hit_to_dict(doc) -> dict[str, Any]:
-    return {
-        "doc_id": doc.doc_id,
-        "title": doc.title,
-        "doc_type": doc.doc_type,
-        "system": doc.system,
-        "environment": doc.environment,
-        "status": doc.status,
-        "sensitivity": doc.sensitivity.value,
-        "obsidian_path": doc.relative_path,
-        "tags": list(doc.tags),
-        "last_reviewed": doc.last_reviewed,
-    }
-
 
 def _split_table_row(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -427,6 +317,19 @@ def _lookup_doc(identifier: str) -> tuple[Doc | None, dict[str, str] | None]:
 
 
 def _not_found_response(identifier: str) -> dict[str, Any]:
+    duplicates = _LOADER.index().duplicate_doc_ids.get(identifier)
+    if duplicates:
+        return {
+            "doc_id": identifier,
+            "found": False,
+            "ambiguous": True,
+            "error": f"duplicate doc_id {identifier!r}",
+            "paths": duplicates,
+            "guidance": (
+                "Resolve the duplicate frontmatter IDs before reading this "
+                "document. Run `severino-vault-mcp doctor` for the full report."
+            ),
+        }
     return {
         "doc_id": identifier,
         "found": False,
@@ -490,132 +393,6 @@ def _secret_adjacent_unlock(doc_id: str, title: str) -> SecretUnlockResult:
     return SecretUnlockResult(True, "released", "Local unlock succeeded for this request only.")
 
 
-def _bounded_limit(value: int, *, default: int = 20, max_value: int = 100) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(1, min(parsed, max_value))
-
-
-def _wrangler_available() -> str | None:
-    return shutil.which("wrangler")
-
-
-def _run_wrangler_d1_json(command: str, *, timeout: int = 20) -> dict[str, Any]:
-    """Run one fixed D1 SQL command through Wrangler and parse JSON output."""
-    wrangler = _wrangler_available()
-    if not wrangler:
-        return {"ok": False, "error": "wrangler not found on PATH"}
-
-    try:
-        proc = subprocess.run(
-            [
-                wrangler,
-                "d1",
-                "execute",
-                JSEVERINO_D1_DATABASE,
-                "--remote",
-                "--json",
-                "--command",
-                command,
-            ],
-            cwd=str(JSEVERINO_SITE_REPO),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "error": f"wrangler d1 execute failed: {exc}"}
-
-    if proc.returncode != 0:
-        return {
-            "ok": False,
-            "returncode": proc.returncode,
-            "stderr": proc.stderr.strip(),
-            "stdout": proc.stdout.strip(),
-        }
-
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return {"ok": False, "error": "wrangler returned non-JSON output", "stdout": proc.stdout}
-
-    result = payload[0] if isinstance(payload, list) and payload else {}
-    return {
-        "ok": bool(result.get("success", True)),
-        "database": JSEVERINO_D1_DATABASE,
-        "results": result.get("results", []),
-        "meta": result.get("meta", {}),
-    }
-
-
-def _sql_string(value: str) -> str:
-    """SQLite single-quoted literal for fixed internal filters."""
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _head_headers(url: str, *, timeout: int = 10) -> dict[str, Any]:
-    curl = shutil.which("curl")
-    if curl:
-        try:
-            proc = subprocess.run(
-                [curl, "-sI", "--max-time", str(timeout), url],
-                capture_output=True,
-                text=True,
-                timeout=timeout + 2,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return {"ok": False, "url": url, "error": f"curl HEAD failed: {exc}"}
-
-        if proc.returncode == 0 and proc.stdout:
-            lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-            status = 0
-            headers: dict[str, str] = {}
-            for line in lines:
-                if line.lower().startswith("http/"):
-                    parts = line.split()
-                    if len(parts) > 1 and parts[1].isdigit():
-                        status = int(parts[1])
-                    continue
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    headers[key.lower()] = value.strip()
-            return {"ok": 200 <= status < 400, "url": url, "status": status, "headers": headers}
-
-    request = urllib.request.Request(url, method="HEAD")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            headers = {key.lower(): value for key, value in response.headers.items()}
-            return {
-                "ok": True,
-                "url": url,
-                "status": response.status,
-                "headers": headers,
-            }
-    except urllib.error.HTTPError as exc:
-        headers = {key.lower(): value for key, value in exc.headers.items()}
-        return {"ok": False, "url": url, "status": exc.code, "headers": headers}
-    except (OSError, urllib.error.URLError) as exc:
-        return {"ok": False, "url": url, "error": str(exc)}
-
-
-def _selected_security_headers(headers: dict[str, str]) -> dict[str, str | None]:
-    names = [
-        "content-security-policy",
-        "reporting-endpoints",
-        "strict-transport-security",
-        "x-content-type-options",
-        "referrer-policy",
-        "permissions-policy",
-        "cross-origin-opener-policy",
-        "cross-origin-resource-policy",
-    ]
-    return {name: headers.get(name) for name in names}
-
-
 # ----- resources --------------------------------------------------------------
 
 def _render_doc_resource(doc_id: str) -> str:
@@ -623,6 +400,15 @@ def _render_doc_resource(doc_id: str) -> str:
     idx = _LOADER.index()
     doc = idx.by_doc_id.get(doc_id)
     if doc is None:
+        duplicates = idx.duplicate_doc_ids.get(doc_id)
+        if duplicates:
+            paths = "\n".join(f"- `{path}`" for path in duplicates)
+            return (
+                "# Duplicate Vault Doc ID\n\n"
+                f"`{doc_id}` is used by multiple indexed documents:\n\n"
+                f"{paths}\n\n"
+                "Resolve the duplicate IDs and rerun the vault doctor."
+            )
         return (
             "# Vault Doc Not Found\n\n"
             f"No indexed vault doc exists with doc_id `{doc_id}`.\n\n"
@@ -883,43 +669,7 @@ def recent_changes(days: int = 7, limit: int = 50) -> dict[str, Any]:
         days: Look-back window in days (default 7).
         limit: Max commits to return (default 50).
     """
-    days = max(1, min(int(days), 365))
-    limit = max(1, min(int(limit), 500))
-
-    cwd = str(_LOADER.config.vault_path)
-    try:
-        proc = subprocess.run(
-            [
-                "git", "log",
-                f"--since={days}.days.ago",
-                f"-n{limit}",
-                "--pretty=format:%H|%cI|%s",
-                "--",
-                *_LOADER.config.indexed_dirs,
-            ],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"error": f"git log failed: {exc}"}
-
-    if proc.returncode != 0:
-        return {"error": proc.stderr.strip() or "git log failed"}
-
-    commits = []
-    for line in proc.stdout.splitlines():
-        parts = line.split("|", 2)
-        if len(parts) == 3:
-            commits.append({"sha": parts[0], "committed_at": parts[1], "subject": parts[2]})
-
-    return {
-        "days": days,
-        "commit_count": len(commits),
-        "commits": commits,
-    }
+    return vault_query_service.recent_changes(_LOADER, days, limit)
 
 
 @mcp.tool()
@@ -952,127 +702,13 @@ def search_body(
             bodies are never searched; per-doc local unlock is only available
             through `read_doc`.
     """
-    query = (query or "").strip()
-    if not query:
-        return {"query": query, "hits_by_doc": [], "match_count": 0}
-
-    rg = shutil.which("rg")
-    if not rg:
-        return {
-            "error": (
-                "ripgrep (`rg`) not found on PATH. Install via `brew install ripgrep` "
-                "or skip this tool."
-            ),
-        }
-
-    idx = _LOADER.index()
-    vault_root = _LOADER.config.vault_path.resolve()
-    indexed_roots = [vault_root / sub for sub in _LOADER.config.indexed_dirs]
-    indexed_roots = [r for r in indexed_roots if r.is_dir()]
-    if not indexed_roots:
-        return {"query": query, "hits_by_doc": [], "match_count": 0}
-
-    cmd = [
-        rg,
-        "--json",
-        "--type", "md",
-        "--max-count", "10",   # per-file cap
-        f"--context={max(0, min(int(context_lines), 5))}",
-        "--no-ignore-vcs",
-    ]
-    if not case_sensitive:
-        cmd.append("-i")
-    cmd.append(query)
-    cmd.extend(str(r) for r in indexed_roots)
-
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15, check=False
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"error": f"ripgrep failed: {exc}"}
-
-    if proc.returncode > 1:
-        # rg returns 1 for "no matches" — that's fine. Anything else is bad.
-        return {"error": proc.stderr.strip() or f"ripgrep returncode={proc.returncode}"}
-
-    # Walk rg --json output. Group matches by source file.
-    matches_by_path: dict[str, list[dict]] = {}
-    current_path: str | None = None
-    for line in proc.stdout.splitlines():
-        if not line:
-            continue
-        try:
-            evt = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        t = evt.get("type")
-        data = evt.get("data") or {}
-        if t == "begin":
-            current_path = (data.get("path") or {}).get("text")
-            if current_path:
-                matches_by_path.setdefault(current_path, [])
-        elif t in ("match", "context") and current_path:
-            line_no = data.get("line_number")
-            text = (data.get("lines") or {}).get("text", "").rstrip("\n")
-            if line_no is None:
-                continue
-            matches_by_path[current_path].append({
-                "line_number": line_no,
-                "kind": t,
-                "text": text,
-            })
-
-    # Resolve each path to a Doc, apply the sensitivity gate, and drop
-    # matches that fall inside the frontmatter block.
-    by_path_to_doc = {str(d.path): d for d in idx.docs}
-    hits_by_doc: list[dict] = []
-    excluded = {
-        "restricted_skipped": 0,
-        "secret_adjacent_skipped": 0,
-        "unindexed_skipped": 0,
-    }
-
-    for path_str, hits in matches_by_path.items():
-        doc = by_path_to_doc.get(path_str)
-        if doc is None:
-            # File matched but isn't in our index (untagged, in 00 Templates/, etc.)
-            excluded["unindexed_skipped"] += 1
-            continue
-        if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
-            excluded["restricted_skipped"] += 1
-            excluded["secret_adjacent_skipped"] += 1
-            continue
-        # Drop any hit that lands inside the frontmatter block.
-        in_body = [h for h in hits if h["line_number"] >= doc.body_start_line]
-        if not in_body:
-            continue
-        # Match-only count (excluding context lines) for ranking.
-        match_count = sum(1 for h in in_body if h["kind"] == "match")
-        if match_count == 0:
-            continue
-        hits_by_doc.append({
-            **_hit_to_dict(doc),
-            "match_count": match_count,
-            "snippets": in_body,
-            **({"advisory": advisory(doc.sensitivity)}
-               if doc.sensitivity is Sensitivity.SENSITIVE else {}),
-        })
-
-    # Sort by match count (desc), then last_reviewed (desc), then title.
-    hits_by_doc.sort(
-        key=lambda h: (h["match_count"], h.get("last_reviewed") or "", h["title"]),
-        reverse=True,
+    return vault_query_service.search_body(
+        _LOADER,
+        query,
+        limit=limit,
+        context_lines=context_lines,
+        case_sensitive=case_sensitive,
     )
-    capped = hits_by_doc[: max(1, min(int(limit), 50))]
-
-    return {
-        "query": query,
-        "doc_count": len(capped),
-        "total_match_count": sum(h["match_count"] for h in capped),
-        "excluded": excluded,
-        "hits_by_doc": capped,
-    }
 
 
 # ----- jseverino.com operations tools ----------------------------------------
@@ -1087,13 +723,7 @@ def list_contact_submissions(limit: int = 10) -> dict[str, Any]:
     Args:
         limit: Maximum rows to return, capped at 100.
     """
-    limit = _bounded_limit(limit, default=10, max_value=100)
-    sql = (
-        "SELECT id, created_at, name, email, status, browser, device, country, source_url "
-        "FROM contact_submissions ORDER BY created_at DESC LIMIT "
-        f"{limit};"
-    )
-    return _run_wrangler_d1_json(sql)
+    return site_ops_service.list_contact_submissions(_SITE_OPS, limit)
 
 
 @mcp.tool()
@@ -1107,18 +737,7 @@ def list_csp_reports(limit: int = 20, directive: str | None = None) -> dict[str,
         limit: Maximum rows to return, capped at 100.
         directive: Optional exact `effective_directive` filter, e.g. "script-src".
     """
-    limit = _bounded_limit(limit, default=20, max_value=100)
-    where = ""
-    if directive:
-        directive = directive.strip()[:128]
-        if directive:
-            where = f"WHERE effective_directive = {_sql_string(directive)} "
-    sql = (
-        "SELECT id, created_at, effective_directive, blocked_uri, document_uri, "
-        "source_file, status_code FROM csp_reports "
-        f"{where}ORDER BY created_at DESC LIMIT {limit};"
-    )
-    return _run_wrangler_d1_json(sql)
+    return site_ops_service.list_csp_reports(_SITE_OPS, limit, directive)
 
 
 @mcp.tool()
@@ -1127,18 +746,7 @@ def count_csp_reports() -> dict[str, Any]:
 
     Includes total count and grouped counts by `effective_directive`.
     """
-    total = _run_wrangler_d1_json("SELECT COUNT(*) AS total FROM csp_reports;")
-    by_directive = _run_wrangler_d1_json(
-        "SELECT COALESCE(effective_directive, '(unknown)') AS effective_directive, "
-        "COUNT(*) AS count FROM csp_reports GROUP BY effective_directive "
-        "ORDER BY count DESC, effective_directive ASC;"
-    )
-    return {
-        "ok": bool(total.get("ok") and by_directive.get("ok")),
-        "database": JSEVERINO_D1_DATABASE,
-        "total": total,
-        "by_directive": by_directive,
-    }
+    return site_ops_service.count_csp_reports(_SITE_OPS)
 
 
 @mcp.tool()
@@ -1152,85 +760,10 @@ def apply_jseverino_d1_schema(confirm: bool = False) -> dict[str, Any]:
     Args:
         confirm: Must be True to execute the remote schema import.
     """
-    if not confirm:
-        return {
-            "ok": False,
-            "refused": True,
-            "message": "Pass confirm=True to apply db/schema.sql to the remote D1 database.",
-        }
-
-    wrangler = _wrangler_available()
-    if not wrangler:
-        return {"ok": False, "error": "wrangler not found on PATH"}
-
-    schema = JSEVERINO_SITE_REPO / "db" / "schema.sql"
-    if not schema.is_file():
-        return {"ok": False, "error": f"schema file not found: {schema}"}
-
-    try:
-        proc = subprocess.run(
-            [
-                wrangler,
-                "d1",
-                "execute",
-                JSEVERINO_D1_DATABASE,
-                "--remote",
-                "--file",
-                str(schema),
-            ],
-            cwd=str(JSEVERINO_SITE_REPO),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "error": f"wrangler d1 schema apply failed: {exc}"}
-
-    return {
-        "ok": proc.returncode == 0,
-        "database": JSEVERINO_D1_DATABASE,
-        "schema": str(schema),
-        "returncode": proc.returncode,
-        "stdout": proc.stdout.strip(),
-        "stderr": proc.stderr.strip(),
-    }
+    return site_ops_service.apply_d1_schema(_SITE_OPS, confirm)
 
 
 # ----- jseverino.com writeup tools -------------------------------------------
-
-_WRITEUP_FILTERS = ("all", "published", "draft", "featured")
-
-
-def _writeup_summary(writeup) -> dict[str, Any]:
-    return writeup.to_summary()
-
-
-def _writeup_order_entry(writeup, slot: int | None = None) -> dict[str, Any]:
-    return {
-        "slot": slot if slot is not None else writeup.featured_order,
-        "slug": writeup.slug,
-        "title": writeup.title,
-        "published": writeup.published,
-        "featured": writeup.featured,
-    }
-
-
-def _featured_writeup_order(writeups: list[Any]) -> list[dict[str, Any]]:
-    return [
-        _writeup_order_entry(w, slot=i)
-        for i, w in enumerate(
-            sorted(
-                (w for w in writeups if w.published and w.featured),
-                key=lambda w: (
-                    w.featured_order if w.featured_order is not None else 10**9,
-                    w.slug,
-                ),
-            ),
-            start=1,
-        )
-    ]
-
 
 @mcp.tool()
 def list_featured_writeup_order() -> dict[str, Any]:
@@ -1242,16 +775,7 @@ def list_featured_writeup_order() -> dict[str, Any]:
     home order, portfolio order, or writeup order and does not need full
     frontmatter fields.
     """
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return err
-
-    order = _featured_writeup_order(load_writeups(JSEVERINO_WRITEUPS_DIR))
-    return {
-        "ok": True,
-        "writeups_dir": str(JSEVERINO_WRITEUPS_DIR),
-        "count": len(order),
-        "order": order,
-    }
+    return writeup_service.list_featured_writeup_order(_WRITEUP_RUNTIME)
 
 
 @mcp.tool()
@@ -1272,43 +796,7 @@ def list_writeups(filter: str = "all") -> dict[str, Any]:
         filter: One of "all", "published", "draft", "featured". The
             "featured" filter sorts by `featured_order` ascending.
     """
-    chosen = (filter or "all").strip().lower()
-    if chosen not in _WRITEUP_FILTERS:
-        return {
-            "ok": False,
-            "error": f"unknown filter {filter!r}; expected one of {list(_WRITEUP_FILTERS)}",
-        }
-
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return err
-
-    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    all_writeups = list(writeups)
-    if chosen == "published":
-        writeups = [w for w in writeups if w.published]
-    elif chosen == "draft":
-        writeups = [w for w in writeups if not w.published]
-    elif chosen == "featured":
-        writeups = [w for w in writeups if w.featured]
-        writeups.sort(
-            key=lambda w: (
-                w.featured_order if w.featured_order is not None else 10**9,
-                w.slug,
-            )
-        )
-
-    featured_order = _featured_writeup_order(all_writeups)
-    order = [_writeup_order_entry(w, slot=i) for i, w in enumerate(writeups, start=1)]
-
-    return {
-        "ok": True,
-        "filter": chosen,
-        "writeups_dir": str(JSEVERINO_WRITEUPS_DIR),
-        "count": len(writeups),
-        "order": order,
-        "featured_order": featured_order,
-        "writeups": [_writeup_summary(w) for w in writeups],
-    }
+    return writeup_service.list_writeups(_WRITEUP_RUNTIME, filter)
 
 
 @mcp.tool()
@@ -1322,30 +810,7 @@ def get_technology_catalog() -> dict[str, Any]:
     tables — parsing them by hand is the path to introducing slugs the
     site build warns about.
     """
-    if err := _operator_path_error(JSEVERINO_TECH_GROUPS, "technology catalog", "file"):
-        return err
-
-    catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
-    if not catalog:
-        return {
-            "ok": False,
-            "error": f"catalog file present but no slugs parsed: {JSEVERINO_TECH_GROUPS}",
-        }
-
-    by_group: dict[str, list[dict[str, Any]]] = {}
-    for entry in catalog:
-        by_group.setdefault(entry.group, []).append(
-            {"slug": entry.slug, "label": entry.label, "featured": entry.featured}
-        )
-
-    featured_count = sum(1 for entry in catalog if entry.featured)
-    return {
-        "ok": True,
-        "catalog_path": str(JSEVERINO_TECH_GROUPS),
-        "total_slugs": len(catalog),
-        "featured_count": featured_count,
-        "by_group": by_group,
-    }
+    return writeup_service.get_technology_catalog(_WRITEUP_RUNTIME)
 
 
 @mcp.tool()
@@ -1360,31 +825,7 @@ def find_writeups_using_tag(slug: str) -> dict[str, Any]:
     Args:
         slug: Technology slug from the catalog, e.g. "obsidian".
     """
-    slug = (slug or "").strip()
-    if not slug:
-        return {"ok": False, "error": "slug required"}
-
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return err
-
-    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    matches = [w for w in writeups if slug in w.technologies]
-
-    return {
-        "ok": True,
-        "slug": slug,
-        "total_matches": len(matches),
-        "published_matches": sum(1 for w in matches if w.published),
-        "writeups": [
-            {
-                "slug": w.slug,
-                "title": w.title,
-                "published": w.published,
-                "featured": w.featured,
-            }
-            for w in matches
-        ],
-    }
+    return writeup_service.find_writeups_using_tag(_WRITEUP_RUNTIME, slug)
 
 
 @mcp.tool()
@@ -1406,96 +847,7 @@ def validate_writeup(slug: str) -> dict[str, Any]:
     Args:
         slug: Writeup slug, e.g. "building-a-custom-mcp-layer".
     """
-    slug = (slug or "").strip()
-    if not slug:
-        return {"ok": False, "error": "slug required"}
-
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return err
-
-    writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
-    if not writeup_dir.is_dir():
-        return {"ok": False, "error": f"writeup folder not found: {slug}"}
-
-    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    writeup = next((w for w in writeups if w.slug == slug), None)
-    if writeup is None:
-        return {"ok": False, "error": f"writeup has no frontmatter or index.md: {slug}"}
-
-    blockers: list[str] = []
-    nits: list[str] = []
-
-    if not writeup.title:
-        blockers.append("title missing")
-    if not writeup.description:
-        blockers.append("description missing")
-    elif len(writeup.description) > 300:
-        nits.append(f"description is {len(writeup.description)} chars (recommend <=300)")
-    if not writeup.published:
-        blockers.append("published is false — flip to true to ship")
-    if not writeup.published_at:
-        blockers.append("published_at empty — set ISO date when ready")
-    if not writeup.cover_image:
-        nits.append("cover_image missing")
-    if writeup.cover_image and not writeup.cover_alt:
-        nits.append("cover_alt missing — describe the actual image so the card and hero stop reusing the title")
-    if not writeup.technologies:
-        nits.append("technologies list empty")
-
-    missing_slugs: list[str] = []
-    if catalog_err := _operator_path_error(JSEVERINO_TECH_GROUPS, "technology catalog", "file"):
-        nits.append(f"{catalog_err['error']}; skipping slug check")
-    else:
-        catalog = load_technology_catalog(JSEVERINO_TECH_GROUPS)
-        catalog_slugs = {entry.slug for entry in catalog}
-        if catalog_slugs:
-            missing_slugs = [s for s in writeup.technologies if s not in catalog_slugs]
-        else:
-            nits.append(f"no technology slugs parsed from {JSEVERINO_TECH_GROUPS}; skipping slug check")
-
-    body_image_refs = extract_body_image_refs(writeup.body)
-    images_dir = writeup_dir / "images"
-    present_images = (
-        {p.name for p in images_dir.iterdir() if p.is_file()}
-        if images_dir.is_dir()
-        else set()
-    )
-    missing_images: list[str] = []
-    for ref in body_image_refs:
-        ref_name = Path(ref).name
-        if ref_name and ref_name not in present_images:
-            missing_images.append(ref)
-
-    # related_projects / related_assets must resolve to indexed vault docs.
-    # The convention is project-<slug> for projects; assets either share that
-    # prefix or match a vault doc filename stem. Anything that doesn't resolve
-    # is a soft-shipped dangling reference that HQ flags repeatedly.
-    unresolved_refs: list[str] = []
-    vault_idx = _LOADER.index()
-    project_doc_ids = {d.doc_id for d in vault_idx.docs}
-    doc_stems_lower = {d.path.stem.lower() for d in vault_idx.docs}
-    for ref in writeup.related_projects:
-        if f"project-{ref}" not in project_doc_ids and ref.lower() not in doc_stems_lower:
-            unresolved_refs.append(f"related_projects: {ref} (no matching vault doc)")
-    for ref in writeup.related_assets:
-        if (
-            f"project-{ref}" not in project_doc_ids
-            and ref not in project_doc_ids
-            and ref.lower() not in doc_stems_lower
-        ):
-            unresolved_refs.append(f"related_assets: {ref} (no matching vault doc)")
-
-    ok = not blockers and not missing_slugs and not missing_images and not unresolved_refs
-    return {
-        "ok": ok,
-        "slug": slug,
-        "frontmatter": _writeup_summary(writeup),
-        "blockers": blockers,
-        "missing_tech_slugs": missing_slugs,
-        "missing_images": missing_images,
-        "unresolved_refs": unresolved_refs,
-        "nits": nits,
-    }
+    return writeup_service.validate_writeup(_WRITEUP_RUNTIME, slug)
 
 
 @mcp.tool()
@@ -1510,58 +862,10 @@ def validate_all_writeups(only_published: bool = True) -> dict[str, Any]:
         only_published: When True (default), skips drafts. Pass False to
             include `published: false` writeups too.
     """
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return err
-
-    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    if only_published:
-        writeups = [w for w in writeups if w.published]
-
-    summaries: list[dict[str, Any]] = []
-    failing_slugs: list[str] = []
-    total_blockers = 0
-    total_nits = 0
-    total_missing_slugs = 0
-    total_missing_images = 0
-
-    for writeup in writeups:
-        result = validate_writeup(writeup.slug)
-        if "error" in result:
-            continue
-        blockers = result.get("blockers", []) or []
-        nits = result.get("nits", []) or []
-        missing_slugs = result.get("missing_tech_slugs", []) or []
-        missing_images = result.get("missing_images", []) or []
-        is_ok = bool(result.get("ok"))
-
-        summaries.append(
-            {
-                "slug": writeup.slug,
-                "ok": is_ok,
-                "blockers": blockers,
-                "missing_tech_slugs": missing_slugs,
-                "missing_images": missing_images,
-                "nits": nits,
-            }
-        )
-        if not is_ok:
-            failing_slugs.append(writeup.slug)
-        total_blockers += len(blockers)
-        total_nits += len(nits)
-        total_missing_slugs += len(missing_slugs)
-        total_missing_images += len(missing_images)
-
-    return {
-        "ok": len(failing_slugs) == 0,
-        "count": len(summaries),
-        "failing_count": len(failing_slugs),
-        "failing_slugs": failing_slugs,
-        "total_blockers": total_blockers,
-        "total_nits": total_nits,
-        "total_missing_tech_slugs": total_missing_slugs,
-        "total_missing_images": total_missing_images,
-        "writeups": summaries,
-    }
+    return writeup_service.validate_all_writeups(
+        _WRITEUP_RUNTIME,
+        only_published=only_published,
+    )
 
 
 @mcp.tool()
@@ -1595,108 +899,37 @@ def prepare_writeup_publish(
         include_tag_usage: If True, include per-technology usage stats
             (adds ~300-500 tokens per call). Default False.
     """
-    validation = validate_writeup(slug)
-    featured = list_writeups("featured")
+    return writeup_service.prepare_writeup_publish(
+        _WRITEUP_RUNTIME,
+        slug,
+        include_tag_usage=include_tag_usage,
+    )
 
-    featured_writeups = featured.get("writeups", []) if isinstance(featured, dict) else []
-    position: int | None = None
-    for entry in featured_writeups:
-        if entry.get("slug") == slug:
-            position = entry.get("featured_order")
-            break
 
-    response: dict[str, Any] = {
-        "ok": bool(validation.get("ok")) if isinstance(validation, dict) else False,
-        "slug": slug,
-        "validation": validation,
-        "featured_set": {
-            "count": featured.get("count", 0) if isinstance(featured, dict) else 0,
-            "order": [
-                {"slot": entry.get("featured_order"), "slug": entry.get("slug")}
-                for entry in featured_writeups
-            ],
-            "this_writeup_position": position,
-        },
-    }
+@mcp.tool()
+def writeup_dashboard() -> dict[str, Any]:
+    """Return all writeup summaries and validation results from one snapshot.
 
-    if include_tag_usage:
-        tag_usage: dict[str, dict[str, Any]] = {}
-        technologies = (
-            validation.get("frontmatter", {}).get("technologies", [])
-            if isinstance(validation, dict)
-            else []
-        )
-        for tag in technologies:
-            usage = find_writeups_using_tag(tag)
-            if isinstance(usage, dict) and usage.get("ok"):
-                tag_usage[tag] = {
-                    "total_writeups": usage.get("total_matches", 0),
-                    "published_writeups": usage.get("published_matches", 0),
-                }
-        response["tag_usage"] = tag_usage
+    This is the low-latency initialization path for interactive clients such
+    as `site manage`. Prefer it over separate `list_writeups` and
+    `validate_all_writeups` calls when both views are needed together.
+    """
+    return writeup_service.writeup_dashboard(_WRITEUP_RUNTIME)
 
-    return response
+
+@mcp.tool()
+def apply_writeup_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Apply scalar writeup updates and the complete featured order transactionally.
+
+    The plan shape is:
+    `{"updates": [{"slug": "...", "published": true, ...}],
+    "featured_order": ["first-slug", "second-slug"]}`.
+    Every changed file is staged before replacement; failures trigger rollback.
+    """
+    return writeup_service.apply_writeup_plan(_WRITEUP_RUNTIME, plan)
 
 
 # ----- writeup write tools ---------------------------------------------------
-
-def _yaml_writeup_scalar(value: Any) -> str:
-    """Serialize a Python value to a YAML scalar for writeup frontmatter."""
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    s = str(value)
-    if s == "":
-        return ""
-    needs_quote = (
-        s != s.strip()
-        or s[0] in "&*!%@`>|"
-        or any(ch in s for ch in [":", "#"])
-    )
-    if needs_quote:
-        return '"' + s.replace('"', '\\"') + '"'
-    return s
-
-
-def _replace_writeup_scalar(text: str, key: str, raw_value: str) -> str:
-    """Replace the value of a scalar frontmatter key in writeup index.md.
-
-    If the key exists, only its value line is changed (preserving formatting
-    of every other line). If it doesn't exist, the key is inserted just
-    before the closing `---` of the frontmatter block.
-    """
-    pattern = re.compile(rf'^({re.escape(key)}):[^\n]*$', re.MULTILINE)
-    replacement = f"{key}: {raw_value}".rstrip()
-    if pattern.search(text):
-        return pattern.sub(replacement, text, count=1)
-
-    # Insert before the closing --- of the frontmatter block.
-    lines = text.split("\n")
-    fence_count = 0
-    for i, line in enumerate(lines):
-        if line.strip() == "---":
-            fence_count += 1
-            if fence_count == 2:
-                lines.insert(i, replacement)
-                return "\n".join(lines)
-    # No closing fence — prepend.
-    return replacement + "\n" + text
-
-
-def _load_writeup_or_error(slug: str) -> tuple[Any, dict[str, Any] | None]:
-    """Find a single writeup by slug or return an error response."""
-    if err := _operator_path_error(JSEVERINO_WRITEUPS_DIR, "writeups dir", "dir"):
-        return None, err
-    writeup_dir = JSEVERINO_WRITEUPS_DIR / slug
-    if not writeup_dir.is_dir():
-        return None, {"ok": False, "error": f"writeup folder not found: {slug}"}
-    writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    writeup = next((w for w in writeups if w.slug == slug), None)
-    if writeup is None:
-        return None, {"ok": False, "error": f"writeup has no frontmatter or index.md: {slug}"}
-    return writeup, None
-
 
 @mcp.tool()
 def update_writeup_frontmatter(
@@ -1728,70 +961,41 @@ def update_writeup_frontmatter(
         slug: Writeup slug.
         title, description, published_at, cover_image, cover_alt: scalar
             updates. None means leave unchanged.
-        published, featured: boolean updates. None means leave unchanged.
-        featured_order: integer slot, or null to clear. To fully
-            unfeature, pass `featured=False, featured_order=None`.
+        published: boolean update. None means leave unchanged.
+        featured, featured_order: retained for backwards-compatible tool
+            schema parsing but refused; use `reorder_featured` or
+            `apply_writeup_plan` so ordering invariants remain transactional.
         last_reviewed: ISO date (YYYY-MM-DD). Ignored if
             `touch_last_reviewed=True`.
         touch_last_reviewed: if True, set last_reviewed to today.
     """
-    writeup, err = _load_writeup_or_error(slug)
-    if err:
-        return err
-
-    if touch_last_reviewed:
-        last_reviewed_value: str | None = date.today().isoformat()
-    else:
-        last_reviewed_value = last_reviewed
-
-    candidates: list[tuple[str, Any, Any]] = [
-        ("title", writeup.title, title),
-        ("description", writeup.description, description),
-        ("published", writeup.published, published),
-        ("published_at", writeup.published_at, published_at),
-        ("last_reviewed", writeup.last_reviewed, last_reviewed_value),
-        ("cover_image", writeup.cover_image, cover_image),
-        ("cover_alt", writeup.cover_alt, cover_alt),
-        ("featured", writeup.featured, featured),
-        ("featured_order", writeup.featured_order, featured_order),
-    ]
-
-    updates: dict[str, Any] = {}
-    for key, current, new in candidates:
-        if new is None:
-            # `None` means "leave this field unchanged." To clear
-            # featured_order, callers should use reorder_featured(slug, 0).
-            continue
-        if current != new:
-            updates[key] = new
-
-    if not updates:
+    if featured is not None or featured_order is not None:
         return {
-            "ok": True,
-            "no_op": True,
-            "slug": slug,
-            "message": "No fields differ — nothing written.",
+            "ok": False,
+            "error": (
+                "featured fields must be changed through reorder_featured "
+                "or apply_writeup_plan"
+            ),
         }
-
-    text = writeup.path.read_text(encoding="utf-8")
-    for key, value in updates.items():
-        text = _replace_writeup_scalar(text, key, _yaml_writeup_scalar(value))
-    writeup.path.write_text(text, encoding="utf-8")
-
-    return {
-        "ok": True,
-        "slug": slug,
-        "relative_path": str(writeup.path.resolve().relative_to(_vault_root())),
-        "changed_fields": sorted(updates.keys()),
-        "values": {k: (None if v is None else str(v)) for k, v in updates.items()},
-    }
+    return writeup_service.update_writeup_frontmatter(
+        _WRITEUP_RUNTIME,
+        slug,
+        title=title,
+        description=description,
+        published=published,
+        published_at=published_at,
+        last_reviewed=last_reviewed,
+        touch_last_reviewed=touch_last_reviewed,
+        cover_image=cover_image,
+        cover_alt=cover_alt,
+    )
 
 
 @mcp.tool()
 def reorder_featured(slug: str, position: int) -> dict[str, Any]:
     """USE THIS — never hand-shuffle featured_order across multiple files.
 
-    Atomically reorders the featured-writeups list. The exact failure mode
+    Transactionally reorders the featured-writeups list. The exact failure mode
     this tool prevents is documented in CHANGELOG v2.4.2: hand-editing
     featured_order across 5+ files in a row is how publishes ship with
     the wrong slot value.
@@ -1813,78 +1017,7 @@ def reorder_featured(slug: str, position: int) -> dict[str, Any]:
         slug: Writeup slug to move.
         position: Target slot (1-indexed) or 0 to unfeature.
     """
-    if not isinstance(position, int) or position < 0:
-        return {"ok": False, "error": "position must be an integer >= 0"}
-
-    target, err = _load_writeup_or_error(slug)
-    if err:
-        return err
-
-    all_writeups = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    featured_now = sorted(
-        (w for w in all_writeups if w.featured),
-        key=lambda w: (
-            w.featured_order if w.featured_order is not None else 10**9,
-            w.slug,
-        ),
-    )
-    others = [w for w in featured_now if w.slug != slug]
-
-    if position == 0:
-        new_order: list = list(others)
-        target_new_position: int | None = None
-    else:
-        max_position = len(others) + 1
-        if position > max_position:
-            return {
-                "ok": False,
-                "error": f"position {position} out of range (max {max_position})",
-            }
-        new_order = others[: position - 1] + [target] + others[position - 1 :]
-        target_new_position = position
-
-    changed_writeups: list[str] = []
-
-    # Update every writeup whose featured state or slot differs from the new
-    # plan. Target gets unfeatured if position==0; otherwise it joins
-    # new_order at the desired slot.
-    for i, w in enumerate(new_order, start=1):
-        desired_featured = True
-        desired_order = i
-        if w.featured != desired_featured or w.featured_order != desired_order:
-            text = w.path.read_text(encoding="utf-8")
-            text = _replace_writeup_scalar(text, "featured", _yaml_writeup_scalar(desired_featured))
-            text = _replace_writeup_scalar(text, "featured_order", _yaml_writeup_scalar(desired_order))
-            w.path.write_text(text, encoding="utf-8")
-            changed_writeups.append(w.slug)
-
-    if position == 0 and (target.featured or target.featured_order is not None):
-        text = target.path.read_text(encoding="utf-8")
-        text = _replace_writeup_scalar(text, "featured", _yaml_writeup_scalar(False))
-        text = _replace_writeup_scalar(text, "featured_order", _yaml_writeup_scalar(None))
-        target.path.write_text(text, encoding="utf-8")
-        if target.slug not in changed_writeups:
-            changed_writeups.append(target.slug)
-
-    # Re-read and report the resulting order.
-    after = load_writeups(JSEVERINO_WRITEUPS_DIR)
-    featured_after = sorted(
-        (w for w in after if w.featured),
-        key=lambda w: (
-            w.featured_order if w.featured_order is not None else 10**9,
-            w.slug,
-        ),
-    )
-
-    return {
-        "ok": True,
-        "slug": slug,
-        "new_position": target_new_position,
-        "changed_writeups": changed_writeups,
-        "featured_order_after": [
-            {"slot": w.featured_order, "slug": w.slug} for w in featured_after
-        ],
-    }
+    return writeup_service.reorder_featured(_WRITEUP_RUNTIME, slug, position)
 
 
 # ----- jseverino.com live-site tools -----------------------------------------
@@ -1899,70 +1032,10 @@ def check_jseverino_security_headers(path: str = "/") -> dict[str, Any]:
     Args:
         path: Site path to check, e.g. "/" or "/contact/". Must be root-relative.
     """
-    path = (path or "/").strip()
-    if not path.startswith("/"):
-        return {"ok": False, "error": "path must start with '/'"}
-    if path.startswith("//"):
-        return {"ok": False, "error": "path must be root-relative, not protocol-relative"}
-
-    url = f"{JSEVERINO_SITE_ORIGIN.rstrip('/')}{path}"
-    result = _head_headers(url)
-    headers = result.get("headers", {})
-    selected = _selected_security_headers(headers if isinstance(headers, dict) else {})
-    csp = selected.get("content-security-policy") or ""
-    reporting = selected.get("reporting-endpoints") or ""
-    return {
-        **result,
-        "selected_headers": selected,
-        "checks": {
-            "has_csp": bool(csp),
-            "no_unsafe_inline_script": "script-src 'unsafe-inline'" not in csp,
-            "has_csp_report_to": "report-to csp-endpoint" in csp,
-            "has_csp_report_uri": "report-uri https://jseverino.com/api/csp-report" in csp,
-            "has_reporting_endpoints": "csp-endpoint=" in reporting,
-        },
-    }
+    return site_ops_service.check_security_headers(_SITE_OPS, path)
 
 
-# ----- write tool -------------------------------------------------------------
-
-def _yaml_escape(value: str) -> str:
-    """Tiny YAML scalar emitter; matches the hand-rolled parser in vault.py."""
-    if value is None or value == "":
-        return '""'
-    if any(ch in value for ch in [":", "#", "@", "|", ">", "{", "}", "[", "]", ",", "&", "*", "!", "%", "`"]):
-        return '"' + value.replace('"', '\\"') + '"'
-    if value.strip() != value:
-        return '"' + value + '"'
-    return value
-
-
-def _render_frontmatter(payload: dict[str, Any]) -> str:
-    lines: list[str] = ["---"]
-    lines.append(f'doc_id: {payload["doc_id"]}')
-    lines.append(f'title: {_yaml_escape(payload["title"])}')
-    lines.append(f'doc_type: {payload["doc_type"]}')
-    lines.append(f'system: {_yaml_escape(payload["system"])}')
-    lines.append(f'environment: {payload["environment"]}')
-    lines.append(f'status: {payload["status"]}')
-    lines.append(f'sensitivity: {payload["sensitivity"]}')
-    lines.append(f'last_reviewed: {payload["last_reviewed"]}')
-
-    def emit_list(name: str, values: list[str]) -> None:
-        if not values:
-            lines.append(f"{name}: []")
-            return
-        lines.append(f"{name}:")
-        for v in values:
-            lines.append(f"  - {v}")
-
-    emit_list("related_projects", payload["related_projects"])
-    emit_list("related_assets", payload["related_assets"])
-    emit_list("tags", payload["tags"])
-
-    lines.append("---")
-    lines.append("")
-    return "\n".join(lines) + "\n"
+# ----- generic vault write tools ---------------------------------------------
 
 
 @mcp.tool()
@@ -2010,169 +1083,21 @@ def add_frontmatter(
         related_assets: Optional asset slugs.
         last_reviewed: Optional ISO date (YYYY-MM-DD). Defaults to today.
     """
-    # ---- validate enums --------------------------------------------------
-    errors: list[str] = []
-    if doc_type not in DOC_TYPES:
-        errors.append(f"doc_type {doc_type!r} not in {sorted(DOC_TYPES)}")
-    if environment not in ENVIRONMENTS:
-        errors.append(f"environment {environment!r} not in {sorted(ENVIRONMENTS)}")
-    if status not in STATUSES:
-        errors.append(f"status {status!r} not in {sorted(STATUSES)}")
-    if sensitivity not in SENSITIVITIES:
-        errors.append(f"sensitivity {sensitivity!r} not in {sorted(SENSITIVITIES)}")
-    if not doc_id.startswith(DOC_ID_PREFIXES):
-        errors.append(
-            f"doc_id {doc_id!r} must start with one of {list(DOC_ID_PREFIXES)}"
-        )
-    if errors:
-        return {"ok": False, "errors": errors}
-
-    # ---- validate path is inside an indexed vault dir --------------------
-    vault_root = _LOADER.config.vault_path.resolve()
-    full_path = (vault_root / relative_path).resolve()
-    try:
-        full_path.relative_to(vault_root)
-    except ValueError:
-        return {"ok": False, "errors": [f"path escapes vault root: {relative_path}"]}
-
-    if not full_path.is_file():
-        return {"ok": False, "errors": [f"file not found: {relative_path}"]}
-
-    indexed_ok = any(
-        full_path.is_relative_to(vault_root / sub)
-        for sub in _LOADER.config.indexed_dirs
+    return vault_write_service.add_frontmatter(
+        _LOADER,
+        relative_path,
+        doc_id,
+        title,
+        doc_type,
+        system,
+        environment=environment,
+        status=status,
+        sensitivity=sensitivity,
+        tags=tags,
+        related_projects=related_projects,
+        related_assets=related_assets,
+        last_reviewed=last_reviewed,
     )
-    if not indexed_ok:
-        return {
-            "ok": False,
-            "errors": [
-                f"path is outside the indexed dirs: {list(_LOADER.config.indexed_dirs)}"
-            ],
-        }
-
-    # ---- refuse to overwrite existing frontmatter ------------------------
-    body = full_path.read_text(encoding="utf-8")
-    if body.lstrip().startswith("---"):
-        return {
-            "ok": False,
-            "errors": [
-                "file already starts with `---` (existing frontmatter); "
-                "edit it in Obsidian instead of using this tool."
-            ],
-        }
-
-    # ---- doc_id uniqueness ----------------------------------------------
-    idx = _LOADER.index(force=True)
-    if doc_id in idx.by_doc_id:
-        return {
-            "ok": False,
-            "errors": [
-                f"doc_id {doc_id!r} already exists at "
-                f"{idx.by_doc_id[doc_id].relative_path}"
-            ],
-        }
-
-    # ---- compose + write -------------------------------------------------
-    payload = {
-        "doc_id": doc_id,
-        "title": title,
-        "doc_type": doc_type,
-        "system": system,
-        "environment": environment,
-        "status": status,
-        "sensitivity": sensitivity,
-        "last_reviewed": last_reviewed or date.today().isoformat(),
-        "tags": [str(t) for t in (tags or [])],
-        "related_projects": [str(s) for s in (related_projects or [])],
-        "related_assets": [str(s) for s in (related_assets or [])],
-    }
-    new_body = _render_frontmatter(payload) + body
-    full_path.write_text(new_body, encoding="utf-8")
-
-    # Invalidate cache so subsequent reads see the new doc.
-    _LOADER.index(force=True)
-
-    return {
-        "ok": True,
-        "doc_id": doc_id,
-        "relative_path": str(full_path.relative_to(vault_root)),
-        "wrote_bytes": len(new_body.encode("utf-8")),
-        "next_step": "run any downstream vault metadata sync if your workflow uses one",
-    }
-
-
-# ----- update existing frontmatter -------------------------------------------
-
-# Keys we render in a fixed order; anything else found in the existing block
-# is preserved verbatim at the end (e.g. a doc that already had `created: ...`).
-_KNOWN_KEY_ORDER = (
-    "doc_id", "title", "doc_type", "system", "environment",
-    "status", "sensitivity", "last_reviewed",
-    "related_projects", "related_assets", "tags", "notes",
-)
-
-
-def _serialize_frontmatter(data: dict[str, Any]) -> str:
-    """Round-trip a parsed frontmatter dict back to YAML, known keys first."""
-    lines = ["---"]
-    seen: set[str] = set()
-    for key in _KNOWN_KEY_ORDER:
-        if key not in data:
-            continue
-        seen.add(key)
-        value = data[key]
-        if isinstance(value, list):
-            if not value:
-                lines.append(f"{key}: []")
-            else:
-                lines.append(f"{key}:")
-                for item in value:
-                    lines.append(f"  - {item}")
-        elif value is None:
-            lines.append(f"{key}: null")
-        elif isinstance(value, bool):
-            lines.append(f"{key}: {'true' if value else 'false'}")
-        else:
-            lines.append(f"{key}: {_yaml_escape(str(value))}")
-    # Preserve unknown keys (e.g. `created:`) at the tail of the block.
-    for key, value in data.items():
-        if key in seen:
-            continue
-        if isinstance(value, list):
-            if not value:
-                lines.append(f"{key}: []")
-            else:
-                lines.append(f"{key}:")
-                for item in value:
-                    lines.append(f"  - {item}")
-        elif value is None:
-            lines.append(f"{key}: null")
-        elif isinstance(value, bool):
-            lines.append(f"{key}: {'true' if value else 'false'}")
-        else:
-            lines.append(f"{key}: {_yaml_escape(str(value))}")
-    lines.append("---")
-    lines.append("")
-    return "\n".join(lines) + "\n"
-
-
-def _apply_list_op(
-    current: list[str],
-    set_to: list[str] | None,
-    add: list[str] | None,
-    remove: list[str] | None,
-) -> list[str]:
-    if set_to is not None:
-        return [str(x) for x in set_to]
-    out = list(current)
-    if remove:
-        rs = {str(r) for r in remove}
-        out = [x for x in out if x not in rs]
-    if add:
-        for a in add:
-            if a not in out:
-                out.append(str(a))
-    return out
 
 
 @mcp.tool()
@@ -2221,119 +1146,27 @@ def update_frontmatter(
         set_related_assets / add_related_assets / remove_related_assets:
             list ops for `related_assets` (asset slugs).
     """
-    # ---- enum validation -------------------------------------------------
-    errors: list[str] = []
-    if doc_type is not None and doc_type not in DOC_TYPES:
-        errors.append(f"doc_type {doc_type!r} not in {sorted(DOC_TYPES)}")
-    if environment is not None and environment not in ENVIRONMENTS:
-        errors.append(f"environment {environment!r} not in {sorted(ENVIRONMENTS)}")
-    if status is not None and status not in STATUSES:
-        errors.append(f"status {status!r} not in {sorted(STATUSES)}")
-    if sensitivity is not None and sensitivity not in SENSITIVITIES:
-        errors.append(f"sensitivity {sensitivity!r} not in {sorted(SENSITIVITIES)}")
-    if errors:
-        return {"ok": False, "errors": errors}
-
-    # ---- path validation -------------------------------------------------
-    vault_root = _LOADER.config.vault_path.resolve()
-    full_path = (vault_root / relative_path).resolve()
-    try:
-        full_path.relative_to(vault_root)
-    except ValueError:
-        return {"ok": False, "errors": [f"path escapes vault root: {relative_path}"]}
-    if not full_path.is_file():
-        return {"ok": False, "errors": [f"file not found: {relative_path}"]}
-    indexed_ok = any(
-        full_path.is_relative_to(vault_root / sub)
-        for sub in _LOADER.config.indexed_dirs
+    return vault_write_service.update_frontmatter(
+        _LOADER,
+        relative_path,
+        touch_last_reviewed=touch_last_reviewed,
+        last_reviewed=last_reviewed,
+        title=title,
+        doc_type=doc_type,
+        system=system,
+        environment=environment,
+        status=status,
+        sensitivity=sensitivity,
+        set_tags=set_tags,
+        add_tags=add_tags,
+        remove_tags=remove_tags,
+        set_related_projects=set_related_projects,
+        add_related_projects=add_related_projects,
+        remove_related_projects=remove_related_projects,
+        set_related_assets=set_related_assets,
+        add_related_assets=add_related_assets,
+        remove_related_assets=remove_related_assets,
     )
-    if not indexed_ok:
-        return {
-            "ok": False,
-            "errors": [
-                f"path is outside the indexed dirs: {list(_LOADER.config.indexed_dirs)}"
-            ],
-        }
-
-    # ---- load existing ---------------------------------------------------
-    text = full_path.read_text(encoding="utf-8")
-    fm, body, _body_start = _split_frontmatter(text)
-    if fm is None:
-        return {
-            "ok": False,
-            "errors": [
-                "file has no frontmatter — call `add_frontmatter` instead."
-            ],
-        }
-
-    changed: dict[str, Any] = {}
-
-    # Scalar updates.
-    for key, value in (
-        ("title", title),
-        ("doc_type", doc_type),
-        ("system", system),
-        ("environment", environment),
-        ("status", status),
-        ("sensitivity", sensitivity),
-    ):
-        if value is not None and fm.get(key) != value:
-            fm[key] = value
-            changed[key] = value
-
-    new_last_reviewed: str | None
-    if touch_last_reviewed:
-        new_last_reviewed = date.today().isoformat()
-    elif last_reviewed is not None:
-        new_last_reviewed = last_reviewed
-    else:
-        new_last_reviewed = None
-    if new_last_reviewed is not None and fm.get("last_reviewed") != new_last_reviewed:
-        fm["last_reviewed"] = new_last_reviewed
-        changed["last_reviewed"] = new_last_reviewed
-
-    # List updates.
-    def _maybe_update_list(field: str, set_v, add_v, rem_v) -> None:
-        if set_v is None and add_v is None and rem_v is None:
-            return
-        current = fm.get(field) or []
-        if not isinstance(current, list):
-            current = [str(current)]
-        new = _apply_list_op(current, set_v, add_v, rem_v)
-        if new != current:
-            fm[field] = new
-            changed[field] = new
-
-    _maybe_update_list("tags", set_tags, add_tags, remove_tags)
-    _maybe_update_list(
-        "related_projects",
-        set_related_projects, add_related_projects, remove_related_projects,
-    )
-    _maybe_update_list(
-        "related_assets",
-        set_related_assets, add_related_assets, remove_related_assets,
-    )
-
-    if not changed:
-        return {
-            "ok": True,
-            "no_op": True,
-            "doc_id": fm.get("doc_id"),
-            "relative_path": str(full_path.relative_to(vault_root)),
-            "message": "No fields differ — nothing written.",
-        }
-
-    new_text = _serialize_frontmatter(fm) + body
-    full_path.write_text(new_text, encoding="utf-8")
-    _LOADER.index(force=True)
-
-    return {
-        "ok": True,
-        "doc_id": fm.get("doc_id"),
-        "relative_path": str(full_path.relative_to(vault_root)),
-        "changed_fields": sorted(changed.keys()),
-        "next_step": "run any downstream vault metadata sync if your workflow uses one",
-    }
 
 
 # ----- entry point ------------------------------------------------------------

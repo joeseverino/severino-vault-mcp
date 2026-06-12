@@ -77,9 +77,11 @@ against a real production workflow.
 | Parse technology taxonomy | `get_technology_catalog` |
 | Check whether a tag is earned | `find_writeups_using_tag` |
 | Validate one writeup before publish | `validate_writeup` |
+| Initialize an interactive writeup client | `writeup_dashboard` |
 | Get one publish-prep response | `prepare_writeup_publish` |
 | Update one writeup's scalar frontmatter | `update_writeup_frontmatter` |
 | Maintain featured ordering | `reorder_featured` |
+| Save several edits and featured order together | `apply_writeup_plan` |
 
 ## Why The Tools Are Narrow
 
@@ -95,6 +97,9 @@ are faster for AI clients because they return structured state directly:
 
 This is the same reason `prepare_writeup_publish` exists: one compact response
 beats a multi-step chain when the model only needs a publish decision.
+`writeup_dashboard` applies the same rule to interactive startup, while
+`apply_writeup_plan` applies it to interactive saves. The caller pays one
+process launch and receives one transaction boundary.
 
 ## Porting The Pattern
 

@@ -3,9 +3,10 @@ Vault loader.
 
 Walks `<vault>/01 Projects/`, `<vault>/02 Infrastructure/`, `<vault>/03 Runbooks/`
 (configurable), parses YAML frontmatter from every `.md`, and caches an in-memory
-index for the configured `cache_seconds`. The frontmatter parser is hand-rolled
-to avoid a PyYAML dependency — it understands the constrained shape documented
-at `02 Infrastructure/Operations Metadata/Frontmatter Schema.md` in the vault.
+index for the configured `cache_seconds`. The shared parser in
+`frontmatter.py` avoids a PyYAML dependency and understands the constrained
+shape documented at
+`02 Infrastructure/Operations Metadata/Frontmatter Schema.md` in the vault.
 
 If `fd` (https://github.com/sharkdp/fd) is on PATH, it's used to walk the vault
 because it's much faster than Python's pathlib at scale. Otherwise we fall
@@ -14,7 +15,6 @@ back to `Path.rglob`.
 
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import time
@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
+from .frontmatter import split_frontmatter
 from .sensitivity import Sensitivity
 
 
@@ -64,94 +65,6 @@ class Doc:
         }
 
 
-# ----- Frontmatter parsing -----------------------------------------------------
-
-def _scalar(token: str):
-    token = token.strip()
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
-        token = token[1:-1]
-    if token in ("null", "~", ""):
-        return None
-    if token == "true":
-        return True
-    if token == "false":
-        return False
-    return token
-
-
-def _split_inline_list(inner: str) -> list[str]:
-    if not inner:
-        return []
-    out, depth, buf = [], 0, []
-    for ch in inner:
-        if ch == "," and depth == 0:
-            out.append("".join(buf).strip())
-            buf = []
-        else:
-            buf.append(ch)
-            if ch in "[{":
-                depth += 1
-            elif ch in "]}":
-                depth -= 1
-    out.append("".join(buf).strip())
-    return [x for x in out if x]
-
-
-def _parse_yaml_block(block: str) -> dict:
-    data: dict = {}
-    current_list_key: str | None = None
-    for raw in block.splitlines():
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            current_list_key = None
-            continue
-        if current_list_key and re.match(r"^\s+-\s+", raw):
-            data.setdefault(current_list_key, []).append(_scalar(raw.strip()[2:].strip()))
-            continue
-        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$", raw)
-        if not m:
-            current_list_key = None
-            continue
-        key, value = m.group(1), m.group(2).strip()
-        if value == "":
-            current_list_key = key
-            data[key] = []
-            continue
-        current_list_key = None
-        if value.startswith("[") and value.endswith("]"):
-            data[key] = [_scalar(x) for x in _split_inline_list(value[1:-1].strip())]
-            continue
-        data[key] = _scalar(value)
-    return data
-
-
-def _split_frontmatter(text: str) -> tuple[dict | None, str, int]:
-    """Return (frontmatter_dict, body, body_start_line) or (None, full_text, 1).
-
-    body_start_line is the 1-indexed line number in the original text where the
-    body begins (i.e. the line after the closing `---`). It's 1 when no
-    frontmatter is present, matching "the whole file is body."
-    """
-    if not text.lstrip().startswith("---"):
-        return None, text, 1
-    lines = text.splitlines()
-    # Find the first '---' (start)
-    start = next((i for i, line in enumerate(lines) if line.strip() == "---"), None)
-    if start is None:
-        return None, text, 1
-    # Find the next '---' (end)
-    end = next(
-        (i for i in range(start + 1, len(lines)) if lines[i].strip() == "---"),
-        None,
-    )
-    if end is None:
-        return None, text, 1
-    fm = _parse_yaml_block("\n".join(lines[start + 1:end]))
-    body = "\n".join(lines[end + 1:]).lstrip("\n")
-    # `end` is 0-indexed, body starts on the next line, 1-indexed.
-    body_start_line = end + 2
-    return fm, body, body_start_line
-
-
 def _coerce_list(value) -> list[str]:
     if value is None:
         return []
@@ -172,9 +85,27 @@ class Index:
     by_doc_id: dict[str, Doc] = field(default_factory=dict)
     aliases: dict[str, str] = field(default_factory=dict)
     invalid_aliases: dict[str, str] = field(default_factory=dict)
+    duplicate_doc_ids: dict[str, list[str]] = field(default_factory=dict)
     loaded_at: float = 0.0
 
     def add(self, doc: Doc) -> None:
+        existing = self.by_doc_id.get(doc.doc_id)
+        if existing is not None:
+            paths = self.duplicate_doc_ids.setdefault(
+                doc.doc_id,
+                [existing.relative_path],
+            )
+            paths.append(doc.relative_path)
+            self.by_doc_id.pop(doc.doc_id, None)
+            self.docs = [
+                candidate
+                for candidate in self.docs
+                if candidate.doc_id != doc.doc_id
+            ]
+            return
+        if doc.doc_id in self.duplicate_doc_ids:
+            self.duplicate_doc_ids[doc.doc_id].append(doc.relative_path)
+            return
         self.docs.append(doc)
         self.by_doc_id[doc.doc_id] = doc
 
@@ -213,7 +144,7 @@ class VaultLoader:
                     text = path.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                fm, body, body_start_line = _split_frontmatter(text)
+                fm, body, body_start_line = split_frontmatter(text)
                 if not fm:
                     continue
                 if not fm.get("doc_id"):
