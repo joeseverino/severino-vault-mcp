@@ -4,6 +4,14 @@
 
 ### Added
 
+- Console-script subcommand `touch-reviewed <relative-path> [--pretty]`,
+  wrapping `update_frontmatter(touch_last_reviewed=True)` to stamp a vault
+  doc's `last_reviewed` to today through the schema-validated writer (which
+  also reloads the vault cache). Prints the same JSON as the MCP tool and
+  exits 0/1 on `ok`. It backs the tools-repo drift guards
+  (`cf-dns` / `adguard` / `nginx` / `ts-acl`): a successful `pull` calls it
+  so the vault mirror's review date moves with the pull — a pull is a review.
+
 - Console-script subcommands `list-writeups [--filter]`,
   `technology-catalog`, `validate-all-writeups [--include-drafts]`,
   `reorder-featured <slug> <position>`, and

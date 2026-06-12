@@ -187,6 +187,17 @@ operator's `site publish-writeup <slug>` macro uses it as the
 pre-flight gate before `site publish-all`). Pass
 `--include-tag-usage` if you need the per-technology usage stats.
 
+```bash
+severino-vault-mcp touch-reviewed "<vault-relative-path>" [--pretty]
+```
+
+Sets `last_reviewed` to today on one vault doc, via `update_frontmatter`
+(schema-validated, reloads the vault cache), prints the JSON result, and
+exits 0 if `ok: true` or 1 otherwise. Intended to be wrapped by shell
+tooling: the operator's drift guards (`cf-dns` / `adguard` / `nginx` /
+`ts-acl`) call it after a successful `pull` so the vault mirror's review
+date moves with the pull — a pull is a review.
+
 ### Local jseverino.com Ops Helpers
 
 The `jseverino.com` helpers are intentionally fixed-purpose wrappers, not a
