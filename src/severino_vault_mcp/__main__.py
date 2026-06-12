@@ -175,6 +175,28 @@ def main() -> None:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    touch_reviewed = subparsers.add_parser(
+        "touch-reviewed",
+        help=(
+            "Set last_reviewed to today on a vault doc via update_frontmatter "
+            "and print JSON. Exits 0 if ok, 1 otherwise. Wrapped by the drift "
+            "guards (cf-dns / adguard / nginx / ts-acl) after a successful "
+            "pull — a pull is a review, so the date moves."
+        ),
+    )
+    touch_reviewed.add_argument(
+        "relative_path",
+        help=(
+            "Vault-relative path, e.g. "
+            "'02 Infrastructure/AdGuard/DNS Rewrites — homelab.md'."
+        ),
+    )
+    touch_reviewed.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     args = parser.parse_args()
     if args.fingerprint:
         print(_fingerprint())
@@ -241,6 +263,15 @@ def main() -> None:
             cover_image=args.cover_image,
             cover_alt=args.cover_alt,
         )
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "touch-reviewed":
+        from .server import update_frontmatter
+        result = update_frontmatter(args.relative_path, touch_last_reviewed=True)
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
