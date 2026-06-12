@@ -9,6 +9,12 @@
   commits this output and validates its manifest importer against it, so the MCP
   and HQ share one definition of what `hq sync` accepts (the tools repo's
   `hq schema` regenerates HQ's copy; both sides have drift-guard tests).
+- `schema --check-doc <path>` verifies a human schema doc's enum lines
+  (doc_type/environment/status/sensitivity) against the canonical sets and exits
+  1 on drift — backs `hq schema`'s guard for the vault's Frontmatter Schema doc.
+- `hq-manifest --report` prints the full structured result (missing_frontmatter,
+  duplicates, counts) instead of the entries, so `hq doctor` reports the
+  vault↔HQ gap through the one manifest contract instead of re-walking the vault.
 
 - `writeup_dashboard()` and the matching `writeup-dashboard` console command
   return all writeup summaries, featured order, and validation results from

@@ -233,6 +233,14 @@ def main() -> None:
         "subdirs",
         help="Colon-separated vault subdirectories to index.",
     )
+    hq_manifest.add_argument(
+        "--report",
+        action="store_true",
+        help=(
+            "Print the full result (missing_frontmatter, duplicates, counts) "
+            "as JSON instead of the manifest entries. Backs `hq doctor`."
+        ),
+    )
 
     schema_cmd = subparsers.add_parser(
         "schema",
@@ -245,7 +253,16 @@ def main() -> None:
     schema_cmd.add_argument(
         "--json",
         action="store_true",
-        help="Emit the schema as JSON (the only supported format today).",
+        help="Emit the schema as JSON (the default).",
+    )
+    schema_cmd.add_argument(
+        "--check-doc",
+        metavar="PATH",
+        help=(
+            "Instead of emitting, verify that a human schema doc's enum lines "
+            "(doc_type/environment/status/sensitivity) match the canonical "
+            "schema. Exit 1 and print mismatches on drift."
+        ),
     )
 
     args = parser.parse_args()
@@ -382,6 +399,21 @@ def main() -> None:
         raise SystemExit(0 if result.get("ok") else 1)
 
     if args.command == "schema":
+        if args.check_doc:
+            from .schema import check_doc_enums
+
+            text = Path(args.check_doc).expanduser().read_text(
+                encoding="utf-8", errors="replace"
+            )
+            mismatches = check_doc_enums(text)
+            if mismatches:
+                print(f"schema doc drift in {args.check_doc}:", file=sys.stderr)
+                for mismatch in mismatches:
+                    print(f"  - {mismatch}", file=sys.stderr)
+                raise SystemExit(1)
+            print(f"ok: {args.check_doc} matches the canonical schema")
+            raise SystemExit(0)
+
         from .schema import as_dict
 
         # Sorted keys + indent so the committed HQ copy is a stable diff.
@@ -395,6 +427,10 @@ def main() -> None:
             Path(args.vault).expanduser(),
             [part for part in args.subdirs.split(":") if part],
         )
+        if args.report:
+            # Full structured result for `hq doctor` — no entries dump.
+            print(json.dumps(result, indent=2))
+            raise SystemExit(0 if result.get("ok") else 1)
         if not result.get("ok"):
             print(json.dumps(result, indent=2), file=sys.stderr)
             raise SystemExit(1)
