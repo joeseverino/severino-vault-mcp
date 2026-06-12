@@ -177,36 +177,125 @@ def _selected_security_headers(headers: dict[str, str]) -> dict[str, str | None]
     return {name: headers.get(name) for name in _SECURITY_HEADER_NAMES}
 
 
+_CONTACT_PII_ADVISORY = (
+    "Contact PII redacted (name abbreviated, email masked, message previewed). "
+    "Pass include_pii=True for full values — this enters the model context and "
+    "is recorded in the local audit log."
+)
+_CSP_PII_ADVISORY = (
+    "CSP client fields (ip_address, user_agent, raw_report) omitted. "
+    "Pass include_pii=True to include them."
+)
+
+
+def _redact_email(email: str) -> str:
+    """`jane@acme.com` -> `j***@acme.com`; the domain is kept, the local part not."""
+    email = (email or "").strip()
+    if "@" not in email:
+        return "***" if email else ""
+    local, _, domain = email.partition("@")
+    head = local[0] if local else ""
+    return f"{head}***@{domain}"
+
+
+def _abbreviate_name(name: str) -> str:
+    """`Jane Doe` -> `Jane D.`; single tokens are left intact."""
+    parts = (name or "").split()
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} {parts[-1][0]}."
+
+
+def _preview(text: str, *, limit: int = 80) -> str:
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[:limit].rstrip() + "…"
+
+
+def _redact_contact_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Drop ip_address/user_agent/admin_notes; mask name/email; preview message."""
+    message = str(row.get("message") or "")
+    return {
+        "id": row.get("id"),
+        "created_at": row.get("created_at"),
+        "name": _abbreviate_name(str(row.get("name") or "")),
+        "email": _redact_email(str(row.get("email") or "")),
+        "message_preview": _preview(message),
+        "message_chars": len(message),
+        "status": row.get("status"),
+        "browser": row.get("browser"),
+        "device": row.get("device"),
+        "country": row.get("country"),
+        "source_url": row.get("source_url"),
+    }
+
+
 def list_contact_submissions(
     runtime: SiteOpsRuntime,
     limit: int = 10,
+    *,
+    include_pii: bool = False,
 ) -> dict[str, Any]:
+    """List recent contact submissions, redacting PII unless ``include_pii``.
+
+    The full rows are fetched locally through Wrangler, but by default only a
+    redacted projection (abbreviated name, masked email, message preview) is
+    returned, so contact PII does not enter the model context unless explicitly
+    requested.
+    """
     limit = _bounded_limit(limit, default=10, max_value=100)
     sql = (
-        "SELECT id, created_at, name, email, status, browser, device, country, source_url "
+        "SELECT id, created_at, name, email, message, status, browser, device, "
+        "country, source_url, ip_address, user_agent, admin_notes "
         "FROM contact_submissions ORDER BY created_at DESC LIMIT "
         f"{limit};"
     )
-    return _run_d1_json(runtime, sql)
+    result = _run_d1_json(runtime, sql)
+    if not result.get("ok"):
+        return result
+    rows = result.get("results", [])
+    if include_pii:
+        result["pii_released"] = True
+    else:
+        result["pii_released"] = False
+        result["results"] = [_redact_contact_row(row) for row in rows]
+        result["advisory"] = _CONTACT_PII_ADVISORY
+    return result
 
 
 def list_csp_reports(
     runtime: SiteOpsRuntime,
     limit: int = 20,
     directive: str | None = None,
+    *,
+    include_pii: bool = False,
 ) -> dict[str, Any]:
+    """List recent CSP reports. Client identifiers are omitted unless ``include_pii``."""
     limit = _bounded_limit(limit, default=20, max_value=100)
     where = ""
     if directive:
         directive = directive.strip()[:128]
         if directive:
             where = f"WHERE effective_directive = {_sql_string(directive)} "
+    columns = (
+        "id, created_at, effective_directive, blocked_uri, document_uri, "
+        "source_file, status_code"
+    )
+    if include_pii:
+        columns += ", ip_address, user_agent, country, raw_report"
     sql = (
-        "SELECT id, created_at, effective_directive, blocked_uri, document_uri, "
-        "source_file, status_code FROM csp_reports "
+        f"SELECT {columns} FROM csp_reports "
         f"{where}ORDER BY created_at DESC LIMIT {limit};"
     )
-    return _run_d1_json(runtime, sql)
+    result = _run_d1_json(runtime, sql)
+    if result.get("ok"):
+        result["pii_released"] = bool(include_pii)
+        if not include_pii:
+            result["advisory"] = _CSP_PII_ADVISORY
+    return result
 
 
 def count_csp_reports(runtime: SiteOpsRuntime) -> dict[str, Any]:

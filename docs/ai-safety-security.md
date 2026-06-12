@@ -98,12 +98,29 @@ out of:
 If the prompt is unavailable, cancelled, or fails verification, the body stays
 withheld and the response includes metadata plus an unlock failure reason.
 
+## Operator Data (Cloudflare D1)
+
+The jseverino.com contact and CSP readers query the operator's own D1 tables.
+Contact submissions are PII (names, emails, message bodies, IP addresses), so
+they get a release posture that mirrors the restricted-doc gate:
+
+- `list_contact_submissions` returns a **redacted** projection by default —
+  abbreviated name (`Jane D.`), masked email (`j***@domain`), and the message
+  as a preview plus a character count. Full rows are fetched locally through
+  Wrangler but the PII does not enter the model context.
+- Passing `include_pii=True` releases full names, emails, message bodies, IPs,
+  and user agents, and appends one audit line. Use it only on explicit request.
+- `list_csp_reports` omits the client identifier fields (`ip_address`,
+  `user_agent`, `raw_report`) unless `include_pii=True`, also audited.
+
 ## Audit Logging
 
-Unlock attempts append one local audit line:
+Unlock attempts and PII releases append one local audit line:
 
 ```text
 timestamp action=restricted_unlock doc_id=<doc_id> result=<result> client=stdio
+timestamp action=contact_pii_access rows=<n> client=stdio
+timestamp action=csp_pii_access rows=<n> client=stdio
 ```
 
 The audit log never includes:
@@ -111,6 +128,7 @@ The audit log never includes:
 - doc body content
 - unlock phrases
 - prompt text entered by the user
+- contact PII (only the row count of a release is recorded)
 
 The default audit path is:
 

@@ -27,6 +27,7 @@ from .config import Config
 from .search import rank, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
+    audit_event,
     audit_secret_unlock,
     load_unlock_hash,
     prompt_unlock_phrase,
@@ -714,30 +715,70 @@ def search_body(
 # ----- jseverino.com operations tools ----------------------------------------
 
 @mcp.tool()
-def list_contact_submissions(limit: int = 10) -> dict[str, Any]:
+def list_contact_submissions(
+    limit: int = 10,
+    include_pii: bool = False,
+) -> dict[str, Any]:
     """List recent jseverino.com contact form submissions from Cloudflare D1.
 
     This is a fixed, read-only wrapper around `wrangler d1 execute` for the
     operator's `jseverino-contact` database. It does not accept arbitrary SQL.
 
+    By DEFAULT the response is redacted: names are abbreviated, emails are
+    masked (`j***@domain`), and the message is returned as a preview plus a
+    character count. Pass `include_pii=True` ONLY when the user explicitly needs
+    full contact details — that releases names, full emails, message bodies, IP
+    addresses, and user agents into the chat context and is recorded in the
+    local audit log. Default to the redacted view.
+
     Args:
         limit: Maximum rows to return, capped at 100.
+        include_pii: If True, return full contact PII instead of the redacted
+            projection. Default False. Audited when used.
     """
-    return site_ops_service.list_contact_submissions(_SITE_OPS, limit)
+    result = site_ops_service.list_contact_submissions(
+        _SITE_OPS, limit, include_pii=include_pii
+    )
+    if include_pii and result.get("pii_released"):
+        audit_event(
+            _CONFIG.secret_unlock_audit_log,
+            action="contact_pii_access",
+            detail=f"rows={len(result.get('results', []))}",
+        )
+    return result
 
 
 @mcp.tool()
-def list_csp_reports(limit: int = 20, directive: str | None = None) -> dict[str, Any]:
+def list_csp_reports(
+    limit: int = 20,
+    directive: str | None = None,
+    include_pii: bool = False,
+) -> dict[str, Any]:
     """List recent jseverino.com CSP violation reports from Cloudflare D1.
 
     Browser-extension/off-site noise is filtered by the report receiver before
     rows reach this table. This tool is read-only and does not accept arbitrary SQL.
 
+    By default the client identifier fields (`ip_address`, `user_agent`,
+    `raw_report`) are omitted. Pass `include_pii=True` only when the user needs
+    them; that release is recorded in the local audit log.
+
     Args:
         limit: Maximum rows to return, capped at 100.
         directive: Optional exact `effective_directive` filter, e.g. "script-src".
+        include_pii: If True, include the client identifier fields. Default
+            False. Audited when used.
     """
-    return site_ops_service.list_csp_reports(_SITE_OPS, limit, directive)
+    result = site_ops_service.list_csp_reports(
+        _SITE_OPS, limit, directive, include_pii=include_pii
+    )
+    if include_pii and result.get("pii_released"):
+        audit_event(
+            _CONFIG.secret_unlock_audit_log,
+            action="csp_pii_access",
+            detail=f"rows={len(result.get('results', []))}",
+        )
+    return result
 
 
 @mcp.tool()

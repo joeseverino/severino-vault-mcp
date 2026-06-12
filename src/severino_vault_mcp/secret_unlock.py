@@ -118,22 +118,43 @@ def prompt_unlock_phrase(doc_id: str, title: str) -> str | None:
     return proc.stdout.rstrip("\n")
 
 
-def audit_secret_unlock(audit_log_path: Path, *, doc_id: str, result: str) -> None:
-    """Append one local audit line. Never write body content or phrases."""
-    timestamp = datetime.now(UTC).isoformat()
-    line = (
-        f"{timestamp} action=restricted_unlock doc_id={doc_id} "
-        f"result={result} client=stdio\n"
-    )
+def _append_audit_line(audit_log_path: Path, line: str) -> None:
+    """Append one 0600 audit line. Never write body content or phrases.
+
+    Swallows OSError: audit logging must never turn a successful local action
+    into a failure. Callers still report their own result to the caller.
+    """
     try:
         audit_log_path.parent.mkdir(parents=True, exist_ok=True)
         with audit_log_path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
+            handle.write(line if line.endswith("\n") else line + "\n")
         os.chmod(audit_log_path, 0o600)
     except OSError:
-        # Audit logging should never force body release failure after a valid
-        # local unlock. The response still reports the unlock result.
         pass
+
+
+def audit_event(audit_log_path: Path, *, action: str, detail: str = "") -> None:
+    """Append one local audit line for a non-unlock local action.
+
+    Used for events like contact-PII reveal: records that PII was released and
+    how many rows, never the PII itself.
+    """
+    timestamp = datetime.now(UTC).isoformat()
+    suffix = f" {detail}" if detail else ""
+    _append_audit_line(
+        audit_log_path,
+        f"{timestamp} action={action}{suffix} client=stdio",
+    )
+
+
+def audit_secret_unlock(audit_log_path: Path, *, doc_id: str, result: str) -> None:
+    """Append one local audit line. Never write body content or phrases."""
+    timestamp = datetime.now(UTC).isoformat()
+    _append_audit_line(
+        audit_log_path,
+        f"{timestamp} action=restricted_unlock doc_id={doc_id} "
+        f"result={result} client=stdio",
+    )
 
 
 def _applescript_string(value: str) -> str:

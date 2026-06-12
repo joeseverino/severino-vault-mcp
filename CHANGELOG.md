@@ -120,11 +120,20 @@
   the configured vault root before read or write tools use them. This keeps the
   portfolio workflow pack inside the same filesystem trust boundary as the
   generic vault tools.
+- Contact-submission PII now gets a release gate that mirrors the restricted
+  vault-doc model. `list_contact_submissions` returns a redacted projection by
+  default (abbreviated name, masked email, message preview + char count);
+  `include_pii=True` releases full rows and appends a body-free audit line
+  (`action=contact_pii_access rows=<n>`). `list_csp_reports` likewise omits
+  `ip_address`/`user_agent`/`raw_report` unless `include_pii=True`. Closes the
+  asymmetry where the vault read path was gated but the operator D1 read path
+  returned PII straight into the model context. The audit writer was generalized
+  to a shared `audit_event` so unlock and PII events share one 0600 log.
 
 ### Verification
 
 - `scripts/check.sh --quick` passes.
-- `uv run pytest -q` passes (80 tests).
+- `uv run pytest -q` passes (91 tests).
 - `uv run ruff check .` passes.
 
 ## [2.4.6] — 2026-05-30
