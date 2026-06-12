@@ -234,6 +234,20 @@ def main() -> None:
         help="Colon-separated vault subdirectories to index.",
     )
 
+    schema_cmd = subparsers.add_parser(
+        "schema",
+        help=(
+            "Emit the canonical frontmatter schema (enum sets) as JSON. "
+            "Severino HQ commits this output and validates against it so the "
+            "two systems share one definition."
+        ),
+    )
+    schema_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the schema as JSON (the only supported format today).",
+    )
+
     args = parser.parse_args()
     if args.fingerprint:
         print(_fingerprint())
@@ -366,6 +380,13 @@ def main() -> None:
         else:
             print(json.dumps(result, separators=(",", ":")))
         raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "schema":
+        from .schema import as_dict
+
+        # Sorted keys + indent so the committed HQ copy is a stable diff.
+        print(json.dumps(as_dict(), indent=2, sort_keys=True))
+        raise SystemExit(0)
 
     if args.command == "hq-manifest":
         from .hq_manifest import build_hq_manifest

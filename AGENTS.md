@@ -36,6 +36,14 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
 - `writeup_service.py` — writeup reads/validation/transactions.
 - `site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
 - `hq_manifest.py` — HQ manifest synthesis on the shared parser.
+- `schema.py` — the **canonical** frontmatter enum contract (doc types,
+  environments, statuses, sensitivities, doc_id prefixes). Edit the sets here
+  and nowhere else. `severino-vault-mcp schema --json` emits it; Severino HQ
+  commits that JSON (`docs_index/schema.json`) and validates its manifest
+  importer against it, so the two systems can't drift on what `hq sync` accepts.
+  After changing it: `site reinstall-mcp`, then `hq schema` (regenerates HQ's
+  copy), then commit + deploy HQ. Guarded by `tests/test_schema.py` here and
+  `docs_index/tests.py` in HQ.
 
 Depth lives in `docs/architecture.md`, `docs/ai-safety-security.md`,
 `docs/ai-tool-contract.md`. Update those + `CHANGELOG.md` when you change behavior.

@@ -4,6 +4,12 @@
 
 ### Added
 
+- `schema` console subcommand (`severino-vault-mcp schema --json`) emits the
+  canonical frontmatter enum contract as stable, sorted JSON. Severino HQ
+  commits this output and validates its manifest importer against it, so the MCP
+  and HQ share one definition of what `hq sync` accepts (the tools repo's
+  `hq schema` regenerates HQ's copy; both sides have drift-guard tests).
+
 - `writeup_dashboard()` and the matching `writeup-dashboard` console command
   return all writeup summaries, featured order, and validation results from
   one shared snapshot.
@@ -57,6 +63,11 @@
 
 ### Changed
 
+- Canonicalized `schema.py` to match the downstream HQ contract: dropped the
+  unused `environment: lab` value and the `secret_adjacent`/`credential_adjacent`/
+  `confidential` sensitivity aliases from the write-validation sets (the runtime
+  `Sensitivity.parse` still maps legacy aliases defensively). This closes a
+  latent drift where the MCP would write a value `hq sync` then rejected.
 - Standalone writeup console commands now import a FastMCP-free service layer
   instead of importing the full MCP server registration module.
 - `server.py` now delegates generic writes, writeup operations, and the

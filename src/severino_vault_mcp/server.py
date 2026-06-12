@@ -1114,7 +1114,7 @@ def add_frontmatter(
             troubleshooting_guide | recovery_procedure | public_article_draft |
             decision_record.
         system: Free text — the system / service the doc is about.
-        environment: One of lab | homelab | vps | wordpress | cloudflare |
+        environment: One of homelab | vps | wordpress | cloudflare |
             tailscale | adguard | unifi | local_mac | other. Default "other".
         status: One of draft | active | deprecated | archived. Default "active".
         sensitivity: One of public | internal | sensitive | restricted.
