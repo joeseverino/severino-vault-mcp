@@ -16,7 +16,8 @@ The full transcript (broad question → Quick Index → target doc, plus the
 sensitivity gate in action) lives in [`../../docs/demo.md`](../../docs/demo.md).
 This exact vault is also wired into CI: every run points the server at it
 (`SVMC_VAULT_PATH=examples/sample-vault severino-vault-mcp doctor` in
-`ci.yml`), and `tests/test_search.py::test_sample_vault_is_reproducible`
+`ci.yml`), and the
+[`test_sample_vault_is_reproducible`](../../tests/test_search.py) test
 asserts its retrieval stays deterministic — so it can never silently drift
 from the behavior documented here. See
 [Sample Vault Reproducibility](../../docs/testing-ci.md#sample-vault-reproducibility)
