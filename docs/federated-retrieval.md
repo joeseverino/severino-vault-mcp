@@ -1,8 +1,9 @@
 # Design: Federated, Section-Scoped Retrieval
 
-> **Status: Proposal (2026-06-13). Not yet implemented.** This doc locks the
-> decisions; nothing here ships until a phase below is built and tested. Edit
-> this doc, not the code, until a phase is agreed.
+> **Status: Proposal — decisions resolved 2026-06-12, P1 ready to build; not
+> yet implemented.** This doc locks the decisions; nothing here ships until a
+> phase below is built and tested. Edit this doc, not the code, until a phase is
+> agreed.
 
 ## Problem
 
@@ -137,16 +138,46 @@ provenance in the response makes the source auditable.
   `--help` / `schema --json` slices, so structured-fact questions answer from
   the code's own output.
 
-## Open decisions (resolve before P1)
+## Decisions (resolved 2026-06-12, pre-P1)
 
-1. **Section granularity** — split at H2 only (keep H3+ inside), with a
-   size cap that sub-splits oversized sections? (Recommended.)
-2. **Section addressing** — how `read_doc` names a section: heading slug,
-   ordinal, or path string?
-3. **Menu summary source** — frontmatter `description` (add the field?) vs.
-   first sentence of the section.
-4. **Provenance shape** in tool responses (`source`, `source_ref`, commit?).
-5. **`sensitivity_default` per source** — confirm private-repo docs default to
-   `internal`, public-repo docs to `public`.
-6. **Backward compatibility** — keep whole-doc `read_doc` behind a flag; keep
-   the current response keys so the `site`/`hq` CLIs and the TUI don't break.
+These were the open decisions; each is now locked. Tagged with the phase the
+choice first bites — P1 decisions gate the first build, P2 ones are decided now
+but only land with federation.
+
+1. **Section granularity** *(P1)* — **Decision: split at H2 only; H3+ stay
+   inside their parent H2. Sub-split any section over a token cap (~400 tokens)
+   at the next H3 boundary, else hard-wrap.** H2 is the coherent unit in these
+   runbooks; the cap stops one giant section from blowing the token budget
+   without fragmenting normal prose.
+
+2. **Section addressing** *(P1)* — **Decision: heading slug** (GitHub/Obsidian
+   anchor convention), disambiguated by an ordinal suffix (`-2`) on collision in
+   document order. `read_doc(doc_id, section=<slug>)`; also accept the full
+   `heading_path` string as an alias, since `rank` already returns it. Slug is
+   stable across reorders and human-typeable; ordinals are brittle (any heading
+   insertion silently shifts every index).
+
+3. **Menu summary source** *(P1)* — **Decision: section first sentence**
+   (sentence-bounded, ~120 char cap) for section-level menu lines; for the
+   doc-level line, prefer frontmatter `description` when present, else the first
+   section's first sentence. Add `description` as an **optional** schema field —
+   never required, so it's a back-compat-safe quality upgrade, not a migration.
+
+4. **Provenance shape** *(P2 — decided now, lands later)* — **Decision: every
+   hit carries `source`** (`"vault"` | `"repo:<name>"`) **and `source_ref`** (a
+   source-relative path). No git commit in P2; add it only if a drift guard
+   needs it (it adds index-time churn for no retrieval value today).
+
+5. **`sensitivity_default` per source** *(P2 — decided now, lands later)* —
+   **Decision: confirmed** — private-repo sources default to `internal`,
+   public-repo sources to `public`; the vault keeps its per-doc frontmatter
+   sensitivity. A source may override per-glob later if a repo mixes tiers. A
+   federated hit never bypasses `sensitivity.py`.
+
+6. **Backward compatibility** *(P1)* — **Decision: additive-only.**
+   `read_doc(doc_id)` with no `section` returns the whole doc exactly as today
+   (same keys); section return is opt-in via `section=`. `find_runbook` /
+   `get_runbook` keep their current top-level keys and *add* section fields
+   (`heading`, `section`, `source`, `source_ref`). Preserves the cross-repo
+   contract (one dict, singular `error`, existing keys) so `manage-tui.mjs`,
+   `site`, and `hq` don't break.
