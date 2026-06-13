@@ -130,6 +130,13 @@ provenance in the response makes the source auditable.
   `find`/`read`/`get` over the **vault only**, fully additive. Heading-slug
   addressing, H2 granularity with H3 sub-split over a token cap, two-tier
   menu→section return. Regression-tested on the fixture vault; no federation.
+- **P1-CLI — done.** Emit-once render-many over P1: `vault_search_service.py`
+  single-sources the section menu so the MCP and the shell render the same
+  payload; `find` / `read --section` console subcommands expose it to the
+  human/TUI path. The **command-surface** leg landed early (normally P4): a
+  `describe` subcommand walks the argparse parser to emit the repo's commands as
+  structured JSON, so `--help` becomes a machine-readable, drift-proof fact. See
+  the vault decision record `report-emit-once-render-many`.
 - **P2** — `repo_sources` config + federate the four default surfaces,
   provenance-tagged, with sensitivity defaults.
 - **P3** — dedup-by-owner ranking + recency; the generalized `check-doc` drift

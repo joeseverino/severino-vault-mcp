@@ -56,6 +56,20 @@ when a vault doc or workflow tool exists.
 Do not grep writeup frontmatter, hand-parse `_technology-groups.md`, or edit
 featured order manually. The dedicated tools are faster and preserve invariants.
 
+## Shell / CLI Surface
+
+The same retrieval is available as console subcommands for the shell and TUI,
+emitting the identical JSON the MCP returns (`{ok, ...}` envelope):
+
+| Need | Command |
+|---|---|
+| What commands does this repo expose | `severino-vault-mcp describe` |
+| Ranked section menu for a query | `severino-vault-mcp find <query>` |
+| One section (or whole) doc body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
+
+`describe` is generated from the argparse parser, so it is the authoritative,
+drift-proof command list — prefer it over restating commands from this doc.
+
 ## Response Discipline
 
 - If a runbook is short, answer short.

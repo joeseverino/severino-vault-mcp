@@ -27,7 +27,12 @@ def _fingerprint() -> str:
     return digest.hexdigest()[:16]
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full CLI parser.
+
+    Extracted from `main` so `describe` can introspect the same parser that
+    backs `--help` — the command surface is declared exactly once.
+    """
     parser = argparse.ArgumentParser(
         prog="severino-vault-mcp",
         description="Local stdio MCP server for Obsidian-style operations vaults.",
@@ -256,6 +261,49 @@ def main() -> None:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    find = subparsers.add_parser(
+        "find",
+        help=(
+            "Run the section-scoped vault search and print the same menu JSON "
+            "the MCP's find_runbook returns: ranked hits, each with its "
+            "best-matching section (heading, slug, one-line summary) — never a "
+            "body. The human/CLI renderer of the emit-once menu."
+        ),
+    )
+    find.add_argument("query", help="Natural-language query, e.g. 'renew the TLS cert'.")
+    find.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Maximum hits to return (default 5, capped at 25).",
+    )
+    find.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
+    read = subparsers.add_parser(
+        "read",
+        help=(
+            "Read one vault doc by doc_id and print JSON. With --section, return "
+            "just that H2 span (the token-minimal path); without it, the whole "
+            "body. Honors the sensitivity gate — restricted bodies are withheld "
+            "(no interactive unlock on the CLI path)."
+        ),
+    )
+    read.add_argument("doc_id", help="Stable doc_id, e.g. 'rb-add-nginx-proxy-host'.")
+    read.add_argument(
+        "--section",
+        default=None,
+        help="Section slug or heading path from a `find` hit. Omit for the whole body.",
+    )
+    read.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     hq_manifest = subparsers.add_parser(
         "hq-manifest",
         help=(
@@ -300,6 +348,26 @@ def main() -> None:
         ),
     )
 
+    describe = subparsers.add_parser(
+        "describe",
+        help=(
+            "Emit this repo's command surface as structured JSON: every "
+            "subcommand, its arguments, and help, generated from the argparse "
+            "parser itself so it can't drift from --help. The 'Code/guards' leg "
+            "of emit-once — AI reads it, a TUI renders a command picker."
+        ),
+    )
+    describe.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     if args.fingerprint:
         print(_fingerprint())
@@ -450,6 +518,45 @@ def main() -> None:
         else:
             print(json.dumps(result, separators=(",", ":")))
         raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "find":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_search_service import find_sections
+
+        result = {
+            "ok": True,
+            **find_sections(VaultLoader(Config.from_env()), args.query, limit=args.limit),
+        }
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0)
+
+    if args.command == "read":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_search_service import read_section
+
+        result = read_section(
+            VaultLoader(Config.from_env()), args.doc_id, args.section
+        )
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "describe":
+        from .cli_introspect import describe_parser
+
+        result = {"ok": True, **describe_parser(parser)}
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0)
 
     if args.command == "schema":
         if args.check_doc:
