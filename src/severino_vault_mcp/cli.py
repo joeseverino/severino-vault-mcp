@@ -347,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Blast-radius (effect) per command, mirroring the tools repo's describe
-    # contract (schema_version 3). Every MCP CLI fast-path is a local-filesystem
+    # contract (schema_version 4). Every MCP CLI fast-path is a local-filesystem
     # op: the five writers mutate the vault, the rest only read — none touch the
     # network or block on a TTY, so only the effect class is recorded.
     # describe_parser reads this off each subparser; the default is read.

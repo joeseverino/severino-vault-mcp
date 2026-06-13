@@ -1391,9 +1391,13 @@ def test_describe_parser_emits_command_surface() -> None:
 
     surface = describe_parser(build_parser())
     assert surface["name"] == "severino-vault-mcp"
-    # Carries the shared contract level + tool-level blast radius (v3).
-    assert surface["schema_version"] == 3
+    # Emits the shared v4 contract shape verbatim (so `tools describe --repos`
+    # folds it in as a homogeneous sibling): version, tool-level blast radius,
+    # and the inventory + prose fields the schema requires (empty here).
+    assert surface["schema_version"] == 4
     assert surface["effect"] == "read"
+    assert surface["group"] and isinstance(surface["order"], int)
+    assert surface["paras"] == [] and surface["examples"] == []
     names = {c["name"] for c in surface["commands"]}
     # find / read / describe itself are all part of the emitted surface.
     assert {"find", "read", "describe", "schema"} <= names
@@ -1407,12 +1411,17 @@ def test_describe_parser_emits_command_surface() -> None:
     assert by_name["find"]["effect"] == "read"
     assert by_name["read"]["effect"] == "read"
 
+    # Every command carries the schema's required keys, prose included.
+    assert all({"args", "effect", "paras", "examples"} <= c.keys() for c in surface["commands"])
+
     find = next(c for c in surface["commands"] if c["name"] == "find")
     args = {a["name"]: a for a in find["args"]}
     assert args["query"]["positional"] is True
     assert args["query"]["required"] is True
-    assert args["--limit"]["default"] == 5
+    assert args["--limit"]["takes_value"] is True
     assert args["--pretty"]["takes_value"] is False
+    # argparse-only extras (type / default) must not leak past the shared schema.
+    assert "default" not in args["--limit"] and "type" not in args["--limit"]
     # -h/--help is argparse boilerplate and must not leak into the surface.
     assert "-h" not in args
 
