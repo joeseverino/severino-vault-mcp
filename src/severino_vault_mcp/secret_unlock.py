@@ -130,6 +130,9 @@ def _append_audit_line(audit_log_path: Path, line: str) -> None:
             handle.write(line if line.endswith("\n") else line + "\n")
         os.chmod(audit_log_path, 0o600)
     except OSError:
+        # Best-effort audit only: a logging failure must never turn a
+        # successful local action into a failure (see docstring). Swallowed
+        # deliberately — the caller still reports its own result.
         pass
 
 
