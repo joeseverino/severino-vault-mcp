@@ -1245,3 +1245,192 @@ def test_get_runbook_metadata_only_match_returns_whole_body(fake_vault: Path) ->
     assert selected["doc_id"] == "rb-backup-ops"
     assert selected["body_scope"] == "doc"
     assert "Routine operations" in selected["body"]
+
+
+# ----- emit-once CLI: find_sections / read_section shared with the MCP --------
+
+
+def test_find_sections_matches_find_runbook_menu(fake_vault: Path) -> None:
+    # Emit-once invariant: the service builds the same hit shape find_runbook
+    # renders, so the CLI and MCP can never drift on the menu.
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import find_sections
+
+    query = "resolver latency troubleshooting"
+    service = find_sections(VaultLoader(Config.from_env()), query)
+    mcp = server.find_runbook(query)
+    # find_runbook adds the Quick Index routing hint on top; the menu hits match.
+    assert service["hits"] == mcp["hits"]
+    assert service["indexed_doc_count"] == mcp["indexed_doc_count"]
+    top = service["hits"][0]
+    assert top["doc_id"] == "rb-backup-ops"
+    assert top["section"] == "troubleshooting"
+    assert "body" not in top
+
+
+def test_read_section_returns_one_span(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import read_section
+
+    loader = VaultLoader(Config.from_env())
+    result = read_section(loader, "rb-backup-ops", "troubleshooting")
+    assert result["ok"] is True
+    assert result["body_scope"] == "section"
+    assert result["section"] == "troubleshooting"
+    assert "resolver logs" in result["body"]
+    assert "Routine operations" not in result["body"]
+
+
+def test_read_section_whole_body_when_no_section(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import read_section
+
+    result = read_section(VaultLoader(Config.from_env()), "rb-backup-ops")
+    assert result["ok"] is True
+    assert result["body_scope"] == "doc"
+    assert "Routine operations" in result["body"]
+
+
+def test_read_section_unknown_section_is_not_ok_and_lists_available(
+    fake_vault: Path,
+) -> None:
+    _write_multisection_doc(fake_vault)
+    _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import read_section
+
+    result = read_section(VaultLoader(Config.from_env()), "rb-backup-ops", "nope")
+    assert result["ok"] is False
+    assert result["body_released"] is False
+    assert "body" not in result
+    slugs = {s["section"] for s in result["available_sections"]}
+    assert {"routine-operations", "troubleshooting"} <= slugs
+
+
+def test_read_section_withholds_restricted_without_unlock(fake_vault: Path) -> None:
+    # The CLI path never offers the interactive unlock read_doc has — restricted
+    # bodies stay withheld, the same as search_body.
+    _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import read_section
+
+    result = read_section(VaultLoader(Config.from_env()), "infra-local-pki")
+    assert result["ok"] is True
+    assert result["body_released"] is False
+    assert "body" not in result
+    assert result["advisory"]
+
+
+def test_read_section_missing_doc_is_not_ok(fake_vault: Path) -> None:
+    _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+    from severino_vault_mcp.vault_search_service import read_section
+
+    result = read_section(VaultLoader(Config.from_env()), "rb-nope")
+    assert result["ok"] is False
+    assert result["found"] is False
+
+
+def test_cli_find_and_read_emit_the_menu(fake_vault: Path) -> None:
+    # End-to-end: the console subcommands emit the JSON envelope manage-tui reads.
+    import json
+    import os
+    import subprocess
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(repo_root / "src"),
+        "SVMC_VAULT_PATH": str(fake_vault),
+        "SVMC_CACHE_SECONDS": "0",
+    }
+
+    find = subprocess.run(
+        [sys.executable, "-m", "severino_vault_mcp", "find", "nginx proxy"],
+        capture_output=True, text=True, check=True, cwd=repo_root, env=env,
+    )
+    payload = json.loads(find.stdout)
+    assert payload["ok"] is True
+    assert payload["hits"][0]["doc_id"] == "rb-add-nginx-proxy-host"
+    section = payload["hits"][0]["section"]
+
+    read = subprocess.run(
+        [
+            sys.executable, "-m", "severino_vault_mcp", "read",
+            "rb-add-nginx-proxy-host", "--section", section,
+        ],
+        capture_output=True, text=True, check=True, cwd=repo_root, env=env,
+    )
+    body = json.loads(read.stdout)
+    assert body["ok"] is True
+    assert body["body_scope"] == "section"
+    assert "Expose an internal service" in body["body"]
+
+
+# ----- emit-once CLI: describe (the command-surface leg) ----------------------
+
+
+def test_describe_parser_emits_command_surface() -> None:
+    # The 'Code/guards' leg: describe is generated from the same parser that
+    # backs --help, so it can never drift from the real command surface.
+    from severino_vault_mcp.cli import build_parser
+    from severino_vault_mcp.cli_introspect import describe_parser
+
+    surface = describe_parser(build_parser())
+    assert surface["name"] == "severino-vault-mcp"
+    names = {c["name"] for c in surface["commands"]}
+    # find / read / describe itself are all part of the emitted surface.
+    assert {"find", "read", "describe", "schema"} <= names
+    # --fingerprint is a global option, not a subcommand.
+    assert any(o["name"] == "--fingerprint" for o in surface["global_options"])
+
+    find = next(c for c in surface["commands"] if c["name"] == "find")
+    args = {a["name"]: a for a in find["args"]}
+    assert args["query"]["positional"] is True
+    assert args["query"]["required"] is True
+    assert args["--limit"]["default"] == 5
+    assert args["--pretty"]["takes_value"] is False
+    # -h/--help is argparse boilerplate and must not leak into the surface.
+    assert "-h" not in args
+
+
+def test_cli_describe_emits_json() -> None:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-m", "severino_vault_mcp", "describe"],
+        capture_output=True, text=True, check=True, cwd=repo_root,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "src")},
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is True
+    assert {"find", "read", "describe"} <= {c["name"] for c in payload["commands"]}
+
+
+def test_mcp_describe_commands_matches_cli(fake_vault: Path) -> None:
+    # The MCP tool and the CLI subcommand render the identical surface.
+    server = _fresh_module("severino_vault_mcp.server")
+    from severino_vault_mcp.cli import build_parser
+    from severino_vault_mcp.cli_introspect import describe_parser
+
+    result = server.describe_commands()
+    assert result["ok"] is True
+    assert {"find", "read", "describe"} <= {c["name"] for c in result["commands"]}
+    assert result["commands"] == describe_parser(build_parser())["commands"]

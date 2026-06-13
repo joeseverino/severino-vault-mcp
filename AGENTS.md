@@ -42,6 +42,14 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
   MCP tool, so AI sessions can't write arbitrary JSON into doc bodies.
 - `vault_query_service.py` — `recent_changes` (git log), `search_body`
   (ripgrep), shared `doc_to_hit` projection.
+- `vault_search_service.py` — the section-menu **single source** for emit-once,
+  render-many. `find_sections` (ranked menu, the shape `find_runbook` renders)
+  and `read_section` (one span or whole body, gated; restricted withheld with no
+  CLI unlock). `server.py` and the `find`/`read` console subcommands both render
+  this — never restate the menu shape.
+- `cli_introspect.py` — `describe_parser` walks the argparse parser (built by
+  `__main__.build_parser`) to emit the repo's command surface as JSON. The
+  "Code/guards" leg of emit-once: `--help` made machine-readable and drift-proof.
 - `writeup_service.py` — writeup reads/validation/transactions.
 - `site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
 - `hq_manifest.py` — HQ manifest synthesis on the shared parser.
