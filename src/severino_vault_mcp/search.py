@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .sections import Section
 from .vault import Doc
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
@@ -93,6 +94,41 @@ def score(doc: Doc, query_tokens: set[str]) -> int:
     if s and doc.status == "active":
         s += 1
     return s
+
+
+# Section scoring: heading-path terms weigh more than body-only terms, the same
+# shape as the doc-level ranker. This picks *which span* of an already-matched
+# doc to return — the section-scoped token win — not whether the doc matches.
+_SECTION_HEADING_WEIGHT = 3
+_SECTION_BODY_WEIGHT = 1
+
+
+def score_section(section: Section, qtoks: set[str]) -> int:
+    if not qtoks:
+        return 0
+    head = tokenize(section.heading_path)
+    body = tokenize(section.body)
+    s = _SECTION_HEADING_WEIGHT * len(qtoks & head)
+    s += _SECTION_BODY_WEIGHT * len(qtoks & (body - head))
+    return s
+
+
+def best_section(doc: Doc, query: str) -> tuple[Section | None, int]:
+    """Highest-scoring section of a doc for a query.
+
+    Falls back to the first section (score 0) so a doc that matched on metadata
+    still yields a heading for the menu. Returns (None, 0) for a doc with no
+    parsed sections (e.g. an empty body).
+    """
+    if not doc.sections:
+        return None, 0
+    qtoks = query_tokens(query)
+    best, best_score = doc.sections[0], 0
+    for sec in doc.sections:
+        sc = score_section(sec, qtoks)
+        if sc > best_score:
+            best, best_score = sec, sc
+    return best, best_score
 
 
 def rank(docs: list[Doc], query: str, *, limit: int = 5) -> list[Hit]:

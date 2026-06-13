@@ -57,7 +57,14 @@ are part of the generic vault index. There is no inbound network surface.
 - `paths.py` owns vault path validation. `validate_indexed_path` (writes must
   land on a file under an indexed dir) and `path_within_root` (operator tools
   must stay inside the vault root) are defined once and shared.
-- `vault.py` owns indexing, alias resolution, and duplicate-ID exclusion.
+- `vault.py` owns indexing, alias resolution, and duplicate-ID exclusion. At
+  index time it attaches `sections` to every `Doc`.
+- `sections.py` owns section chunking (P1 of `docs/federated-retrieval.md`):
+  `parse_sections` splits a body into addressable H2 spans (H3+ folded in,
+  over-cap sections sub-split at H3 then hard-wrapped) with doc-unique heading
+  slugs; `resolve_section` and `section_summary` back the section-scoped reads.
+  It returns structured spans only — `search.py` scores them, `read_doc`
+  serializes one for the MCP, and the CLI can render the same spans for a human.
 - `vault_write_service.py` owns generic frontmatter mutation
   (`add_frontmatter`, `update_frontmatter`) plus the index-skipping fast
   paths used by the drift guards: `touch_reviewed` and `update_mirror_block`

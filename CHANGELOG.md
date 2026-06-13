@@ -16,6 +16,19 @@
 
 ### Added
 
+- **Section-scoped retrieval (P1 of `docs/federated-retrieval.md`).** `sections.py`
+  chunks every doc body into addressable H2 spans (H3+ folded in; an over-cap
+  section sub-splits at its H3 boundaries, then hard-wraps), each with a
+  doc-unique heading slug. `find_runbook` / `get_runbook` hits now carry a
+  section menu line (heading, slug, one-line summary — never a body), and
+  `read_doc(doc_id, section="<slug-or-heading-path>")` returns just that span
+  instead of the whole body. `get_runbook` returns the matched section's body
+  when a section actually scores the query, and falls back to the full body on a
+  metadata-only match so the answer is never dropped. Fully additive: the
+  no-`section` `read_doc` path is byte-identical to before, and the existing
+  response keys are preserved (cross-repo contract intact). Vault-only — no
+  federation yet. Regression tests in `tests/test_search.py`.
+
 - `scripts/eval_ranking.py` — rank-quality eval that scores `find_runbook`
   against the Quick Index's hand-maintained intent→doc map. A script (needs the
   live vault), not a CI test; it labels nothing, but its misses cluster into
