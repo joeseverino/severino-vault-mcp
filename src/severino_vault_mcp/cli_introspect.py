@@ -19,6 +19,12 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+# Contract level shared with the tools repo's lib/describe.sh. This emitter is a
+# subset of that contract (no paras/examples/delegates) but carries the same
+# schema_version and the v3 `effect` blast-radius field, so a federated consumer
+# (`tools describe --repos`) reads one uniform shape across repos.
+SCHEMA_VERSION = 3
+
 
 def _describe_arg(action: argparse.Action) -> dict[str, Any]:
     """One argument/option as a structured entry."""
@@ -77,12 +83,21 @@ def describe_parser(parser: argparse.ArgumentParser) -> dict[str, Any]:
                 if not isinstance(action, argparse._HelpAction)
             ]
             commands.append(
-                {"name": name, "summary": summaries.get(name, ""), "args": args}
+                {
+                    "name": name,
+                    "summary": summaries.get(name, ""),
+                    "effect": getattr(subparser, "_svmc_effect", "read"),
+                    "args": args,
+                }
             )
 
     return {
+        "schema_version": SCHEMA_VERSION,
         "name": parser.prog,
         "description": parser.description or "",
+        # Tool-level blast radius: the entry point itself only dispatches; the
+        # per-command effects above carry the real signal.
+        "effect": "read",
         "global_options": global_options,
         "commands": commands,
     }

@@ -346,4 +346,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    # Blast-radius (effect) per command, mirroring the tools repo's describe
+    # contract (schema_version 3). Every MCP CLI fast-path is a local-filesystem
+    # op: the five writers mutate the vault, the rest only read — none touch the
+    # network or block on a TTY, so only the effect class is recorded.
+    # describe_parser reads this off each subparser; the default is read.
+    _effects = {
+        "apply-writeup-plan": "vault_write",
+        "reorder-featured": "vault_write",
+        "update-writeup": "vault_write",
+        "touch-reviewed": "vault_write",
+        "update-mirror-block": "vault_write",
+    }
+    for name, sub in subparsers.choices.items():
+        sub._svmc_effect = _effects.get(name, "read")
+
     return parser
