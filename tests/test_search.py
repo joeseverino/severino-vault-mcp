@@ -1391,11 +1391,21 @@ def test_describe_parser_emits_command_surface() -> None:
 
     surface = describe_parser(build_parser())
     assert surface["name"] == "severino-vault-mcp"
+    # Carries the shared contract level + tool-level blast radius (v3).
+    assert surface["schema_version"] == 3
+    assert surface["effect"] == "read"
     names = {c["name"] for c in surface["commands"]}
     # find / read / describe itself are all part of the emitted surface.
     assert {"find", "read", "describe", "schema"} <= names
     # --fingerprint is a global option, not a subcommand.
     assert any(o["name"] == "--fingerprint" for o in surface["global_options"])
+
+    # Per-command effect: the writers declare vault_write, readers stay read.
+    by_name = {c["name"]: c for c in surface["commands"]}
+    assert by_name["touch-reviewed"]["effect"] == "vault_write"
+    assert by_name["update-mirror-block"]["effect"] == "vault_write"
+    assert by_name["find"]["effect"] == "read"
+    assert by_name["read"]["effect"] == "read"
 
     find = next(c for c in surface["commands"] if c["name"] == "find")
     args = {a["name"]: a for a in find["args"]}

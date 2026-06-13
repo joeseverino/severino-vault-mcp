@@ -253,6 +253,23 @@ directly from the vault — no Cloudflare credentials, no network. They default
 to vault-relative paths (`05 Writeups/` and `06 Pages/_technology-groups.md`)
 so most setups need no configuration.
 
+### Command-Surface Contract (`describe`)
+
+`severino-vault-mcp describe` emits this CLI's command surface as one structured
+JSON document — every subcommand, its arguments, help, and **effect**
+(blast-radius class) — generated from the same argparse parser that backs
+`--help`, so it can't drift. This is the "Code/guards" leg of emit-once,
+render-many: an AI session reads it token-minimally, a TUI renders a command
+picker, a guard diffs it.
+
+It carries `schema_version: 3` and a per-command `effect`: the five vault writers
+(`touch-reviewed`, `update-mirror-block`, `update-writeup`, `reorder-featured`,
+`apply-writeup-plan`) declare `vault_write`; everything else is `read`. None
+touch the network. This is the same contract Joe's personal `tools` repo defines
+(this CLI emits a subset of it), so `tools describe --repos` folds this CLI into
+one federated document alongside the shell tools — one uniform shape across
+repos.
+
 ## Adopt It For Your Vault
 
 Your vault needs markdown files with YAML frontmatter under these folders by
