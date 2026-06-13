@@ -775,7 +775,7 @@ def describe_commands() -> dict[str, Any]:
     drift-guard subcommands) before reaching for Bash — one structured call
     instead of reading the scripts or prose.
     """
-    from .__main__ import build_parser
+    from .cli import build_parser
     from .cli_introspect import describe_parser
 
     return {"ok": True, **describe_parser(build_parser())}

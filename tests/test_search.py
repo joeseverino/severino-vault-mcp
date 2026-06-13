@@ -1386,7 +1386,7 @@ def test_cli_find_and_read_emit_the_menu(fake_vault: Path) -> None:
 def test_describe_parser_emits_command_surface() -> None:
     # The 'Code/guards' leg: describe is generated from the same parser that
     # backs --help, so it can never drift from the real command surface.
-    from severino_vault_mcp.__main__ import build_parser
+    from severino_vault_mcp.cli import build_parser
     from severino_vault_mcp.cli_introspect import describe_parser
 
     surface = describe_parser(build_parser())
@@ -1427,7 +1427,7 @@ def test_cli_describe_emits_json() -> None:
 def test_mcp_describe_commands_matches_cli(fake_vault: Path) -> None:
     # The MCP tool and the CLI subcommand render the identical surface.
     server = _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.__main__ import build_parser
+    from severino_vault_mcp.cli import build_parser
     from severino_vault_mcp.cli_introspect import describe_parser
 
     result = server.describe_commands()
