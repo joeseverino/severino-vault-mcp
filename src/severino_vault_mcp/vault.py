@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .config import Config
 from .frontmatter import split_frontmatter
+from .sections import Section, parse_sections
 from .sensitivity import Sensitivity
 
 
@@ -46,6 +47,9 @@ class Doc:
     body_start_line: int = 1   # 1-indexed line in the source file where the body begins
                                # (line after the closing `---`); ripgrep-based search
                                # uses this to skip matches that fall inside frontmatter.
+    sections: list[Section] = field(default_factory=list)
+                               # H2-chunked spans for section-scoped retrieval; see
+                               # sections.py. Empty list == not yet parsed (cheap default).
 
     def to_metadata(self) -> dict:
         """Lossless metadata view — never includes the body."""
@@ -225,4 +229,5 @@ class VaultLoader:
             relative_path=str(path.relative_to(self.config.vault_path)),
             body=body,
             body_start_line=body_start_line,
+            sections=parse_sections(body, body_start_line),
         )

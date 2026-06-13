@@ -1063,3 +1063,185 @@ def test_update_mirror_block_keeps_original_on_write_failure(
     assert result["ok"] is False
     assert "simulated replacement failure" in result["error"]
     assert path.read_text(encoding="utf-8") == original
+
+
+# ----- P1 section-scoped retrieval -------------------------------------------
+
+_MULTISECTION_BODY = """Overview line before any heading.
+
+## Routine operations
+
+Run the daily job to keep things current.
+
+### Backing commands
+
+Use `./backup nightly` to snapshot the data.
+
+## Troubleshooting
+
+Check the resolver logs first when latency spikes.
+"""
+
+
+def test_parse_sections_splits_at_h2_and_keeps_h3_inside() -> None:
+    from severino_vault_mcp.sections import parse_sections
+
+    secs = parse_sections(_MULTISECTION_BODY, body_start_line=5)
+    # preamble + two H2s; the H3 stays inside its parent (under the token cap).
+    assert [s.slug for s in secs] == [
+        "overview",
+        "routine-operations",
+        "troubleshooting",
+    ]
+    routine = secs[1]
+    assert routine.level == 2
+    assert "Backing commands" in routine.body  # H3 folded in, not its own span
+    # start_line is the source line of the H2, offset by body_start_line.
+    assert routine.start_line == 5 + 2
+
+
+def test_parse_sections_disambiguates_duplicate_headings() -> None:
+    from severino_vault_mcp.sections import parse_sections
+
+    secs = parse_sections("## Notes\n\nfirst\n\n## Notes\n\nsecond\n")
+    assert [s.slug for s in secs] == ["notes", "notes-2"]
+
+
+def test_parse_sections_ignores_headings_inside_code_fences() -> None:
+    from severino_vault_mcp.sections import parse_sections
+
+    body = "## Real\n\n```sh\n## not a heading\necho hi\n```\n\nstill real\n"
+    secs = parse_sections(body)
+    assert [s.slug for s in secs] == ["real"]
+
+
+def test_parse_sections_subsplits_oversized_h2_at_h3() -> None:
+    from severino_vault_mcp.sections import parse_sections
+
+    filler = ("word " * 60 + "\n") * 3  # well over a tiny cap, per H3
+    body = f"## Big\n\nlead\n\n### One\n\n{filler}\n### Two\n\n{filler}"
+    secs = parse_sections(body, token_cap=40)
+    paths = [s.heading_path for s in secs]
+    # The oversized H2 split at its H3 boundaries (parts may hard-wrap further).
+    assert any(p.startswith("Big > One") for p in paths)
+    assert any(p.startswith("Big > Two") for p in paths)
+    assert all(s.level in (2, 3) for s in secs)
+
+
+def test_resolve_section_by_slug_and_heading_path() -> None:
+    from severino_vault_mcp.sections import parse_sections, resolve_section
+
+    secs = parse_sections(_MULTISECTION_BODY)
+    assert resolve_section(secs, "troubleshooting").heading == "Troubleshooting"
+    assert resolve_section(secs, "Routine operations").slug == "routine-operations"
+    assert resolve_section(secs, "no-such-section") is None
+
+
+def test_best_section_picks_the_query_matching_span() -> None:
+    from severino_vault_mcp.search import best_section
+    from severino_vault_mcp.sections import parse_sections
+    from severino_vault_mcp.sensitivity import Sensitivity
+    from severino_vault_mcp.vault import Doc
+
+    doc = Doc(
+        doc_id="x", title="X", doc_type="runbook", system="", environment="other",
+        status="active", sensitivity=Sensitivity.INTERNAL, last_reviewed=None,
+        tags=[], related_projects=[], related_assets=[], path=Path("x"),
+        relative_path="x.md", body=_MULTISECTION_BODY,
+        sections=parse_sections(_MULTISECTION_BODY),
+    )
+    sec, score = best_section(doc, "resolver latency")
+    assert sec.slug == "troubleshooting"
+    assert score > 0
+
+
+def _write_multisection_doc(vault: Path) -> None:
+    (vault / "03 Runbooks" / "Backup Ops.md").write_text(
+        """---
+doc_id: rb-backup-ops
+title: Backup Ops
+doc_type: runbook
+system: Backup
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-01
+tags: [backup]
+---
+
+Overview line before any heading.
+
+## Routine operations
+
+Run the daily job to keep things current.
+
+## Troubleshooting
+
+Check the resolver logs first when latency spikes.
+""",
+        encoding="utf-8",
+    )
+
+
+def test_read_doc_default_returns_whole_body_unchanged(fake_vault: Path) -> None:
+    # Back-compat: the no-section path is byte-identical to before P1.
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("rb-add-nginx-proxy-host")
+    assert "body_scope" not in result
+    assert "section" not in result
+    assert result["body"].startswith("## Goal")
+
+
+def test_read_doc_section_returns_only_that_span(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("rb-backup-ops", section="troubleshooting")
+    assert result["body_scope"] == "section"
+    assert result["section"] == "troubleshooting"
+    assert "resolver logs" in result["body"]
+    assert "Routine operations" not in result["body"]
+
+
+def test_read_doc_unknown_section_lists_available(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.read_doc("rb-backup-ops", section="nope")
+    assert result["body_released"] is False
+    assert "body" not in result
+    slugs = {s["section"] for s in result["available_sections"]}
+    assert {"routine-operations", "troubleshooting"} <= slugs
+
+
+def test_find_runbook_hit_carries_section_menu(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.find_runbook("resolver latency troubleshooting")
+    top = result["hits"][0]
+    assert top["doc_id"] == "rb-backup-ops"
+    assert top["section"] == "troubleshooting"
+    assert "body" not in top  # menu line never carries a body
+    assert top["section_summary"]
+
+
+def test_get_runbook_returns_matched_section_body(fake_vault: Path) -> None:
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("resolver latency")
+    selected = result["selected"]
+    assert selected["doc_id"] == "rb-backup-ops"
+    assert selected["body_scope"] == "section"
+    assert selected["full_body_available"] is True
+    assert "resolver logs" in selected["body"]
+    assert "Routine operations" not in selected["body"]
+
+
+def test_get_runbook_metadata_only_match_returns_whole_body(fake_vault: Path) -> None:
+    # "backup" hits the tag/system but no section scores it -> keep the full doc
+    # so a metadata-only match never drops the part holding the answer.
+    _write_multisection_doc(fake_vault)
+    server = _fresh_module("severino_vault_mcp.server")
+    result = server.get_runbook("backup")
+    selected = result["selected"]
+    assert selected["doc_id"] == "rb-backup-ops"
+    assert selected["body_scope"] == "doc"
+    assert "Routine operations" in selected["body"]

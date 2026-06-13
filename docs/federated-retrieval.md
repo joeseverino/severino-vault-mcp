@@ -1,9 +1,8 @@
 # Design: Federated, Section-Scoped Retrieval
 
-> **Status: Proposal — decisions resolved 2026-06-12, P1 ready to build; not
-> yet implemented.** This doc locks the decisions; nothing here ships until a
-> phase below is built and tested. Edit this doc, not the code, until a phase is
-> agreed.
+> **Status: P1 built (2026-06-12), vault-only; P2–P4 are still proposal.** This
+> doc locks the decisions; nothing in an unbuilt phase ships until it's built
+> and tested. Edit this doc, not the code, until the next phase is agreed.
 
 ## Problem
 
@@ -127,9 +126,10 @@ provenance in the response makes the source auditable.
 ## Rollout
 
 - **P0** — this doc; decisions locked.
-- **P1** — section chunking + section-aware `find`/`read` over the **vault
-  only**. Immediate token win, fully testable on the fixture vault, no
-  federation risk.
+- **P1 — done.** Section chunking (`sections.py`) + section-aware
+  `find`/`read`/`get` over the **vault only**, fully additive. Heading-slug
+  addressing, H2 granularity with H3 sub-split over a token cap, two-tier
+  menu→section return. Regression-tested on the fixture vault; no federation.
 - **P2** — `repo_sources` config + federate the four default surfaces,
   provenance-tagged, with sensitivity defaults.
 - **P3** — dedup-by-owner ranking + recency; the generalized `check-doc` drift

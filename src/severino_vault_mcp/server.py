@@ -24,7 +24,7 @@ from . import (
     writeup_service,
 )
 from .config import Config
-from .search import rank, tokenize
+from .search import best_section, rank, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
     audit_event,
@@ -33,6 +33,7 @@ from .secret_unlock import (
     prompt_unlock_phrase,
     verify_unlock_phrase,
 )
+from .sections import resolve_section, section_summary
 from .sensitivity import Sensitivity, advisory, body_is_releasable
 from .vault import Doc, VaultLoader, _normalize_alias
 from .vault_query_service import doc_to_hit as _hit_to_dict
@@ -461,6 +462,24 @@ def vault_doc(doc_id: str) -> str:
 
 # ----- tools ------------------------------------------------------------------
 
+def _section_menu(doc: Doc, query: str) -> dict[str, Any]:
+    """Additive two-tier menu line for a hit: which section best answers `query`.
+
+    Returns the heading, addressable slug, and a one-line summary — never a body.
+    Empty dict for a doc with no parsed sections, so callers can `**`-merge it.
+    """
+    sec, sec_score = best_section(doc, query)
+    if sec is None:
+        return {}
+    return {
+        "heading": sec.heading or doc.title,
+        "section": sec.slug,
+        "heading_path": sec.heading_path,
+        "section_summary": section_summary(sec),
+        "section_score": sec_score,
+    }
+
+
 @mcp.tool()
 def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
     """USE THIS FIRST when the user asks an operational question covered by the vault.
@@ -486,7 +505,10 @@ def find_runbook(query: str, limit: int = 5) -> dict[str, Any]:
     response = {
         "query": query,
         "indexed_doc_count": len(idx.docs),
-        "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
+        "hits": [
+            {"score": h.score, **_hit_to_dict(h.doc), **_section_menu(h.doc, query)}
+            for h in hits
+        ],
     }
     top_doc_id = hits[0].doc.doc_id if hits else None
     _add_quick_index_recommendation(response, idx, query, top_doc_id=top_doc_id)
@@ -511,7 +533,10 @@ def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
     response: dict[str, Any] = {
         "query": query,
         "indexed_doc_count": len(idx.docs),
-        "hits": [{"score": h.score, **_hit_to_dict(h.doc)} for h in hits],
+        "hits": [
+            {"score": h.score, **_hit_to_dict(h.doc), **_section_menu(h.doc, query)}
+            for h in hits
+        ],
     }
     top_doc_id = hits[0].doc.doc_id if hits else None
     _add_quick_index_recommendation(response, idx, query, top_doc_id=top_doc_id)
@@ -526,7 +551,18 @@ def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         response["selected"] = _withheld_secret_adjacent_response(selected, "not_requested")
         return response
 
-    selected["body"] = doc.body
+    # Token win: return the matched *section* when one actually scored against
+    # the query; fall back to the whole body when the match was metadata-only,
+    # so a tag-only hit never silently drops the part that holds the answer.
+    sec, sec_score = best_section(doc, query)
+    if sec is not None and sec_score > 0:
+        selected.update(_section_menu(doc, query))
+        selected["body"] = sec.body
+        selected["body_scope"] = "section"
+        selected["full_body_available"] = True
+    else:
+        selected["body"] = doc.body
+        selected["body_scope"] = "doc"
     selected["body_released"] = True
     if doc.sensitivity is Sensitivity.SENSITIVE:
         selected["advisory"] = advisory(doc.sensitivity)
@@ -563,9 +599,35 @@ def lookup_system(name: str) -> dict[str, Any]:
     }
 
 
+def _narrow_to_section(base: dict[str, Any], doc: Doc, section: str) -> dict[str, Any]:
+    """Replace `base['body']` with one section span (mutates and returns base).
+
+    Only called once the gate has already released the body, so this never
+    widens access. An unknown section withholds the body and lists the
+    available slugs so the caller can retry — it does not fall back to the
+    whole doc.
+    """
+    sec = resolve_section(doc.sections, section)
+    if sec is None:
+        base.pop("body", None)
+        base["body_released"] = False
+        base["section_error"] = f"no section {section!r} in {doc.doc_id}"
+        base["available_sections"] = [
+            {"section": s.slug, "heading_path": s.heading_path} for s in doc.sections
+        ]
+        return base
+    base["body"] = sec.body
+    base["heading"] = sec.heading or doc.title
+    base["section"] = sec.slug
+    base["heading_path"] = sec.heading_path
+    base["body_scope"] = "section"
+    return base
+
+
 @mcp.tool()
 def read_doc(
     doc_id: str,
+    section: str | None = None,
     include_restricted: bool = False,
     include_secret_adjacent: bool = False,
 ) -> dict[str, Any]:
@@ -582,11 +644,19 @@ def read_doc(
     requires `SVMC_ALLOW_RESTRICTED_UNLOCK=1`, a configured unlock hash,
     and a successful hidden local unlock prompt on the Mac.
 
+    Pass `section` to get back just one H2-scoped span instead of the whole
+    body — the token-minimal path. The value is a section slug from a
+    `find_runbook` hit (its `section` field) or the `heading_path` string.
+    Omit it and the full body comes back exactly as before.
+
     Args:
         doc_id: Stable identifier from the doc's frontmatter, e.g. "rb-add-nginx-proxy-host".
             Exact doc titles and vault-relative filenames are also accepted as
             a fallback for smaller local models, but stable `doc_id` values are
             preferred.
+        section: Optional section slug or heading path. When set, the response
+            body is just that section; an unknown value returns the list of
+            available section slugs instead of the body.
         include_restricted: If True, request the body of `restricted` docs.
             Default False. This is only a request; local unlock policy must
             still approve the release.
@@ -618,7 +688,7 @@ def read_doc(
             base["body_released"] = True
             base["override_used"] = True
             base["advisory"] = advisory(doc.sensitivity, override_used=True)
-            return base
+            return _narrow_to_section(base, doc, section) if section else base
         return _withheld_secret_adjacent_response(base, unlock.result)
 
     if body_is_releasable(doc.sensitivity, include_secret_adjacent=requested_restricted):
@@ -626,6 +696,8 @@ def read_doc(
         base["body_released"] = True
         if doc.sensitivity is Sensitivity.SENSITIVE:
             base["advisory"] = advisory(doc.sensitivity)
+        if section:
+            _narrow_to_section(base, doc, section)
     else:
         base["body_released"] = False
         base["advisory"] = advisory(doc.sensitivity)

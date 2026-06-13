@@ -28,7 +28,13 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
   `transactional_replace` (many files, locked, rollback) share one primitive.
 - `paths.py` — `validate_indexed_path` / `path_within_root` (single trust
   boundary; mutations stay inside the vault root).
-- `vault.py` — indexing, alias resolution, duplicate-`doc_id` exclusion.
+- `vault.py` — indexing, alias resolution, duplicate-`doc_id` exclusion. Each
+  `Doc` carries `sections` (see below) parsed at index time.
+- `sections.py` — H2-scoped section chunking for token-minimal retrieval (P1 of
+  `docs/federated-retrieval.md`). `parse_sections` (H3-folded, token-cap
+  sub-split, doc-unique heading slugs), `resolve_section` (slug or heading-path),
+  `section_summary`. FastMCP-free; `search.py` scores spans, `read_doc(section=)`
+  returns one. Pure data — no presentation, so the CLI can render the same spans.
 - `vault_write_service.py` — generic frontmatter writes + the drift-guard
   fast paths `touch_reviewed` and `update_mirror_block` (section-scoped
   ```json mirror replacement; both skip the `index(force=True)` rebuild the
