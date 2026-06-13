@@ -2,8 +2,37 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `find_runbook` / `get_runbook` ranking now (a) strips filler stopwords from
+  the query so natural-language intents ("edit a `.age` file in place") don't
+  manufacture matches, and (b) adds a small, capped signal for query terms that
+  appear only in a doc's body — enough to surface a runbook that documents a
+  command in prose ("test resolver latency", "encrypt a file") without letting
+  body length outrank a direct title/tag hit. Measured against the vault's
+  Quick Index intent→doc tables as ground truth (`scripts/eval_ranking.py`):
+  top-1 50→57, top-3 69→74, top-5 80→88 of 122 real queries. Regression tests
+  in `tests/test_search.py` lock both behaviors against the fixture vault.
+
 ### Added
 
+- `scripts/eval_ranking.py` — rank-quality eval that scores `find_runbook`
+  against the Quick Index's hand-maintained intent→doc map. A script (needs the
+  live vault), not a CI test; it labels nothing, but its misses cluster into
+  ranker bugs vs. doc-metadata gaps.
+
+- `update_mirror_block()` and the matching stdin-driven
+  `update-mirror-block <relative-path> --heading <h> [--touch-reviewed]`
+  console subcommand replace the fenced ```json mirror block under one
+  heading in a vault doc. It is the canonical writer behind the drift guards'
+  `pull` (cf-dns / adguard / ts-acl): the block search is scoped to the named
+  section (code fences skipped), so a second mirror in the same doc can never
+  be matched or clobbered — the section-bleed the guards' old awk had — and
+  the block plus the optional `last_reviewed` stamp land in **one** atomic
+  write through the shared path validation and frontmatter serializer. The
+  payload is stored verbatim (it is the guard's own `normalize` output) and
+  only validated to parse as JSON. CLI-only by design — not registered as an
+  MCP tool, so an AI session cannot write arbitrary JSON into doc bodies.
 - `schema` console subcommand (`severino-vault-mcp schema --json`) emits the
   canonical frontmatter enum contract as stable, sorted JSON. Severino HQ
   commits this output and validates its manifest importer against it, so the MCP

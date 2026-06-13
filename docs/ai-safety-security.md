@@ -185,7 +185,12 @@ Common constraints:
 - `apply_jseverino_d1_schema` is not an arbitrary SQL runner; it applies one
   known schema file to one configured database.
 
-Markdown body edits are not exposed as a broad MCP write tool.
+Markdown body edits are not exposed as a broad MCP write tool. The one
+narrow body writer, `update_mirror_block` (the drift guards' fenced
+```json mirror replacement, scoped to a single heading's section), is
+deliberately a console-script subcommand only — an AI session has no tool
+that can place arbitrary JSON in a doc body — and it still flows through
+the shared path validation, JSON validation, and atomic replacement.
 
 ## Remaining Trust Assumptions
 

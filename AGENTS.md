@@ -29,8 +29,11 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
 - `paths.py` — `validate_indexed_path` / `path_within_root` (single trust
   boundary; mutations stay inside the vault root).
 - `vault.py` — indexing, alias resolution, duplicate-`doc_id` exclusion.
-- `vault_write_service.py` — generic frontmatter writes + `touch_reviewed`
-  (fast path: skips the `index(force=True)` rebuild the drift guards don't need).
+- `vault_write_service.py` — generic frontmatter writes + the drift-guard
+  fast paths `touch_reviewed` and `update_mirror_block` (section-scoped
+  ```json mirror replacement; both skip the `index(force=True)` rebuild the
+  guards don't need). `update-mirror-block` is CLI-only by design — never an
+  MCP tool, so AI sessions can't write arbitrary JSON into doc bodies.
 - `vault_query_service.py` — `recent_changes` (git log), `search_body`
   (ripgrep), shared `doc_to_hit` projection.
 - `writeup_service.py` — writeup reads/validation/transactions.
@@ -47,6 +50,9 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
 
 Depth lives in `docs/architecture.md`, `docs/ai-safety-security.md`,
 `docs/ai-tool-contract.md`. Update those + `CHANGELOG.md` when you change behavior.
+Forward direction (proposal, not yet built): `docs/federated-retrieval.md` —
+section-scoped, federated, token-minimal retrieval over the vault *and* sibling
+repos' own docs, to kill the code→repo-doc→vault copy step.
 
 ## Cross-repo contract (don't break the tools repo)
 
@@ -71,7 +77,7 @@ Depth lives in `docs/architecture.md`, `docs/ai-safety-security.md`,
 ## Verify (before claiming a change works)
 
 ```bash
-uv run pytest -q                 # 91 tests, ~3s
+uv run pytest -q                 # 105 tests, ~3s
 uv run ruff check src/ tests/    # lint (CI gate)
 scripts/check.sh                 # everything CI runs
 ```

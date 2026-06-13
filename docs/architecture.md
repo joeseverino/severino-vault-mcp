@@ -59,8 +59,10 @@ are part of the generic vault index. There is no inbound network surface.
   must stay inside the vault root) are defined once and shared.
 - `vault.py` owns indexing, alias resolution, and duplicate-ID exclusion.
 - `vault_write_service.py` owns generic frontmatter mutation
-  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping
-  `touch_reviewed` fast path used by the drift guards.
+  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping fast
+  paths used by the drift guards: `touch_reviewed` and `update_mirror_block`
+  (section-scoped ```json mirror replacement, CLI-only — never an MCP tool,
+  so AI sessions can't write arbitrary JSON into doc bodies).
 - `vault_query_service.py` owns the two shell-backed read tools
   (`recent_changes` over `git log`, `search_body` over ripgrep) and the
   shared `doc_to_hit` projection every search response uses.

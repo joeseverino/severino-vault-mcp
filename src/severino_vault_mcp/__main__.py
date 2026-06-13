@@ -221,6 +221,41 @@ def main() -> None:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    update_mirror = subparsers.add_parser(
+        "update-mirror-block",
+        help=(
+            "Replace the fenced ```json mirror block under a heading in a "
+            "vault doc with JSON read from stdin — section-scoped, one atomic "
+            "write, optionally stamping last_reviewed in the same write. "
+            "Wrapped by the drift guards' `pull` (cf-dns / adguard / ts-acl)."
+        ),
+    )
+    update_mirror.add_argument(
+        "relative_path",
+        help=(
+            "Vault-relative path, e.g. "
+            "'02 Infrastructure/AdGuard/DNS Rewrites — homelab.md'."
+        ),
+    )
+    update_mirror.add_argument(
+        "--heading",
+        required=True,
+        help=(
+            "Section heading whose ```json block is the mirror, "
+            "e.g. '## DNS Rewrites'."
+        ),
+    )
+    update_mirror.add_argument(
+        "--touch-reviewed",
+        action="store_true",
+        help="Also set last_reviewed to today in the same atomic write.",
+    )
+    update_mirror.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     hq_manifest = subparsers.add_parser(
         "hq-manifest",
         help=(
@@ -392,6 +427,24 @@ def main() -> None:
         from .vault_write_service import touch_reviewed
 
         result = touch_reviewed(VaultLoader(Config.from_env()), args.relative_path)
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
+    if args.command == "update-mirror-block":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import update_mirror_block
+
+        result = update_mirror_block(
+            VaultLoader(Config.from_env()),
+            args.relative_path,
+            args.heading,
+            sys.stdin.read(),
+            touch_reviewed=args.touch_reviewed,
+        )
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
