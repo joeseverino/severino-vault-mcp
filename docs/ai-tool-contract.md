@@ -68,7 +68,10 @@ emitting the identical JSON the MCP returns (`{ok, ...}` envelope):
 | One section (or whole) doc body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
 
 `describe` is generated from the argparse parser, so it is the authoritative,
-drift-proof command list — prefer it over restating commands from this doc.
+drift-proof command list — prefer it over restating commands from this doc. It
+emits a conformant [Cordon v4](https://github.com/joeseverino/cordon) contract
+(the language-agnostic command-surface standard), so the same JSON folds into the
+`tools describe --repos` federation alongside the shell toolchain.
 
 ## Response Discipline
 

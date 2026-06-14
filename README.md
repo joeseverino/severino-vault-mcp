@@ -262,13 +262,16 @@ JSON document — every subcommand, its arguments, help, and **effect**
 render-many: an AI session reads it token-minimally, a TUI renders a command
 picker, a guard diffs it.
 
-It carries `schema_version: 3` and a per-command `effect`: the five vault writers
-(`touch-reviewed`, `update-mirror-block`, `update-writeup`, `reorder-featured`,
-`apply-writeup-plan`) declare `vault_write`; everything else is `read`. None
-touch the network. This is the same contract Joe's personal `tools` repo defines
-(this CLI emits a subset of it), so `tools describe --repos` folds this CLI into
-one federated document alongside the shell tools — one uniform shape across
-repos.
+The output is a conformant [**Cordon v4**](https://github.com/joeseverino/cordon)
+contract — the language-agnostic command-surface standard — with a per-command
+`effect`: the five vault writers (`touch-reviewed`, `update-mirror-block`,
+`update-writeup`, `reorder-featured`, `apply-writeup-plan`) declare `vault_write`;
+everything else is `read`. None touch the network. Because it conforms to the
+same schema Joe's personal `tools` repo emits, `tools describe --repos` folds this
+CLI into one federated document alongside the shell tools and validates every
+member against the one schema. This CLI *introspects* its argparse parser to
+produce the contract; the shell toolchain *declares* it via a DSL — two honest
+shapes converging on one wire format.
 
 ## Adopt It For Your Vault
 
