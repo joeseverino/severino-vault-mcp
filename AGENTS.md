@@ -9,8 +9,13 @@ structured AI context, plus an operator workflow pack for jseverino.com.
 
 ## Repo conventions
 
-- **Solo-authored. Work on `main`.** No `Co-Authored-By` / "Claude" trailers,
-  no AI attribution in commit messages. Commit/push only when asked.
+- **Solo-authored, but never commit to `main` — branch → PR.** Branch from a
+  freshly fetched `origin/main` (`git fetch origin && git checkout -b <name>
+  origin/main`), never from a stale local tree (multiple sessions touch these
+  repos, so local `main` lags). Push, open a PR, and hand back only on green CI
+  with no unresolved review comments; Joe approves or comments, then it merges.
+  No `Co-Authored-By` / "Claude" trailers, no AI attribution in commit messages.
+  Commit/push/PR only when asked.
 - Consumed by the `tools` repo (`~/Documents/Code/Assets/tools/`): `bin/site`,
   `lib/site/manage-tui.mjs`, and the drift guards call the installed console
   script. Changes to tool output or CLI subcommands are a **cross-repo
