@@ -1426,6 +1426,45 @@ def test_describe_parser_emits_command_surface() -> None:
     assert "-h" not in args
 
 
+def test_describe_conforms_to_cordon_validator() -> None:
+    # The conformance gate: pipe the emitted surface through cordon's own
+    # canonical validator (cordon-v4.json via conformance/validate.mjs), so we
+    # validate against the single source of truth — no schema copy in this repo.
+    # Skips when the cordon repo isn't a sibling checkout (set CORDON_HOME), the
+    # typical CI-for-this-repo case; the tools repo's `--repos` federation is the
+    # always-on cross-repo backstop.
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates = []
+    if os.environ.get("CORDON_HOME"):
+        candidates.append(Path(os.environ["CORDON_HOME"]))
+    candidates.append(repo_root.parent / "cordon")
+    cordon = next(
+        (c for c in candidates if (c / "conformance" / "validate.mjs").exists()), None
+    )
+    if cordon is None:
+        pytest.skip("cordon repo not found as sibling (set CORDON_HOME to enable)")
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    if not (cordon / "node_modules").exists() and not (cordon / "node_modules.nosync").exists():
+        pytest.skip("cordon dependencies not installed (run `npm ci` in cordon)")
+
+    describe = subprocess.run(
+        [sys.executable, "-m", "severino_vault_mcp", "describe"],
+        capture_output=True, text=True, check=True, cwd=repo_root,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "src")},
+    )
+    result = subprocess.run(
+        ["node", str(cordon / "conformance" / "validate.mjs"), "-"],
+        input=describe.stdout, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (result.stdout + result.stderr)
+
+
 def test_cli_describe_emits_json() -> None:
     import json
     import os

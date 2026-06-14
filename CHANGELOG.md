@@ -4,17 +4,19 @@
 
 ### Changed
 
-- **`describe` now emits the shared v4 contract verbatim** (was a v3 subset), so
-  `tools describe --repos` folds this repo in as a *homogeneous* sibling: same
-  `schema_version`, `group`/`order` inventory metadata, and `paras`/`examples`
-  fields (empty here — the MCP CLI has no per-command prose). `cli_introspect.py`
-  drops the argparse-only `type`/`default` keys that the shared schema forbids
-  (`additionalProperties: false`) and always emits `takes_value`. The tools repo
-  owns `schemas/describe-v4.schema.json` and validates this output through the
-  `--repos` federation — one schema, one validator, both repos checked, no second
-  contract to drift (the same MCP↔HQ split used for the frontmatter schema). The
-  per-command `effect` blast-radius signal is unchanged (the five vault writers
-  stay `vault_write`); it now rides in the full v4 shape. Regression in
+- **`describe` now emits a conformant [Cordon v4](https://github.com/joeseverino/cordon)
+  contract** (was a v3 subset), so `tools describe --repos` folds this repo in as
+  a *homogeneous* sibling: same `schema_version`, `group`/`order` inventory
+  metadata, and `paras`/`examples` fields (empty here — the MCP CLI has no
+  per-command prose). `cli_introspect.py` drops the argparse-only `type`/`default`
+  keys that the schema forbids (`additionalProperties: false`) and always emits
+  `takes_value`. Cordon (canonical schema `cordon-v4.json`) is the single source
+  of the contract; `tools describe --repos` validates this output against it, and
+  a regression test here also pipes `describe` through cordon's own
+  `conformance/validate.mjs` (plus an always-on structural test) — one schema,
+  validated from both repos, no second contract to drift. The per-command
+  `effect` blast-radius signal is unchanged (the five vault writers stay
+  `vault_write`); it now rides in the full v4 shape. Tests in
   `tests/test_search.py`.
 
 - `find_runbook` / `get_runbook` ranking now (a) strips filler stopwords from

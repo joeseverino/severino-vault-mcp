@@ -48,8 +48,15 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
   CLI unlock). `server.py` and the `find`/`read` console subcommands both render
   this — never restate the menu shape.
 - `cli_introspect.py` — `describe_parser` walks the argparse parser (built by
-  `__main__.build_parser`) to emit the repo's command surface as JSON. The
-  "Code/guards" leg of emit-once: `--help` made machine-readable and drift-proof.
+  `__main__.build_parser`) to emit the repo's command surface as a conformant
+  **Cordon v4** contract (`https://github.com/joeseverino/cordon`, the
+  language-agnostic command-surface standard). The "Code/guards" leg of
+  emit-once: `--help` made machine-readable and drift-proof. We *introspect* the
+  parser where the `tools` repo *declares* via a DSL; both converge on the one
+  schema, so `tools describe --repos` folds this CLI in and validates every
+  member. Bump `SCHEMA_VERSION` only in lockstep with a new `cordon-vN.json`;
+  conformance is gated against cordon's own `conformance/validate.mjs`
+  (`tests/test_search.py`, skips when cordon isn't a sibling).
 - `writeup_service.py` — writeup reads/validation/transactions.
 - `site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
 - `hq_manifest.py` — HQ manifest synthesis on the shared parser.
