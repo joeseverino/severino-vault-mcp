@@ -31,6 +31,25 @@
         ]
       },
       "fix": "Review the advisory; bump the dependency in pyproject.toml + uv.lock, or add a justified --ignore-vuln (see pip-audit.yml for the rationale on PYSEC-2025-183)."
+    },
+    {
+      "id": "version",
+      "name": "Version alignment",
+      "effect": "read",
+      "requires": ["python3"],
+      "exec": { "cmd": "python3", "args": ["scripts/version_check.py"] },
+      "fix": "Align pyproject.toml version with src/severino_vault_mcp/__init__.py __version__."
+    },
+    {
+      "id": "doctor",
+      "name": "Sample-vault doctor",
+      "effect": "read",
+      "requires": ["uv"],
+      "exec": {
+        "cmd": "sh",
+        "args": ["-c", "PYTHONPATH=src SVMC_VAULT_PATH=examples/sample-vault uv run python -m severino_vault_mcp doctor"]
+      },
+      "fix": "Fix the frontmatter issues doctor reports in examples/sample-vault."
     }
   ]
 }
