@@ -1,40 +1,54 @@
 #!/usr/bin/env bash
+# check.sh — the one gate, runnable independently. You run it locally, the
+# pre-push hook runs it, and CI runs it (the reusable cordon gate calls
+# `scripts/check.sh --ci`). Same script everywhere, so local and CI can't drift.
+#
+# The standardized checks (ruff, pytest, pip-audit + repo invariants) come from
+# cordon's checks engine over cordon.checks.json — referenced, never vendored.
+# This script adds the repo-specific extras (version alignment, sample-vault
+# doctor) and the release smoke test.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/check.sh [--quick] [--release]
+  scripts/check.sh [--ci] [--release]
 
-Default:
-  version alignment, ruff, pytest, sample-vault doctor
+Default / --ci:
+  version alignment, cordon checks (ruff + pytest + pip-audit + invariants),
+  sample-vault doctor
 
-Options:
-  --quick    only run ruff + pytest
-  --release  also sync deps and smoke-test the installed tool
+--release:
+  also sync deps and smoke-test the installed tool
 EOF
 }
 
-quick=0
+ci=0
 release=0
-
 for arg in "$@"; do
   case "$arg" in
-    --quick) quick=1 ;;
+    --ci) ci=1 ;;
     --release) release=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
 
+# cordon's engine is the source of the standardized gate. CI's reusable gate
+# exports CORDON_HOME; locally fall back to the sibling checkout.
+CORDON_HOME="${CORDON_HOME:-${ASSETS_HOME:-$HOME/Documents/Code/Assets}/cordon}"
+if [[ ! -f "$CORDON_HOME/checks/run.mjs" ]]; then
+  echo "cordon not found at \$CORDON_HOME ($CORDON_HOME). Set CORDON_HOME or check out cordon as a sibling." >&2
+  exit 1
+fi
+
 if [[ "$release" -eq 1 ]]; then
   echo "==> Syncing environment"
   uv sync --extra dev
 fi
 
-if [[ "$quick" -eq 0 ]]; then
-  echo "==> Checking version alignment"
-  python3 - <<'PY'
+echo "==> Checking version alignment"
+python3 - <<'PY'
 from pathlib import Path
 import re
 import tomllib
@@ -49,19 +63,13 @@ if pyproject != init_version:
 
 print(pyproject)
 PY
-fi
 
-echo "==> Running lint"
-uv run ruff check .
+echo "==> cordon checks (ruff + pytest + pip-audit + repo invariants)"
+node "$CORDON_HOME/checks/run.mjs" --root "$PWD"
 
-echo "==> Running tests"
-uv run pytest -q
-
-if [[ "$quick" -eq 0 ]]; then
-  echo "==> Checking sample vault"
-  env PYTHONPATH=src SVMC_VAULT_PATH=examples/sample-vault \
-    uv run python -m severino_vault_mcp doctor
-fi
+echo "==> Checking sample vault"
+env PYTHONPATH=src SVMC_VAULT_PATH=examples/sample-vault \
+  uv run python -m severino_vault_mcp doctor
 
 if [[ "$release" -eq 1 ]]; then
   echo "==> Checking installed tool"
