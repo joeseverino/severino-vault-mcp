@@ -54,4 +54,4 @@ jobs:
   # standardized check (`cordon / gate`). Pinned to the gate's branch until it
   # lands on cordon's main; switch the ref to @main after that merge.
   cordon:
-    uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@feat/reusable-gate
+    uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@main
