@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/joeseverino/cordon/main/checks/config.schema.json",
+  "commands": [
+    {
+      "id": "ruff",
+      "name": "Ruff lint",
+      "effect": "read",
+      "requires": ["uv"],
+      "exec": { "cmd": "uv", "args": ["run", "ruff", "check", "src", "tests"] },
+      "fix": "Run `uv run ruff check --fix src tests`, or fix the reported lines."
+    },
+    {
+      "id": "pytest",
+      "name": "Pytest",
+      "effect": "read",
+      "requires": ["uv"],
+      "exec": { "cmd": "uv", "args": ["run", "pytest", "-q"] },
+      "fix": "Run `uv run pytest -q` and fix the failing test."
+    },
+    {
+      "id": "pip-audit",
+      "name": "Audit pinned dependencies",
+      "effect": "read",
+      "requires": ["uv"],
+      "timeout": 180000,
+      "exec": {
+        "cmd": "sh",
+        "args": [
+          "-c",
+          "uv export --no-hashes --format requirements-txt | uv run --with pip-audit pip-audit -r /dev/stdin --ignore-vuln PYSEC-2025-183"
+        ]
+      },
+      "fix": "Review the advisory; bump the dependency in pyproject.toml + uv.lock, or add a justified --ignore-vuln (see pip-audit.yml for the rationale on PYSEC-2025-183)."
+    }
+  ]
+}

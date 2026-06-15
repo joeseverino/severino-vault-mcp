@@ -30,3 +30,7 @@ Thumbs.db
 
 # Claude Code session data (never commit)
 .claude/
+
+# cordon checks engine: generated report + CI checkout of the cordon repo
+.cordon-checks-report.md
+/.cordon/
