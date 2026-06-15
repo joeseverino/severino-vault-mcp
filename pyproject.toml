@@ -31,6 +31,10 @@ classifiers = [
 dependencies = [
     "mcp>=1.27",
     "starlette>=1.0.1",
+    # cordon's Python reference emitter — the single source for our command-surface
+    # contract. We consume it rather than maintain a copy (cli_introspect.py is a
+    # thin binding). Resolved from cordon's main via the git source below.
+    "cordon-emit",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +49,13 @@ severino-vault-mcp = "severino_vault_mcp.__main__:main"
 [project.urls]
 Homepage = "https://github.com/joeseverino/severino-vault-mcp"
 Issues = "https://github.com/joeseverino/severino-vault-mcp/issues"
+
+[tool.uv.sources]
+# cordon-emit ships in the cordon repo under emitters/python. Both repos are
+# public, so this HTTPS source resolves auth-free locally and in CI (uv fetches
+# it during `uv sync`). Tracks cordon's main; uv.lock pins the exact commit, so
+# pull a newer emitter deliberately with `uv lock --upgrade-package cordon-emit`.
+cordon-emit = { git = "https://github.com/joeseverino/cordon", subdirectory = "emitters/python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/severino_vault_mcp"]

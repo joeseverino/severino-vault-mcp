@@ -778,7 +778,8 @@ def describe_commands() -> dict[str, Any]:
     from .cli import build_parser
     from .cli_introspect import describe_parser
 
-    return {"ok": True, **describe_parser(build_parser())}
+    # cordon's emitter returns the full {ok, schema_version, ...} document.
+    return describe_parser(build_parser())
 
 
 # ----- jseverino.com operations tools ----------------------------------------

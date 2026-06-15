@@ -213,7 +213,8 @@ def main() -> None:
     if args.command == "describe":
         from .cli_introspect import describe_parser
 
-        result = {"ok": True, **describe_parser(parser)}
+        # cordon's emitter returns the full {ok, schema_version, ...} document.
+        result = describe_parser(parser)
         if args.pretty:
             print(json.dumps(result, indent=2))
         else:
