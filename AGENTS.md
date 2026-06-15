@@ -52,15 +52,19 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
   and `read_section` (one span or whole body, gated; restricted withheld with no
   CLI unlock). `server.py` and the `find`/`read` console subcommands both render
   this — never restate the menu shape.
-- `cli_introspect.py` — `describe_parser` walks the argparse parser (built by
-  `__main__.build_parser`) to emit the repo's command surface as a conformant
-  **Cordon v4** contract (`https://github.com/joeseverino/cordon`, the
-  language-agnostic command-surface standard). The "Code/guards" leg of
-  emit-once: `--help` made machine-readable and drift-proof. We *introspect* the
-  parser where the `tools` repo *declares* via a DSL; both converge on the one
-  schema, so `tools describe --repos` folds this CLI in and validates every
-  member. Bump `SCHEMA_VERSION` only in lockstep with a new `cordon-vN.json`;
-  conformance is gated against cordon's own `conformance/validate.mjs`
+- `cli_introspect.py` — a **thin binding over cordon's Python reference emitter**
+  (`cordon_emit`, the `cordon-emit` dependency). `describe_parser` injects this
+  repo's inventory coordinates (`group`/`order`) and delegates; cordon owns the
+  algorithm and the schema. It projects the argparse parser (built by
+  `cli.build_parser`) to a conformant **Cordon v4** contract
+  (`https://github.com/joeseverino/cordon`). The "Code/guards" leg of emit-once:
+  `--help` made machine-readable and drift-proof. We *introspect* the parser
+  where the `tools` repo *declares* via a DSL; both converge on the one schema,
+  so `tools describe --repos` folds this CLI in. Per-command blast radius is
+  declared with `cordon_emit.set_effect` on each subparser in `cli.build_parser`.
+  The contract revision lives in `cordon_emit.SCHEMA_VERSION` (not here); to
+  follow a new `cordon-vN.json`, bump the `cordon-emit` pin in `pyproject.toml`.
+  Conformance is gated against cordon's own `conformance/validate.mjs`
   (`tests/test_search.py`, skips when cordon isn't a sibling).
 - `writeup_service.py` — writeup reads/validation/transactions.
 - `site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.

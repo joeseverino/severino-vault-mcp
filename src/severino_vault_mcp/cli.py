@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 
+from cordon_emit import set_effect
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the full CLI parser.
@@ -346,11 +348,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
-    # Blast-radius (effect) per command, mirroring the tools repo's describe
-    # contract (schema_version 4). Every MCP CLI fast-path is a local-filesystem
-    # op: the five writers mutate the vault, the rest only read — none touch the
-    # network or block on a TTY, so only the effect class is recorded.
-    # describe_parser reads this off each subparser; the default is read.
+    # Blast-radius (effect) per command, on cordon's escalating ladder
+    # (schema_version 4). Every MCP CLI fast-path is a local-filesystem op: the
+    # five writers mutate the vault, the rest only read — none touch the network
+    # or block on a TTY, so only the effect class is recorded. set_effect()
+    # annotates each subparser; cordon's emitter reads it back at describe time.
     _effects = {
         "apply-writeup-plan": "vault_write",
         "reorder-featured": "vault_write",
@@ -359,6 +361,6 @@ def build_parser() -> argparse.ArgumentParser:
         "update-mirror-block": "vault_write",
     }
     for name, sub in subparsers.choices.items():
-        sub._svmc_effect = _effects.get(name, "read")
+        set_effect(sub, _effects.get(name, "read"))
 
     return parser

@@ -134,6 +134,11 @@ wheels = [
 ]
 
 [[package]]
+name = "cordon-emit"
+version = "0.1.0"
+source = { git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython&branch=feat%2Fpython-reference-emitter#4850d69fd6310df64bbff20cc19e0dc9ffb8db12" }
+
+[[package]]
 name = "cryptography"
 version = "48.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -694,6 +699,7 @@ name = "severino-vault-mcp"
 version = "2.4.6"
 source = { editable = "." }
 dependencies = [
+    { name = "cordon-emit" },
     { name = "mcp" },
     { name = "starlette" },
 ]
@@ -706,6 +712,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cordon-emit", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython&branch=feat%2Fpython-reference-emitter" },
     { name = "mcp", specifier = ">=1.27" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
