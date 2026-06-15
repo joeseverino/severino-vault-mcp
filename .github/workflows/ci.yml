@@ -46,46 +46,12 @@ jobs:
           uv run --no-sync python -c "import severino_vault_mcp; print(severino_vault_mcp.__version__)"
           SVMC_VAULT_PATH=examples/sample-vault uv run --no-sync severino-vault-mcp doctor
 
-  # The standardized, portable gate: cordon's checks engine runs this repo's own
-  # command specs (ruff + pytest + pip-audit, declared as data in
-  # cordon.checks.json) alongside cordon's built-in repo invariants, folded into
-  # one verdict. Same engine every cordon repo runs — the Python gate is declared
-  # once and reused, not re-encoded per repo. The `test` matrix above stays for
-  # multi-version coverage; this is the single standardized check.
-  checks:
-    name: cordon checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Check out cordon (the checks engine)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          repository: joeseverino/cordon
-          path: .cordon
-
-      - name: Install ripgrep (search_body needs it)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Sync deps
-        run: uv sync --extra dev
-
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: "24"
-
-      - name: Run cordon checks
-        env:
-          CORDON_HOME: ${{ github.workspace }}/.cordon
-        run: |
-          node "$CORDON_HOME/checks/run.mjs" --root "$PWD"; status=$?
-          [ -f .cordon-checks-report.md ] && cat .cordon-checks-report.md >> "$GITHUB_STEP_SUMMARY"
-          exit $status
+  # The standardized gate, abstracted to one place: this calls cordon's reusable
+  # gate, which runs the checks engine over our cordon.checks.json (ruff + pytest
+  # + pip-audit) folded with cordon's built-in invariants. All the CI plumbing —
+  # checkout, uv/node setup, pinned SHAs — lives once in cordon, not here. The
+  # `test` matrix above stays for multi-version coverage; this is the single
+  # standardized check (`cordon / gate`). Pinned to the gate's branch until it
+  # lands on cordon's main; switch the ref to @main after that merge.
+  cordon:
+    uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@feat/reusable-gate
