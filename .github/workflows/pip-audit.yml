@@ -1,3 +1,9 @@
+# Dependency audit — calls cordon's reusable pip-audit workflow, so the plumbing
+# (uv setup, locked-requirements export, the official pypa action + SARIF) lives
+# once in cordon, not here. This file owns only the triggers and this repo's
+# advisory ignores. A weekly scan catches a newly-disclosed CVE against unchanged
+# pins — the reason dependency auditing is a scheduled workflow, not a cordon
+# check (a check runs on a change; this runs on a timer).
 name: pip-audit
 
 on:
@@ -15,30 +21,10 @@ permissions:
 
 jobs:
   audit:
-    name: Audit pinned dependencies
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Export locked requirements
-        run: uv export --no-hashes --format requirements-txt > requirements-audit.txt
-
-      - name: Run pip-audit
-        uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
-        with:
-          inputs: requirements-audit.txt
-          # PYSEC-2025-183: pyjwt "weak encryption" advisory. Disputed by the
-          # upstream supplier (key length is the application's choice) and has
-          # no fix version. pyjwt is a transitive dep of mcp's HTTP/OAuth
-          # transport, unused by this stdio server. Revisit if a fix ships.
-          ignore-vulns: |
-            PYSEC-2025-183
+    uses: joeseverino/cordon/.github/workflows/pip-audit.yml@main
+    with:
+      # PYSEC-2025-183: pyjwt "weak encryption" advisory. Disputed by the
+      # upstream supplier (key length is the application's choice) and has no
+      # fix version. pyjwt is a transitive dep of mcp's HTTP/OAuth transport,
+      # unused by this stdio server. Revisit if a fix ships.
+      ignore-vulns: PYSEC-2025-183

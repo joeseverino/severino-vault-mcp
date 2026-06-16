@@ -47,11 +47,13 @@ jobs:
           SVMC_VAULT_PATH=examples/sample-vault uv run --no-sync severino-vault-mcp doctor
 
   # The standardized gate, abstracted to one place: this calls cordon's reusable
-  # gate, which runs the checks engine over our cordon.checks.json (ruff + pytest
-  # + pip-audit) folded with cordon's built-in invariants. All the CI plumbing —
-  # checkout, uv/node setup, pinned SHAs — lives once in cordon, not here. The
-  # `test` matrix above stays for multi-version coverage; this is the single
-  # standardized check (`cordon / gate`). Pinned to the gate's branch until it
-  # lands on cordon's main; switch the ref to @main after that merge.
+  # gate, which runs the checks engine over our cordon.checks.json folded with
+  # cordon's built-in repo invariants into one verdict. ruff + pytest now come
+  # from cordon's auto-detecting catalog (this is a uv repo), so the only checks
+  # we declare are the repo-specific ones (version alignment, sample-vault
+  # doctor). All the CI plumbing — checkout, uv/node setup, pinned SHAs — lives
+  # once in cordon, not here. The `test` matrix above stays for multi-version
+  # coverage; this is the single standardized check (`cordon / gate`).
+  # Dependency auditing is not here — it's the scheduled pip-audit.yml workflow.
   cordon:
     uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@main
