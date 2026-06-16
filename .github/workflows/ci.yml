@@ -1,23 +1,21 @@
+# The entire CI surface of this repo. All the plumbing — checkout, tool setup,
+# pinned action SHAs, running the gate, surfacing the report — lives once in
+# cordon's reusable gate, which runs cordon's checks engine over this repo. The
+# engine auto-detects the stack and runs the matching catalog checks (here: ruff,
+# pytest across the [project].classifiers versions, version alignment, built-wheel
+# import smoke) folded with cordon's invariants — so this repo needs no
+# cordon.checks.json at all. To change CI for every repo, edit the gate in cordon;
+# to add a check unique to this repo, add a commands[] entry to a cordon.checks.json
+# (or, for a Node audit, a package.json check:* script). Required status check:
+# `cordon / gate`.
+# See https://github.com/joeseverino/cordon/blob/main/docs/REUSABLE-GATE.md
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
 
 jobs:
-  # The whole CI surface is cordon's reusable gate: it runs the checks engine over
-  # this repo, auto-detecting the uv stack and running ruff, pytest (across the
-  # Python versions in [project].classifiers), version alignment, and the
-  # built-wheel import smoke — folded with cordon's repo invariants into one
-  # verdict. All the CI plumbing — checkout, uv/node setup, ripgrep, pinned SHAs —
-  # lives once in cordon, not here. Multi-version coverage and the installed-
-  # package smoke used to be a bespoke matrix job in this file; both are now
-  # standard catalog checks, so this repo carries no CI of its own. Dependency
-  # auditing is the scheduled pip-audit.yml. The single required check: `cordon / gate`.
   cordon:
     uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@main

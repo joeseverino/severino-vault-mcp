@@ -1,11 +1,13 @@
-# The release surface of this repo — the sibling of ci.yml. Versioning, the
-# CHANGELOG, the tag, and the GitHub Release are cut by cordon's reusable
-# cordon-release.yml; this repo just calls it. release-type `python` reads the
-# version from pyproject.toml ([project].version). Status check: cordon / release.
+# The release surface of this repo — the sibling of ci.yml. Release-please logic
+# (version bump, CHANGELOG, tag, GitHub Release) lives once in cordon's reusable
+# cordon-release.yml; this repo cuts versions by calling it. release-type
+# defaults to "simple" (the tracked version.txt), so a scaffolded repo is
+# release-ready with no extra config. A typed repo overrides it (see below).
 #
 # ONE-TIME per-repo setting (required): Settings → Actions → General → Workflow
 # permissions → "Allow GitHub Actions to create and approve pull requests".
-# Guide: https://github.com/joeseverino/cordon/blob/main/docs/RELEASE.md
+# Without it the release PR cannot be opened. Status check: `cordon / release`.
+# See https://github.com/joeseverino/cordon/blob/main/docs/RELEASE.md
 name: release
 
 on:
@@ -20,4 +22,4 @@ jobs:
   cordon:
     uses: joeseverino/cordon/.github/workflows/cordon-release.yml@main
     with:
-      release-type: python
+      release-type: python   # this repo's version lives in pyproject.toml
