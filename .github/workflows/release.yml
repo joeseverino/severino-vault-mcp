@@ -13,11 +13,13 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   cordon:
+    permissions:
+      contents: write
+      pull-requests: write
     uses: joeseverino/cordon/.github/workflows/cordon-release.yml@main
     with:
       release-type: python
