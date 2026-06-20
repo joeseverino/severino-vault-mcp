@@ -18,6 +18,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from . import (
+    daily_notes,
     site_ops_service,
     vault_query_service,
     vault_search_service,
@@ -89,6 +90,10 @@ OPERATING RULES (read this BEFORE answering any operational question):
 5. Match the doc's terseness in your reply. If the runbook is four lines,
    your answer is four lines. Long answers when the doc is short are a
    smell that you didn't actually read it.
+
+6. For personal progress/log questions ("what progress did I make on Friday?",
+   "what happened yesterday?"), use `daily_progress` first. Daily notes are
+   intentionally outside the runbook index and live under `00 Inbox/Daily Note`.
 
 SENSITIVITY GATE (don't be afraid of it):
 
@@ -723,6 +728,24 @@ def recent_changes(days: int = 7, limit: int = 50) -> dict[str, Any]:
         limit: Max commits to return (default 50).
     """
     return vault_query_service.recent_changes(_LOADER, days, limit)
+
+
+@mcp.tool()
+def daily_progress(query: str, today: str | None = None) -> dict[str, Any]:
+    """Read a daily note for progress/log questions like "what did I do Friday?".
+
+    Daily notes live outside the durable runbook index under the configured
+    daily-notes folder, defaulting to `00 Inbox/Daily Note`. This tool resolves
+    small natural-language date references (`today`, `yesterday`, `Friday`,
+    `last Friday`, `YYYY-MM-DD`, `MM/DD/YYYY`) to a concrete daily note and
+    returns the body plus extracted progress lines for summarization.
+
+    Args:
+        query: The user's natural-language progress question.
+        today: Optional ISO date used as the anchor for relative terms. Omit in
+            normal use; tests and deterministic clients can set it.
+    """
+    return daily_notes.daily_progress(_LOADER, query, today=today)
 
 
 @mcp.tool()

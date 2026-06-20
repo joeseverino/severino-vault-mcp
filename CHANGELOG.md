@@ -61,6 +61,14 @@
 
 ### Added
 
+- **`daily_progress(query)` MCP tool for daily-note progress questions.**
+  Daily notes stay outside the durable runbook index under the configurable
+  `daily_notes_dir` (default `00 Inbox/Daily Note`), but the MCP can now resolve
+  prompts like "what progress did I make on Friday?" to a concrete
+  `YYYY-MM-DD.md` note and return its body plus extracted progress lines for
+  summarization. Regression tests keep weekday resolution and missing-note
+  behavior deterministic.
+
 - **Emit-once CLI rendering of section retrieval (vault decision record
   `report-emit-once-render-many`).** A new FastMCP-free `vault_search_service.py`
   single-sources the section *menu* computation; `server.py`'s `find_runbook`

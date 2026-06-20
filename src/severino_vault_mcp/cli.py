@@ -310,6 +310,30 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    brief = subparsers.add_parser(
+        "brief",
+        help=(
+            "Doc-side vault state in one payload: recent changes, docs overdue "
+            "for review, and inbox backlog. The vault leg of the `brief` shell "
+            "tool, which composes it with repo and writeup state."
+        ),
+    )
+    brief.add_argument(
+        "--days", type=int, default=7,
+        help="Recent-changes look-back window in days (default 7).",
+    )
+    brief.add_argument(
+        "--review-after", type=int, default=180, dest="review_after",
+        help="Flag docs whose last_reviewed is older than N days (default 180).",
+    )
+    brief.add_argument(
+        "--limit", type=int, default=15,
+        help="Max recent commits to return (default 15).",
+    )
+    brief.add_argument(
+        "--pretty", action="store_true", help="Indent the JSON output."
+    )
+
     schema_cmd = subparsers.add_parser(
         "schema",
         help=(

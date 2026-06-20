@@ -270,6 +270,23 @@ def main() -> None:
         print(f"ok: {result['count']} entries", file=sys.stderr)
         raise SystemExit(0)
 
+    if args.command == "brief":
+        from .brief_service import vault_brief
+        from .config import Config
+        from .vault import VaultLoader
+
+        result = vault_brief(
+            VaultLoader(Config.from_env()),
+            days=args.days,
+            review_after_days=args.review_after,
+            recent_limit=args.limit,
+        )
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
     from .server import run
 
     run()
