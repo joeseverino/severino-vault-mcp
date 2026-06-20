@@ -67,6 +67,7 @@ def _value(section: dict[str, Any], key: str, default: Any) -> Any:
 class Config:
     vault_path: Path
     indexed_dirs: tuple[str, ...]
+    daily_notes_dir: str
     aliases_path: Path
     metadata_url: str
     cache_seconds: int
@@ -104,6 +105,12 @@ class Config:
 
         return cls(
             vault_path=vault_path,
+            daily_notes_dir=str(
+                os.environ.get(
+                    "SVMC_DAILY_NOTES_DIR",
+                    _value(vault, "daily_notes_dir", "00 Inbox/Daily Note"),
+                )
+            ),
             aliases_path=_env_path(
                 "SVMC_ALIASES_PATH",
                 _value(aliases, "path", aliases_default),

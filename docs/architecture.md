@@ -171,6 +171,7 @@ The generic surface is the part intended for other operators to run as-is:
 | `read_doc` | Reads one doc by `doc_id` or local alias with sensitivity enforcement. |
 | `inventory_for_project` | Returns docs related to a project slug. |
 | `recent_changes` | Summarizes recent vault commits inside indexed folders. |
+| `daily_progress` | Reads `00 Inbox/Daily Note/YYYY-MM-DD.md` for progress/log questions. |
 | `search_body` | Searches non-restricted bodies with frontmatter skipped. |
 | `add_frontmatter` | Adds validated frontmatter to one vault markdown file. |
 | `update_frontmatter` | Updates validated frontmatter fields on one indexed doc. |
@@ -180,6 +181,11 @@ questions should start at the Quick Index, specific runbook questions should
 use `find_runbook` or `get_runbook`, and exact operational answers should come
 from the target document rather than model memory. See
 [`docs/demo.md`](demo.md) for a reproducible transcript.
+
+Daily notes are not part of the durable runbook index. They are a separate
+capture/log surface under configurable `daily_notes_dir` (default
+`00 Inbox/Daily Note`) and are exposed through `daily_progress` for questions
+like "what progress did I make on Friday?".
 
 ## Sensitivity Model
 

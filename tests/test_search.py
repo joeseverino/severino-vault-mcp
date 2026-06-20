@@ -19,6 +19,7 @@ def fake_vault(tmp_path: Path, monkeypatch) -> Path:
     (tmp_path / "01 Projects").mkdir()
     (tmp_path / "02 Infrastructure").mkdir()
     (tmp_path / "03 Runbooks").mkdir()
+    (tmp_path / "00 Inbox" / "Daily Note").mkdir(parents=True)
     (tmp_path / ".svmc").mkdir()
 
     (tmp_path / "03 Runbooks" / "Add Nginx Proxy Host.md").write_text(
@@ -92,6 +93,20 @@ tags: [index, mcp, navigation]
         encoding="utf-8",
     )
 
+    (tmp_path / "00 Inbox" / "Daily Note" / "2026-06-19.md").write_text(
+        """---
+doc_id: daily-20260619
+created: 2026-06-19 22:39:04
+date: 2026-06-19
+---
+
+- [x] Split daily notes from inbox captures.
+- Added a dedicated Daily Note template.
+- Fixed Obsidian archive command escaping.
+""",
+        encoding="utf-8",
+    )
+
     (tmp_path / ".svmc" / "aliases.toml").write_text(
         """[aliases]
 "https proxy" = "rb-add-nginx-proxy-host"
@@ -104,6 +119,28 @@ tags: [index, mcp, navigation]
     monkeypatch.setenv("SVMC_VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("SVMC_CACHE_SECONDS", "0")
     return tmp_path
+
+
+def test_vault_brief_flags_stale_docs_and_inbox(fake_vault: Path) -> None:
+    from severino_vault_mcp.brief_service import vault_brief
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+
+    # A top-level inbox capture (the fixture only seeds a Daily Note subdir).
+    (fake_vault / "00 Inbox" / "idea.md").write_text(
+        "---\ndoc_id: inbox-20260620-000000\ncreated: 2026-06-20 00:00:00\n---\n\nthought\n",
+        encoding="utf-8",
+    )
+
+    result = vault_brief(VaultLoader(Config.from_env()), review_after_days=180)
+
+    assert result["ok"] is True
+    review_ids = {doc["doc_id"] for doc in result["docs_to_review"]["docs"]}
+    assert "rb-add-nginx-proxy-host" in review_ids  # last_reviewed 2025-01-01
+    assert "infra-local-pki" not in review_ids       # 2026-04-01, still fresh
+    assert result["inbox"]["count"] == 1
+    # tmp vault is not a git repo, so recent_changes degrades gracefully
+    assert result["recent_changes"]["count"] == 0
 
 
 def _fresh_module(name: str):
@@ -132,6 +169,35 @@ def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
         "infra-local-pki",
         "report-playbook-mcp-index",
     }
+    assert "daily-20260619" not in doc_ids
+
+
+def test_daily_progress_resolves_friday_from_anchor(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+
+    result = server.daily_progress(
+        "what progress did i make on friday?",
+        today="2026-06-20",
+    )
+
+    assert result["found"] is True
+    assert result["resolved_date"] == "2026-06-19"
+    assert result["date_resolution"] == "weekday"
+    assert result["doc_id"] == "daily-20260619"
+    assert result["obsidian_path"] == "00 Inbox/Daily Note/2026-06-19.md"
+    assert "Daily Note template" in result["body"]
+    assert any("archive command" in item for item in result["progress_items"])
+
+
+def test_daily_progress_reports_missing_note(fake_vault: Path) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+
+    result = server.daily_progress("what happened yesterday?", today="2026-06-19")
+
+    assert result["found"] is False
+    assert result["resolved_date"] == "2026-06-18"
+    assert result["expected_path"] == "00 Inbox/Daily Note/2026-06-18.md"
+    assert result["progress_items"] == []
 
 
 def test_loader_indexes_local_aliases(fake_vault: Path) -> None:
@@ -174,6 +240,7 @@ url = "https://metadata.example.test"
     config = config_mod.Config.from_env()
     assert config.vault_path == vault_a
     assert config.indexed_dirs == ("Docs",)
+    assert config.daily_notes_dir == "00 Inbox/Daily Note"
     assert config.cache_seconds == 12
     assert config.metadata_url == "https://metadata.example.test"
 

@@ -22,6 +22,7 @@ when a vault doc or workflow tool exists.
 | Known doc ID | `vault://doc/{doc_id}` or `read_doc` | Respect sensitivity policy. |
 | System context | `lookup_system` | Read the selected doc before summarizing. |
 | Body search | `search_body` | Use returned snippets only as discovery; read the doc before final instructions. |
+| Daily progress/log question | `daily_progress` | Summarize from returned `progress_items` / body. |
 | Missing metadata | `add_frontmatter` or `update_frontmatter` | Report changed fields and next sync step. |
 | Duplicate doc ID response | `doctor` | Do not choose one path; report every conflict and require repair. |
 

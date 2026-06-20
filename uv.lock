@@ -693,7 +693,7 @@ wheels = [
 
 [[package]]
 name = "severino-vault-mcp"
-version = "2.4.6"
+version = "2.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "cordon-emit" },
