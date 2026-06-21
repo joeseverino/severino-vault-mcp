@@ -190,6 +190,18 @@ operator's `site validate <slug>` command uses it for targeted reports).
 Pass `--include-tag-usage` if you need the per-technology usage stats.
 
 ```bash
+severino-vault-mcp validate-writeup <slug> [--draft] [--pretty]
+```
+
+The CLI face of the `validate_writeup` MCP tool: validates a single writeup
+and prints the JSON report (blockers, missing tech slugs, missing images,
+unresolved refs, nits), exiting 0 if `ok: true`. `--draft` demotes the
+`published` / `published_at` blockers to nits so a draft can be gate-checked
+mid-authoring — the same draft tolerance `site validate --draft` exposes,
+defined once in the shared validator and reused by the CLI, the MCP tool, and
+the Obsidian plugin's publish-gate command.
+
+```bash
 severino-vault-mcp writeup-dashboard [--pretty]
 ```
 

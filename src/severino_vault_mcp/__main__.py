@@ -28,6 +28,20 @@ def _fingerprint() -> str:
     return digest.hexdigest()[:16]
 
 
+def _emit(result: dict, *, pretty: bool) -> None:
+    """Print a service result as JSON and exit with its ok-derived status.
+
+    The single emit path for every subcommand: one definition of the
+    compact-vs-`--pretty` contract and the ok→exit-code mapping, so handlers
+    don't each re-spell it (and can't drift on it).
+    """
+    if pretty:
+        print(json.dumps(result, indent=2))
+    else:
+        print(json.dumps(result, separators=(",", ":")))
+    raise SystemExit(0 if result.get("ok") else 1)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -49,31 +63,27 @@ def main() -> None:
             args.slug,
             include_tag_usage=args.include_tag_usage,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "validate-writeup":
+        from .writeup_service import WriteupRuntime, validate_writeup
+
+        result = validate_writeup(
+            WriteupRuntime.from_env(), args.slug, draft=args.draft
+        )
+        _emit(result, pretty=args.pretty)
 
     if args.command == "list-writeups":
         from .writeup_service import WriteupRuntime, list_writeups
 
         result = list_writeups(WriteupRuntime.from_env(), args.filter)
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "technology-catalog":
         from .writeup_service import WriteupRuntime, get_technology_catalog
 
         result = get_technology_catalog(WriteupRuntime.from_env())
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "validate-all-writeups":
         from .writeup_service import WriteupRuntime, validate_all_writeups
@@ -82,21 +92,13 @@ def main() -> None:
             WriteupRuntime.from_env(),
             only_published=not args.include_drafts,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "writeup-dashboard":
         from .writeup_service import WriteupRuntime, writeup_dashboard
 
         result = writeup_dashboard(WriteupRuntime.from_env())
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "apply-writeup-plan":
         from .writeup_service import WriteupRuntime, apply_writeup_plan
@@ -107,11 +109,7 @@ def main() -> None:
             result = {"ok": False, "error": f"invalid JSON plan: {exc}"}
         else:
             result = apply_writeup_plan(WriteupRuntime.from_env(), plan)
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "reorder-featured":
         from .writeup_service import WriteupRuntime, reorder_featured
@@ -121,11 +119,7 @@ def main() -> None:
             args.slug,
             args.position,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "update-writeup":
         from .writeup_service import (
@@ -145,11 +139,7 @@ def main() -> None:
             cover_image=args.cover_image,
             cover_alt=args.cover_alt,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "touch-reviewed":
         from .config import Config
@@ -157,11 +147,15 @@ def main() -> None:
         from .vault_write_service import touch_reviewed
 
         result = touch_reviewed(VaultLoader(Config.from_env()), args.relative_path)
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "backfill-aliases":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import backfill_aliases
+
+        result = backfill_aliases(VaultLoader(Config.from_env()))
+        _emit(result, pretty=args.pretty)
 
     if args.command == "backfill-aliases":
         from .config import Config
@@ -187,11 +181,7 @@ def main() -> None:
             sys.stdin.read(),
             touch_reviewed=args.touch_reviewed,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "find":
         from .config import Config
@@ -202,11 +192,7 @@ def main() -> None:
             "ok": True,
             **find_sections(VaultLoader(Config.from_env()), args.query, limit=args.limit),
         }
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "read":
         from .config import Config
@@ -216,22 +202,14 @@ def main() -> None:
         result = read_section(
             VaultLoader(Config.from_env()), args.doc_id, args.section
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "describe":
         from .cli_introspect import describe_parser
 
         # cordon's emitter returns the full {ok, schema_version, ...} document.
         result = describe_parser(parser)
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0)
+        _emit(result, pretty=args.pretty)
 
     if args.command == "schema":
         if args.check_doc:
@@ -293,11 +271,7 @@ def main() -> None:
             review_after_days=args.review_after,
             recent_limit=args.limit,
         )
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
+        _emit(result, pretty=args.pretty)
 
     from .server import run
 

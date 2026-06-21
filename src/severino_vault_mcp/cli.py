@@ -66,6 +66,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include per-technology usage stats in the response.",
     )
 
+    validate_one = subparsers.add_parser(
+        "validate-writeup",
+        help=(
+            "Run validate_writeup for a single slug and print JSON. Exits 0 if "
+            "ok, 1 if blockers / missing slugs / missing images / unresolved "
+            "refs. The CLI face of the validate_writeup MCP tool; wrapped by "
+            "`site validate`."
+        ),
+    )
+    validate_one.add_argument(
+        "slug",
+        help="Writeup slug, e.g. building-a-custom-mcp-layer.",
+    )
+    validate_one.add_argument(
+        "--draft",
+        action="store_true",
+        help=(
+            "Tolerate the published / published_at blockers so a draft can be "
+            "gate-checked mid-authoring (they become nits)."
+        ),
+    )
+    validate_one.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     list_writeups = subparsers.add_parser(
         "list-writeups",
         help=(
