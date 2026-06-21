@@ -86,6 +86,15 @@ or D1 work. All of them report failures with one envelope:
 `{"ok": false, "error": "<message>"}` — the shape the `site` CLI and
 `site manage` already parse.
 
+The CLI surface mirrors the tools one-for-one: each writeup tool has a console
+subcommand that calls the same service function. `validate-writeup <slug>
+[--draft]` is the CLI face of the `validate_writeup` tool — draft tolerance
+(demoting the `published` / `published_at` blockers to nits) is defined once in
+the shared validator, so the CLI, the tool, the Obsidian plugin's publish gate,
+and `site validate --draft` cannot disagree. Every subcommand renders its result
+through a single `_emit` helper: one definition of the compact-vs-`--pretty`
+contract and the `ok`→exit-code mapping, so handlers can't drift on it.
+
 ## Data Contract
 
 The reusable vault surface expects markdown files with YAML frontmatter under

@@ -963,7 +963,7 @@ def find_writeups_using_tag(slug: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def validate_writeup(slug: str) -> dict[str, Any]:
+def validate_writeup(slug: str, draft: bool = False) -> dict[str, Any]:
     """CALL THIS BEFORE every writeup commit. Publish-readiness report.
 
     Inspects:
@@ -980,8 +980,11 @@ def validate_writeup(slug: str) -> dict[str, Any]:
 
     Args:
         slug: Writeup slug, e.g. "building-a-custom-mcp-layer".
+        draft: When true, demote the published / published_at blockers to nits
+            so a draft can be gate-checked mid-authoring (matches
+            `site validate --draft`).
     """
-    return writeup_service.validate_writeup(_WRITEUP_RUNTIME, slug)
+    return writeup_service.validate_writeup(_WRITEUP_RUNTIME, slug, draft=draft)
 
 
 @mcp.tool()

@@ -291,6 +291,8 @@ def find_writeups_using_tag(
 def _validate_loaded_writeup(
     context: WriteupContext,
     writeup: Writeup,
+    *,
+    draft: bool = False,
 ) -> dict[str, Any]:
     blockers: list[str] = []
     nits: list[str] = []
@@ -302,10 +304,16 @@ def _validate_loaded_writeup(
         nits.append(
             f"description is {len(writeup.description)} chars (recommend <=300)"
         )
+    # Publish-state checks are hard blockers for shipping, but in draft mode
+    # (mid-authoring) they are demoted to nits so a well-formed draft can pass.
+    # This is the single definition of "draft tolerance"; the CLI subcommand and
+    # the MCP tool both route through here.
+    publish_state: list[str] = []
     if not writeup.published:
-        blockers.append("published is false — flip to true to ship")
+        publish_state.append("published is false — flip to true to ship")
     if not writeup.published_at:
-        blockers.append("published_at empty — set ISO date when ready")
+        publish_state.append("published_at empty — set ISO date when ready")
+    (nits if draft else blockers).extend(publish_state)
     if not writeup.cover_image:
         nits.append("cover_image missing")
     if writeup.cover_image and not writeup.cover_alt:
@@ -377,6 +385,7 @@ def validate_writeup(
     slug: str,
     *,
     context: WriteupContext | None = None,
+    draft: bool = False,
 ) -> dict[str, Any]:
     slug = (slug or "").strip()
     if not slug:
@@ -393,7 +402,7 @@ def validate_writeup(
             "ok": False,
             "error": f"writeup has no frontmatter or index.md: {slug}",
         }
-    return _validate_loaded_writeup(context, writeup)
+    return _validate_loaded_writeup(context, writeup, draft=draft)
 
 
 def validate_all_writeups(
