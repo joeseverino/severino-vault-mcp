@@ -1559,3 +1559,36 @@ def test_mcp_describe_commands_matches_cli(fake_vault: Path) -> None:
     assert result["ok"] is True
     assert {"find", "read", "describe"} <= {c["name"] for c in result["commands"]}
     assert result["commands"] == describe_parser(build_parser())["commands"]
+
+
+def test_backfill_aliases_sets_title_alias_idempotently(fake_vault: Path) -> None:
+    proj = fake_vault / "01 Projects" / "sitedrift"
+    proj.mkdir(parents=True)
+    (proj / "index.md").write_text(
+        "---\n"
+        "doc_id: project-sitedrift\n"
+        "title: 'sitedrift: DEV/LIVE compare & SEO'\n"
+        "doc_type: decision_record\n"
+        "system: tools\n"
+        "environment: local_mac\n"
+        "status: active\n"
+        "sensitivity: internal\n"
+        "---\n\nbody\n",
+        encoding="utf-8",
+    )
+    vws, loader = _mirror_runtime()
+    result = vws.backfill_aliases(loader)
+    assert result["ok"] is True
+    assert "01 Projects/sitedrift/index.md" in result["updated"]
+
+    # The special-char title is YAML-escaped on write, so it round-trips cleanly.
+    from severino_vault_mcp.frontmatter import read_frontmatter
+
+    fm = read_frontmatter(proj / "index.md")
+    assert fm is not None
+    assert fm["aliases"] == ["sitedrift: DEV/LIVE compare & SEO"]
+
+    # Derived from title -> re-running is a no-op (idempotent, drift-repairing).
+    vws2, loader2 = _mirror_runtime()
+    result2 = vws2.backfill_aliases(loader2)
+    assert "01 Projects/sitedrift/index.md" not in result2["updated"]

@@ -187,7 +187,9 @@ def serialize_frontmatter(data: dict[str, Any]) -> str:
                 lines.append(f"{key}: []")
             else:
                 lines.append(f"{key}:")
-                lines.extend(f"  - {item}" for item in value)
+                lines.extend(
+                    f"  - {yaml_escape(str(item))}" for item in value
+                )
         elif value is None:
             lines.append(f"{key}: null")
         elif isinstance(value, bool):

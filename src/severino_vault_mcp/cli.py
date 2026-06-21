@@ -246,6 +246,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    backfill_aliases = subparsers.add_parser(
+        "backfill-aliases",
+        help=(
+            "Set each folder-note's (`<folder>/index.md`) Obsidian `aliases` to "
+            "its `title`, so `[[Title]]` resolves and autocompletes for notes "
+            "whose filename is the non-unique `index`. Derived from `title`, so "
+            "idempotent — safe to re-run to repair drift. Writeups are left alone."
+        ),
+    )
+    backfill_aliases.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     find = subparsers.add_parser(
         "find",
         help=(
@@ -383,6 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
         "update-writeup": "vault_write",
         "touch-reviewed": "vault_write",
         "update-mirror-block": "vault_write",
+        "backfill-aliases": "vault_write",
     }
     for name, sub in subparsers.choices.items():
         set_effect(sub, _effects.get(name, "read"))

@@ -163,6 +163,18 @@ def main() -> None:
             print(json.dumps(result, separators=(",", ":")))
         raise SystemExit(0 if result.get("ok") else 1)
 
+    if args.command == "backfill-aliases":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import backfill_aliases
+
+        result = backfill_aliases(VaultLoader(Config.from_env()))
+        if args.pretty:
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, separators=(",", ":")))
+        raise SystemExit(0 if result.get("ok") else 1)
+
     if args.command == "update-mirror-block":
         from .config import Config
         from .vault import VaultLoader
