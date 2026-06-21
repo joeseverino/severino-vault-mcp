@@ -469,3 +469,60 @@ __all__ = [
     "update_frontmatter",
     "update_mirror_block",
 ]
+
+
+def backfill_aliases(loader: VaultLoader) -> dict[str, Any]:
+    """Give every folder-note (``<folder>/index.md``) an Obsidian ``aliases``
+    entry equal to its ``title``.
+
+    Notes stored as ``index.md`` (projects, infra, reports that own an asset
+    folder) can't be wikilinked or autocompleted by title in Obsidian, because
+    their filename is the non-unique ``index``. Setting ``aliases: [title]`` makes
+    ``[[Title]]`` resolve and autocomplete, with no path-qualified links to
+    maintain. The alias is *derived* from ``title`` (emit-once), so this is
+    idempotent and safe to re-run any time to repair drift; a new folder-note
+    picks up its alias on the next run. Only indexed docs (those with valid
+    frontmatter) are touched — writeups, which carry their own schema and are
+    addressed by slug, are left alone. CLI-only, like the other maintenance
+    fast paths.
+    """
+    idx = loader.index(force=True)
+    vault_root = loader.config.vault_path.resolve()
+    updated: list[str] = []
+    skipped = 0
+    for doc in idx.docs:
+        if not doc.relative_path.endswith("/index.md"):
+            continue
+        full_path = vault_root / doc.relative_path
+        frontmatter, body, _body_start = split_frontmatter(
+            full_path.read_text(encoding="utf-8")
+        )
+        title = (frontmatter or {}).get("title")
+        if not frontmatter or not title:
+            skipped += 1
+            continue
+        title = str(title)
+        existing = frontmatter.get("aliases") or []
+        if not isinstance(existing, list):
+            existing = [existing]
+        if title in existing:
+            skipped += 1
+            continue
+        # Title first, preserving any hand-added aliases after it.
+        frontmatter["aliases"] = [title, *(a for a in existing if a != title)]
+        try:
+            atomic_write_text(
+                full_path, serialize_frontmatter(frontmatter) + body
+            )
+        except OSError as exc:
+            return {
+                "ok": False,
+                "error": f"write failed for {doc.relative_path}: {exc}",
+            }
+        updated.append(doc.relative_path)
+    return {
+        "ok": True,
+        "updated": updated,
+        "updated_count": len(updated),
+        "skipped": skipped,
+    }
