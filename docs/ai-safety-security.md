@@ -185,12 +185,13 @@ Common constraints:
 - `apply_jseverino_d1_schema` is not an arbitrary SQL runner; it applies one
   known schema file to one configured database.
 
-Markdown body edits are not exposed as a broad MCP write tool. The one
-narrow body writer, `update_mirror_block` (the drift guards' fenced
-```json mirror replacement, scoped to a single heading's section), is
-deliberately a console-script subcommand only — an AI session has no tool
-that can place arbitrary JSON in a doc body — and it still flows through
-the shared path validation, JSON validation, and atomic replacement.
+Markdown body edits are not exposed as a broad MCP write tool. The two narrow
+body writers — `infra-write` (the drift guards' pull writer) and `topology-write`
+(the authored inventory's write) — each write a dataset's JSON cache and
+regenerate the doc's generated region + `last_reviewed`. Both are deliberately
+console-script subcommands only — an AI session has no tool that can place
+arbitrary JSON in a doc body — and both validate against the contract before
+they touch disk and replace atomically per file.
 
 ## Remaining Trust Assumptions
 

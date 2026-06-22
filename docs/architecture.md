@@ -66,10 +66,13 @@ are part of the generic vault index. There is no inbound network surface.
   It returns structured spans only — `search.py` scores them, `read_doc`
   serializes one for the MCP, and the CLI can render the same spans for a human.
 - `vault_write_service.py` owns generic frontmatter mutation
-  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping fast
-  paths used by the drift guards: `touch_reviewed` and `update_mirror_block`
-  (section-scoped ```json mirror replacement, CLI-only — never an MCP tool,
-  so AI sessions can't write arbitrary JSON into doc bodies).
+  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping
+  `touch_reviewed` fast path.
+- `infra_datasets.py` owns the infra-dataset registry: reading any dataset
+  from its owner (`get_infra_dataset`, cache or live `--refresh`) and the
+  drift guards' canonical write `infra-write` (JSON cache + generated doc table
+  + `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
+  arbitrary JSON into the vault).
 - `vault_query_service.py` owns the two shell-backed read tools
   (`recent_changes` over `git log`, `search_body` over ripgrep) and the
   shared `doc_to_hit` projection every search response uses.

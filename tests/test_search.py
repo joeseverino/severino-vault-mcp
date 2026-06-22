@@ -153,6 +153,15 @@ def _fresh_module(name: str):
     return importlib.import_module(name)
 
 
+def _vws_runtime():
+    """A freshly-imported vault_write_service plus a loader on the env vault."""
+    vws = _fresh_module("severino_vault_mcp.vault_write_service")
+    from severino_vault_mcp.config import Config
+    from severino_vault_mcp.vault import VaultLoader
+
+    return vws, VaultLoader(Config.from_env())
+
+
 def _encoded_unlock_hash(phrase: str, salt: bytes = b"test-salt") -> str:
     digest = hashlib.sha256(salt + phrase.encode("utf-8")).hexdigest()
     return f"sha256:{salt.hex()}:{digest}"
@@ -959,179 +968,6 @@ def test_sample_vault_is_reproducible(monkeypatch) -> None:
     assert any(match["doc_id"] == "infra-offline-ca" for match in system_result["matches"])
 
 
-# --- update_mirror_block (drift-guard pull writer) -------------------------
-
-
-def _mirror_doc(fake_vault: Path, body: str) -> Path:
-    path = fake_vault / "02 Infrastructure" / "Mirrors.md"
-    path.write_text(
-        """---
-doc_id: infra-mirrors
-title: Mirrors
-doc_type: architecture_note
-system: AdGuard
-environment: homelab
-status: active
-sensitivity: internal
-last_reviewed: 2025-01-01
-tags: []
----
-
-"""
-        + body,
-        encoding="utf-8",
-    )
-    return path
-
-
-def _mirror_runtime():
-    vws = _fresh_module("severino_vault_mcp.vault_write_service")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-
-    return vws, VaultLoader(Config.from_env())
-
-
-def test_update_mirror_block_replaces_only_its_section(
-    fake_vault: Path,
-) -> None:
-    path = _mirror_doc(
-        fake_vault,
-        "## DNS Rewrites\n\nnote line.\n\n```json\n"
-        '[{"id": "stale"}]\n```\n\n## Access Controls\n\n'
-        '```json\n{"acls": "keep me"}\n```\n',
-    )
-    vws, loader = _mirror_runtime()
-    result = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## DNS Rewrites",
-        '[{"id": "fresh"}]',
-        touch_reviewed=True,
-    )
-    assert result["ok"] is True, result
-    assert result["action"] == "replaced"
-    assert result["reviewed"] is True
-    text = path.read_text(encoding="utf-8")
-    assert '"fresh"' in text
-    assert "stale" not in text
-    assert "note line." in text
-    assert '"keep me"' in text  # the other section's mirror is untouched
-    assert "last_reviewed: 2025-01-01" not in text
-
-
-def test_update_mirror_block_does_not_bleed_into_next_section(
-    fake_vault: Path,
-) -> None:
-    # Regression: the heading exists but has no block yet, and a *later*
-    # section holds another mirror. The old awk guards replaced that one.
-    path = _mirror_doc(
-        fake_vault,
-        "## DNS Rewrites\n\nno block here yet.\n\n## Access Controls\n\n"
-        '```json\n{"acls": "keep me"}\n```\n',
-    )
-    vws, loader = _mirror_runtime()
-    result = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## DNS Rewrites",
-        '[{"id": "new"}]',
-    )
-    assert result["ok"] is True, result
-    assert result["action"] == "added_block"
-    text = path.read_text(encoding="utf-8")
-    assert '"keep me"' in text
-    assert text.index('"new"') < text.index("## Access Controls")
-    assert result["reviewed"] is False
-    assert "last_reviewed: 2025-01-01" in text
-
-
-def test_update_mirror_block_appends_section_then_replaces(
-    fake_vault: Path,
-) -> None:
-    path = _mirror_doc(fake_vault, "## Intro\n\nprose only.\n")
-    vws, loader = _mirror_runtime()
-    first = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## Mirror",
-        '[{"id": "a"}]',
-    )
-    assert first["ok"] is True, first
-    assert first["action"] == "added_section"
-    second = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## Mirror",
-        '[{"id": "b"}]',
-    )
-    assert second["ok"] is True, second
-    assert second["action"] == "replaced"
-    text = path.read_text(encoding="utf-8")
-    assert text.count("## Mirror") == 1
-    assert '"b"' in text
-    assert '"a"' not in text
-
-
-def test_update_mirror_block_rejects_invalid_json(fake_vault: Path) -> None:
-    path = _mirror_doc(
-        fake_vault, '## Mirror\n\n```json\n[{"id": "a"}]\n```\n'
-    )
-    original = path.read_text(encoding="utf-8")
-    vws, loader = _mirror_runtime()
-    result = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## Mirror",
-        "not json {",
-    )
-    assert result["ok"] is False
-    assert "not valid JSON" in result["error"]
-    assert path.read_text(encoding="utf-8") == original
-
-
-def test_update_mirror_block_rejects_unterminated_fence(
-    fake_vault: Path,
-) -> None:
-    path = _mirror_doc(fake_vault, '## Mirror\n\n```json\n[{"id": "a"}]\n')
-    original = path.read_text(encoding="utf-8")
-    vws, loader = _mirror_runtime()
-    result = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## Mirror",
-        "[]",
-    )
-    assert result["ok"] is False
-    assert "unterminated" in result["error"]
-    assert path.read_text(encoding="utf-8") == original
-
-
-def test_update_mirror_block_keeps_original_on_write_failure(
-    fake_vault: Path,
-    monkeypatch,
-) -> None:
-    path = _mirror_doc(
-        fake_vault, '## Mirror\n\n```json\n[{"id": "a"}]\n```\n'
-    )
-    original = path.read_text(encoding="utf-8")
-    vws, loader = _mirror_runtime()
-
-    def fail_write(_path, _text) -> None:
-        raise OSError("simulated replacement failure")
-
-    monkeypatch.setattr(vws, "atomic_write_text", fail_write)
-    result = vws.update_mirror_block(
-        loader,
-        "02 Infrastructure/Mirrors.md",
-        "## Mirror",
-        "[]",
-    )
-    assert result["ok"] is False
-    assert "simulated replacement failure" in result["error"]
-    assert path.read_text(encoding="utf-8") == original
-
-
 # ----- P1 section-scoped retrieval -------------------------------------------
 
 _MULTISECTION_BODY = """Overview line before any heading.
@@ -1474,7 +1310,7 @@ def test_describe_parser_emits_command_surface() -> None:
     # Per-command effect: the writers declare vault_write, readers stay read.
     by_name = {c["name"]: c for c in surface["commands"]}
     assert by_name["touch-reviewed"]["effect"] == "vault_write"
-    assert by_name["update-mirror-block"]["effect"] == "vault_write"
+    assert by_name["infra-write"]["effect"] == "vault_write"
     assert by_name["find"]["effect"] == "read"
     assert by_name["read"]["effect"] == "read"
 
@@ -1576,7 +1412,7 @@ def test_backfill_aliases_sets_title_alias_idempotently(fake_vault: Path) -> Non
         "---\n\nbody\n",
         encoding="utf-8",
     )
-    vws, loader = _mirror_runtime()
+    vws, loader = _vws_runtime()
     result = vws.backfill_aliases(loader)
     assert result["ok"] is True
     assert "01 Projects/sitedrift/index.md" in result["updated"]
@@ -1589,6 +1425,6 @@ def test_backfill_aliases_sets_title_alias_idempotently(fake_vault: Path) -> Non
     assert fm["aliases"] == ["sitedrift: DEV/LIVE compare & SEO"]
 
     # Derived from title -> re-running is a no-op (idempotent, drift-repairing).
-    vws2, loader2 = _mirror_runtime()
+    vws2, loader2 = _vws_runtime()
     result2 = vws2.backfill_aliases(loader2)
     assert "01 Projects/sitedrift/index.md" not in result2["updated"]

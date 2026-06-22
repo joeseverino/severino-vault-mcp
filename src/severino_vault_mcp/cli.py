@@ -238,41 +238,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
-    update_mirror = subparsers.add_parser(
-        "update-mirror-block",
-        help=(
-            "Replace the fenced ```json mirror block under a heading in a "
-            "vault doc with JSON read from stdin — section-scoped, one atomic "
-            "write, optionally stamping last_reviewed in the same write. "
-            "Wrapped by the drift guards' `pull` (cf-dns / adguard / ts-acl)."
-        ),
-    )
-    update_mirror.add_argument(
-        "relative_path",
-        help=(
-            "Vault-relative path, e.g. "
-            "'02 Infrastructure/AdGuard/DNS Rewrites — homelab.md'."
-        ),
-    )
-    update_mirror.add_argument(
-        "--heading",
-        required=True,
-        help=(
-            "Section heading whose ```json block is the mirror, "
-            "e.g. '## DNS Rewrites'."
-        ),
-    )
-    update_mirror.add_argument(
-        "--touch-reviewed",
-        action="store_true",
-        help="Also set last_reviewed to today in the same atomic write.",
-    )
-    update_mirror.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
     backfill_aliases = subparsers.add_parser(
         "backfill-aliases",
         help=(
@@ -399,6 +364,110 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    topology = subparsers.add_parser(
+        "topology",
+        help=(
+            "Derive views from the topology inventory "
+            "(02 Infrastructure/Topology/topology.json) — the SSOT for hosts, "
+            "containers, DNS rewrites, and access rules. The hosts/DNS/diagram "
+            "all derive from this one file; AI reads it via get_topology. "
+            "Write/regenerate with `topology-write`."
+        ),
+    )
+    topology.add_argument(
+        "--emit",
+        choices=["summary", "tables", "doc", "figure", "schema"],
+        default="summary",
+        help=(
+            "summary: AI-grounding JSON (default). tables: the markdown body. "
+            "doc: the full Topology.md build artifact. figure: a `brand figure` "
+            "topology spec. schema: the declared inventory contract (canonical "
+            "JSON HQ validates against)."
+        ),
+    )
+    topology.add_argument(
+        "--check-doc",
+        metavar="PATH",
+        help=(
+            "Verify the generated region of a rendered Topology.md matches the "
+            "inventory. Exit 1 and print mismatches on drift."
+        ),
+    )
+    topology.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output (summary / figure).",
+    )
+
+    topology_write = subparsers.add_parser(
+        "topology-write",
+        help=(
+            "The validated write path for the authored topology inventory: "
+            "validate topology.json and regenerate its derived artifacts "
+            "(Topology.md + topology.figure.json) and the last_reviewed stamp. "
+            "With --replace, first read a new inventory from stdin (validated) "
+            "and write topology.json. Use this instead of hand-regenerating."
+        ),
+    )
+    topology_write.add_argument(
+        "--replace",
+        action="store_true",
+        help="Read a new topology.json from stdin (validated) before regenerating.",
+    )
+    topology_write.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
+    infra = subparsers.add_parser(
+        "infra",
+        help=(
+            "Read structured infra datasets through the one registry "
+            "(02 Infrastructure/_infra-datasets.json). With no id, list the "
+            "catalog; with an id, read that dataset from its declared source "
+            "(a JSON cache file, or a doc reference). The CLI face of "
+            "list_infra_datasets / get_infra_dataset."
+        ),
+    )
+    infra.add_argument(
+        "dataset_id",
+        nargs="?",
+        default=None,
+        help="Dataset id (e.g. dns_rewrites, proxy_hosts, topology). Omit to list.",
+    )
+    infra.add_argument(
+        "--refresh",
+        action="store_true",
+        help=(
+            "Read live via the dataset's drift guard, falling back to the cache "
+            "(flagged stale) if the system is unreachable. Default: cache only."
+        ),
+    )
+    infra.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
+    infra_write = subparsers.add_parser(
+        "infra-write",
+        help=(
+            "Write a reflected dataset's live state (normalized JSON on stdin) "
+            "to its cache file, regenerate the doc's generated table region, and "
+            "stamp last_reviewed — one atomic-per-file write. The canonical write "
+            "behind a drift guard's `pull`."
+        ),
+    )
+    infra_write.add_argument(
+        "dataset_id", help="Dataset id, e.g. dns_rewrites, proxy_hosts."
+    )
+    infra_write.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     describe = subparsers.add_parser(
         "describe",
         help=(
@@ -424,8 +493,9 @@ def build_parser() -> argparse.ArgumentParser:
         "reorder-featured": "vault_write",
         "update-writeup": "vault_write",
         "touch-reviewed": "vault_write",
-        "update-mirror-block": "vault_write",
         "backfill-aliases": "vault_write",
+        "infra-write": "vault_write",
+        "topology-write": "vault_write",
     }
     for name, sub in subparsers.choices.items():
         set_effect(sub, _effects.get(name, "read"))
