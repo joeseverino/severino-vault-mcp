@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sys
 from pathlib import Path
 
+from . import jsonio
 from .cli import build_parser
 
 
@@ -31,14 +31,10 @@ def _fingerprint() -> str:
 def _emit(result: dict, *, pretty: bool) -> None:
     """Print a service result as JSON and exit with its ok-derived status.
 
-    The single emit path for every subcommand: one definition of the
-    compact-vs-`--pretty` contract and the ok→exit-code mapping, so handlers
-    don't each re-spell it (and can't drift on it).
+    The single emit path for every subcommand: the compact-vs-`--pretty`
+    serialization lives in :mod:`jsonio`; this adds the ok→exit-code mapping.
     """
-    if pretty:
-        print(json.dumps(result, indent=2))
-    else:
-        print(json.dumps(result, separators=(",", ":")))
+    print(jsonio.dumps(result, pretty=pretty))
     raise SystemExit(0 if result.get("ok") else 1)
 
 
@@ -104,9 +100,9 @@ def main() -> None:
         from .writeup_service import WriteupRuntime, apply_writeup_plan
 
         try:
-            plan = json.load(sys.stdin)
-        except json.JSONDecodeError as exc:
-            result = {"ok": False, "error": f"invalid JSON plan: {exc}"}
+            plan = jsonio.loads(sys.stdin.read(), source="writeup plan")
+        except jsonio.JsonError as exc:
+            result = {"ok": False, "error": str(exc)}
         else:
             result = apply_writeup_plan(WriteupRuntime.from_env(), plan)
         _emit(result, pretty=args.pretty)
@@ -157,32 +153,6 @@ def main() -> None:
         result = backfill_aliases(VaultLoader(Config.from_env()))
         _emit(result, pretty=args.pretty)
 
-    if args.command == "backfill-aliases":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_write_service import backfill_aliases
-
-        result = backfill_aliases(VaultLoader(Config.from_env()))
-        if args.pretty:
-            print(json.dumps(result, indent=2))
-        else:
-            print(json.dumps(result, separators=(",", ":")))
-        raise SystemExit(0 if result.get("ok") else 1)
-
-    if args.command == "update-mirror-block":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_write_service import update_mirror_block
-
-        result = update_mirror_block(
-            VaultLoader(Config.from_env()),
-            args.relative_path,
-            args.heading,
-            sys.stdin.read(),
-            touch_reviewed=args.touch_reviewed,
-        )
-        _emit(result, pretty=args.pretty)
-
     if args.command == "find":
         from .config import Config
         from .vault import VaultLoader
@@ -229,8 +199,8 @@ def main() -> None:
 
         from .schema import as_dict
 
-        # Sorted keys + indent so the committed HQ copy is a stable diff.
-        print(json.dumps(as_dict(), indent=2, sort_keys=True))
+        # canonical(): sorted + indented so the committed HQ copy is a stable diff.
+        print(jsonio.canonical(as_dict()))
         raise SystemExit(0)
 
     if args.command == "hq-manifest":
@@ -242,10 +212,10 @@ def main() -> None:
         )
         if args.report:
             # Full structured result for `hq doctor` — no entries dump.
-            print(json.dumps(result, indent=2))
+            print(jsonio.dumps(result, pretty=True))
             raise SystemExit(0 if result.get("ok") else 1)
         if not result.get("ok"):
-            print(json.dumps(result, indent=2), file=sys.stderr)
+            print(jsonio.dumps(result, pretty=True), file=sys.stderr)
             raise SystemExit(1)
         for subdir in result["missing_dirs"]:
             print(f"warn: {subdir} not under vault, skipping", file=sys.stderr)
@@ -256,7 +226,7 @@ def main() -> None:
                 "(skipped) — run `hq doctor` to list them",
                 file=sys.stderr,
             )
-        print(json.dumps(result["entries"], indent=2))
+        print(jsonio.dumps(result["entries"], pretty=True))
         print(f"ok: {result['count']} entries", file=sys.stderr)
         raise SystemExit(0)
 
@@ -271,6 +241,90 @@ def main() -> None:
             review_after_days=args.review_after,
             recent_limit=args.limit,
         )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "topology":
+        import datetime
+
+        from . import infra_datasets
+        from . import topology as topo_mod
+        from .config import Config
+
+        config = Config.from_env()
+        # Reflected pointer list comes from the one registry, not topology.json.
+        references = tuple(infra_datasets.reflected_references(config))
+
+        if args.check_doc:
+            try:
+                topo = topo_mod.load_topology(config.topology_path)
+            except topo_mod.TopologyError as exc:
+                print(f"topology: {exc}", file=sys.stderr)
+                raise SystemExit(1) from exc
+            text = Path(args.check_doc).expanduser().read_text(
+                encoding="utf-8", errors="replace"
+            )
+            mismatches = topo_mod.check_doc(topo, text, references)
+            if mismatches:
+                print(f"topology doc drift in {args.check_doc}:", file=sys.stderr)
+                for mismatch in mismatches:
+                    print(f"  - {mismatch}", file=sys.stderr)
+                raise SystemExit(1)
+            print(f"ok: {args.check_doc} matches the topology inventory")
+            raise SystemExit(0)
+
+        if args.emit == "schema":
+            # The declared inventory contract — static, no inventory load. The
+            # canonical form so HQ can commit and validate against it, exactly
+            # like `schema --json`.
+            print(jsonio.canonical(topo_mod.inventory_schema()))
+            raise SystemExit(0)
+
+        if args.emit == "summary":
+            _emit(topo_mod.get_topology(config), pretty=args.pretty)
+
+        # tables / doc / figure load the inventory directly.
+        try:
+            topo = topo_mod.load_topology(config.topology_path)
+        except topo_mod.TopologyError as exc:
+            _emit({"ok": False, "error": str(exc)}, pretty=args.pretty)
+
+        if args.emit == "tables":
+            print(topo_mod.render_tables(topo, references))
+        elif args.emit == "doc":
+            today = datetime.date.today().isoformat()
+            print(topo_mod.render_doc(topo, last_reviewed=today, references=references))
+        elif args.emit == "figure":
+            print(jsonio.dumps(topo_mod.render_figure(topo), pretty=args.pretty))
+        raise SystemExit(0)
+
+    if args.command == "infra":
+        from . import infra_datasets
+        from .config import Config
+
+        config = Config.from_env()
+        if args.dataset_id:
+            result = infra_datasets.read_dataset(
+                config, args.dataset_id, refresh=args.refresh
+            )
+        else:
+            result = infra_datasets.list_datasets(config)
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "infra-write":
+        from . import infra_datasets
+        from .config import Config
+
+        result = infra_datasets.write_dataset(
+            Config.from_env(), args.dataset_id, sys.stdin.read()
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "topology-write":
+        from . import topology as topo_mod
+        from .config import Config
+
+        payload = sys.stdin.read() if args.replace else None
+        result = topo_mod.write_topology(Config.from_env(), payload)
         _emit(result, pretty=args.pretty)
 
     from .server import run

@@ -8,7 +8,6 @@ through :func:`frontmatter.serialize_frontmatter`, and reports failures as
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from typing import Any
 
@@ -323,151 +322,10 @@ def touch_reviewed(loader: VaultLoader, relative_path: str) -> dict[str, Any]:
     }
 
 
-def _locate_mirror_block(
-    lines: list[str],
-    heading: str,
-) -> tuple[int | None, int | None, int | None, str | None]:
-    """Find ``heading`` and its section's ```json fence, skipping code fences.
-
-    Returns ``(heading_idx, open_idx, close_idx, error)``. The section ends at
-    the next heading outside a fence, so a mirror block under a *different*
-    heading can never be matched — the section-bleed the old awk guards had.
-    """
-    in_fence = False
-    heading_idx: int | None = None
-    for index, line in enumerate(lines):
-        if line.startswith("```"):
-            in_fence = not in_fence
-            continue
-        if not in_fence and line.rstrip() == heading:
-            heading_idx = index
-            break
-    if heading_idx is None:
-        return None, None, None, None
-
-    open_idx: int | None = None
-    in_fence = False
-    fence_is_json = False
-    for index in range(heading_idx + 1, len(lines)):
-        line = lines[index]
-        if in_fence:
-            if line.startswith("```"):
-                if fence_is_json:
-                    return heading_idx, open_idx, index, None
-                in_fence = False
-            continue
-        if line.startswith("```"):
-            in_fence = True
-            fence_is_json = line.startswith("```json")
-            if fence_is_json:
-                open_idx = index
-            continue
-        if line.startswith("#"):
-            # Next section starts: no json block under this heading.
-            return heading_idx, None, index, None
-    if open_idx is not None:
-        return (
-            heading_idx,
-            None,
-            None,
-            f"unterminated ```json fence under {heading!r}",
-        )
-    return heading_idx, None, len(lines), None
-
-
-def update_mirror_block(
-    loader: VaultLoader,
-    relative_path: str,
-    heading: str,
-    payload: str,
-    *,
-    touch_reviewed: bool = False,
-) -> dict[str, Any]:
-    """Replace the fenced ```json mirror block under ``heading`` atomically.
-
-    The canonical writer behind the drift guards' ``pull`` (cf-dns / adguard /
-    ts-acl): the new block and the optional ``last_reviewed`` stamp land in one
-    atomic replacement, and the search is scoped to the named section so a
-    second mirror in the same doc can never be clobbered. The payload is
-    stored verbatim — it is the guard's own ``normalize`` output, byte-compared
-    on the next ``diff`` — and only validated to parse as JSON. Skips the
-    reindex like :func:`touch_reviewed`; the guards only need the file on disk.
-    """
-    heading = heading.strip()
-    if not heading.startswith("#"):
-        return {
-            "ok": False,
-            "error": f"heading must be a markdown heading: {heading!r}",
-        }
-    try:
-        json.loads(payload)
-    except json.JSONDecodeError as exc:
-        return {"ok": False, "error": f"payload is not valid JSON: {exc}"}
-
-    full_path, path_error = validate_indexed_path(loader.config, relative_path)
-    if path_error:
-        return path_error
-    assert full_path is not None
-    vault_root = loader.config.vault_path.resolve()
-    frontmatter, body, _body_start = split_frontmatter(
-        full_path.read_text(encoding="utf-8")
-    )
-
-    lines = body.splitlines()
-    payload_lines = payload.strip("\n").splitlines()
-    block = ["```json", *payload_lines, "```"]
-    heading_idx, open_idx, end_idx, fence_error = _locate_mirror_block(
-        lines, heading
-    )
-    if fence_error:
-        return {"ok": False, "error": fence_error}
-    if heading_idx is None:
-        action = "added_section"
-        new_lines = [*lines, "", heading, "", *block]
-    elif open_idx is not None:
-        action = "replaced"
-        assert end_idx is not None
-        new_lines = [*lines[: open_idx + 1], *payload_lines, *lines[end_idx:]]
-    else:
-        action = "added_block"
-        assert end_idx is not None
-        head = lines[:end_idx]
-        tail = lines[end_idx:]
-        if head and head[-1].strip():
-            head = [*head, ""]
-        if tail and tail[0].strip():
-            tail = ["", *tail]
-        new_lines = [*head, *block, *tail]
-    new_body = "\n".join(new_lines) + "\n"
-
-    reviewed = False
-    if touch_reviewed and frontmatter is not None:
-        frontmatter["last_reviewed"] = date.today().isoformat()
-        reviewed = True
-    new_text = (
-        serialize_frontmatter(frontmatter) + new_body
-        if frontmatter is not None
-        else new_body
-    )
-    try:
-        atomic_write_text(full_path, new_text)
-    except OSError as exc:
-        return {"ok": False, "error": f"write failed: {exc}"}
-    return {
-        "ok": True,
-        "doc_id": frontmatter.get("doc_id") if frontmatter else None,
-        "relative_path": str(full_path.relative_to(vault_root)),
-        "heading": heading,
-        "action": action,
-        "reviewed": reviewed,
-    }
-
-
 __all__ = [
     "add_frontmatter",
     "touch_reviewed",
     "update_frontmatter",
-    "update_mirror_block",
 ]
 
 

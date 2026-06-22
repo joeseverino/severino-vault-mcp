@@ -40,11 +40,19 @@ the `site` CLI without importing FastMCP for short-lived shell calls:
   sub-split, doc-unique heading slugs), `resolve_section` (slug or heading-path),
   `section_summary`. FastMCP-free; `search.py` scores spans, `read_doc(section=)`
   returns one. Pure data — no presentation, so the CLI can render the same spans.
-- `vault_write_service.py` — generic frontmatter writes + the drift-guard
-  fast paths `touch_reviewed` and `update_mirror_block` (section-scoped
-  ```json mirror replacement; both skip the `index(force=True)` rebuild the
-  guards don't need). `update-mirror-block` is CLI-only by design — never an
-  MCP tool, so AI sessions can't write arbitrary JSON into doc bodies.
+- `vault_write_service.py` — generic frontmatter writes + the `touch_reviewed`
+  fast path (skips the `index(force=True)` rebuild the guards don't need).
+- `infra_datasets.py` — the infra-dataset registry (`_infra-datasets.json`):
+  the read model (`get_infra_dataset`, cache + `--refresh` read-through with
+  fallback, sensitivity-gated) and the canonical write `infra-write` (JSON cache
+  + generated doc table + `last_reviewed`, the drift guards' pull writer).
+  `infra-write` is CLI-only by design — never an MCP tool, so AI sessions can't
+  write arbitrary JSON into the vault. `topology.py` / `tabular.py` / `jsonio.py`
+  back it (authored topology, the generic table renderer, the JSON I/O home).
+- `topology.py` also owns the authored inventory's validated write —
+  `topology-write` (validate `topology.json`, regenerate `Topology.md` + the
+  figure, stamp `last_reviewed`; `--replace` takes a new inventory on stdin).
+  Like `infra-write`, CLI-only and `vault_write`.
 - `vault_query_service.py` — `recent_changes` (git log), `search_body`
   (ripgrep), shared `doc_to_hit` projection.
 - `vault_search_service.py` — the section-menu **single source** for emit-once,

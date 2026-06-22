@@ -64,8 +64,12 @@ vault.
 |---|---|
 | `src/severino_vault_mcp/__init__.py` | Package marker and exported version surface. |
 | `src/severino_vault_mcp/__main__.py` | Console-script entry point wrapper. |
-| `src/severino_vault_mcp/config.py` | TOML and environment-driven configuration: vault path, cache, optional integrations, unlock settings, and audit paths. |
+| `src/severino_vault_mcp/config.py` | TOML and environment-driven configuration: vault path, cache, optional integrations, unlock settings, and audit paths. Includes `topology_path` and `infra_datasets_path`. |
 | `src/severino_vault_mcp/doctor.py` | Frontmatter validator and proposal helper for onboarding messy vaults. |
+| `src/severino_vault_mcp/jsonio.py` | The package's single home for JSON serialization (`dumps` compact/pretty, `canonical` sorted-stable) and parsing (`loads`/`load_file` with one labelled error). |
+| `src/severino_vault_mcp/topology.py` | The authored topology inventory (`topology.json`): typed model, validation, and derivations — summary, the generated `Topology.md` tables, the `brand figure` device spec, the parity check, and the validated write (`topology-write`: validate + regenerate the doc + figure + stamp). |
+| `src/severino_vault_mcp/infra_datasets.py` | The infra-dataset registry (`_infra-datasets.json`): the one catalog of authored + reflected datasets, the read model (cache + `refresh` read-through with fallback, sensitivity-gated), and the canonical write (`infra-write`: JSON cache + generated doc table + last_reviewed stamp). |
+| `src/severino_vault_mcp/tabular.py` | Generic records → markdown-table renderer driven by per-dataset column specs in the registry; serves every tabular reflected dataset's doc view. |
 | `src/severino_vault_mcp/search.py` | Lightweight lexical ranking for `find_runbook`. |
 | `src/severino_vault_mcp/secret_unlock.py` | Local one-request unlock gate for `restricted` doc bodies. |
 | `src/severino_vault_mcp/sensitivity.py` | Sensitivity enum, body-release policy helper, and advisory text. |
@@ -81,6 +85,15 @@ vault.
 | `tests/__init__.py` | Test package marker. |
 | `tests/test_search.py` | End-to-end unit tests for vault indexing, search, resources, sensitivity, local unlock, write tools, and sample-vault reproducibility. |
 | `tests/test_writeups.py` | Tests for the writeup loader, technology catalog parser, and the four writeup-specific MCP tools. |
+| `tests/test_jsonio.py` | Serialization (compact/pretty/canonical) and labelled-error parsing. |
+| `tests/test_topology.py` | Topology load/validate/summary, the generated-doc parity check, and the figure derivation. |
+| `tests/test_infra_datasets.py` | Registry catalog, read model (cache/refresh/fallback), sensitivity gating, and the `infra-write` cache+doc write. |
+| `tests/test_tabular.py` | The generic table renderer (key/template columns, list join, bool, escaping). |
+
+> Note: this table currently lists the infra-data and core modules; several
+> service modules (`cli`, `frontmatter`, `atomic_write`, `paths`, `schema`,
+> `sections`, `vault_*_service`, `writeup_service`, …) and their tests predate a
+> full regeneration of this map. Treat the package source as authoritative.
 
 ## Runtime Shape
 
