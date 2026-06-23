@@ -313,6 +313,28 @@ def build_parser() -> argparse.ArgumentParser:
     task_list.add_argument("--stale-days", type=int, default=14, help="Stale window in days (default 14).")
     task_list.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
 
+    update_fm = subparsers.add_parser(
+        "update-frontmatter",
+        help=(
+            "Update fields in an existing vault doc's frontmatter (the one "
+            "writer — doc_id is immutable). Enum + relation fields are validated "
+            "against the schema. Used by the Obsidian relation editor so "
+            "author-time edits can't dangle."
+        ),
+    )
+    update_fm.add_argument("relative_path", help="Vault-relative path to the doc.")
+    update_fm.add_argument("--title", default=None)
+    update_fm.add_argument("--doc-type", dest="doc_type", default=None)
+    update_fm.add_argument("--system", default=None)
+    update_fm.add_argument("--environment", default=None)
+    update_fm.add_argument("--status", default=None)
+    update_fm.add_argument("--sensitivity", default=None)
+    update_fm.add_argument("--set-related-projects", dest="set_related_projects", nargs="*", default=None, help="Replace related_projects (empty clears).")
+    update_fm.add_argument("--set-related-assets", dest="set_related_assets", nargs="*", default=None, help="Replace related_assets (empty clears).")
+    update_fm.add_argument("--set-tags", dest="set_tags", nargs="*", default=None, help="Replace tags (empty clears).")
+    update_fm.add_argument("--touch-last-reviewed", dest="touch_last_reviewed", action="store_true", help="Set last_reviewed to today.")
+    update_fm.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     task_projects = subparsers.add_parser(
         "task-projects",
         help=(

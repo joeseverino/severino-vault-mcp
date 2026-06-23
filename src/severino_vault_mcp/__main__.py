@@ -189,6 +189,27 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "update-frontmatter":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import update_frontmatter
+
+        result = update_frontmatter(
+            VaultLoader(Config.from_env()),
+            args.relative_path,
+            touch_last_reviewed=args.touch_last_reviewed,
+            title=args.title,
+            doc_type=args.doc_type,
+            system=args.system,
+            environment=args.environment,
+            status=args.status,
+            sensitivity=args.sensitivity,
+            set_tags=args.set_tags,
+            set_related_projects=args.set_related_projects,
+            set_related_assets=args.set_related_assets,
+        )
+        _emit(result, pretty=args.pretty)
+
     if args.command == "task-projects":
         from .config import Config
         from .task_service import list_projects
