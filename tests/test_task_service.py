@@ -109,6 +109,16 @@ def test_list_default_hides_parked_and_done(task_vault: Path) -> None:
     assert {t["slug"] for t in everything["tasks"]} == {"live-one", "shelved"}
 
 
+def test_shipped_lists_recently_done_kept_in_place(task_vault: Path) -> None:
+    add_task(_loader(), title="Shipped it", project="cordon")
+    set_task_status(_loader(), "shipped-it", "done")  # stamps closed: today
+    board = list_tasks(_loader())
+    # Kept in place (not archived), hidden from the open board, surfaced as shipped.
+    assert (task_vault / "01 Projects/cordon/tasks/task-shipped-it.md").exists()
+    assert all(t["slug"] != "shipped-it" for t in board["tasks"])
+    assert [t["slug"] for t in board["shipped"]] == ["shipped-it"]
+
+
 def test_move_to_done_stamps_closed_then_reopen_clears(task_vault: Path) -> None:
     add_task(_loader(), title="Ship it", project="cordon")
     done = set_task_status(_loader(), "ship-it", "done")  # bare slug resolves

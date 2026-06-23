@@ -100,6 +100,7 @@ def list_tasks(
     stale_only: bool = False,
     include_all: bool = False,
     stale_days: int = 14,
+    shipped_days: int = 7,
 ) -> dict[str, Any]:
     """The board: every task, derived from the index, filtered + ranked.
 
@@ -107,6 +108,8 @@ def list_tasks(
     stale), while ``tasks`` honors the filters. Default visibility is live work
     only (open + active); ``include_all`` reveals parked/done/wontfix, an explicit
     ``status`` overrides, and ``stale_only`` narrows to the review nudge.
+    ``shipped`` is the activity feed: tasks marked done within ``shipped_days``
+    (kept in place — "what shipped" is a query, not an archive), newest first.
     """
     index = loader.index()
     all_tasks = [
@@ -136,13 +139,30 @@ def list_tasks(
         return True
 
     tasks = sorted((t for t in all_tasks if visible(t)), key=_sort_key)
+
+    # The activity feed: done within the window, kept in place, newest first.
+    today = date.today()
+    shipped: list[dict[str, Any]] = []
+    for task in all_tasks:
+        if task["status"] != "done" or not task["closed"]:
+            continue
+        try:
+            closed = date.fromisoformat(str(task["closed"])[:10])
+        except ValueError:
+            continue
+        if 0 <= (today - closed).days <= shipped_days:
+            shipped.append(task)
+    shipped.sort(key=lambda t: t["closed"], reverse=True)
+
     return {
         "ok": True,
         "stale_days": stale_days,
+        "shipped_days": shipped_days,
         "count": len(tasks),
         "total": len(all_tasks),
         "counts": counts,
         "tasks": tasks,
+        "shipped": shipped,
     }
 
 
