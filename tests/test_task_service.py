@@ -14,6 +14,7 @@ from severino_vault_mcp.task_service import (
     delete_task,
     list_projects,
     list_tasks,
+    promote_note,
     set_task_status,
 )
 from severino_vault_mcp.vault import VaultLoader
@@ -152,6 +153,21 @@ def test_delete_removes_a_task_and_refuses_non_tasks(task_vault: Path) -> None:
     assert all(t["slug"] != "junk" for t in list_tasks(_loader())["tasks"])
     assert delete_task(_loader(), "project-cordon")["ok"] is False
     assert delete_task(_loader(), "ghost")["ok"] is False
+
+
+def test_promote_note_creates_a_task_preserving_body_and_removes_source(task_vault: Path) -> None:
+    inbox = task_vault / "00 Inbox"
+    inbox.mkdir()
+    note = inbox / "2026-06-23 idea.md"
+    note.write_text("---\ndoc_id: inbox-x\ncreated: 2026-06-23\n---\n\nWire the retry backoff.\n", encoding="utf-8")
+    result = promote_note(_loader(), "00 Inbox/2026-06-23 idea.md", title="Wire the retry backoff", project="cordon")
+    assert result["ok"] is True
+    assert result["relative_path"] == "01 Projects/cordon/tasks/task-wire-the-retry-backoff.md"
+    assert result["promoted_from"] == "00 Inbox/2026-06-23 idea.md"
+    body = (task_vault / result["relative_path"]).read_text()
+    assert "doc_type: task" in body
+    assert "Wire the retry backoff" in body  # the captured body survived
+    assert not note.exists()  # source removed
 
 
 def test_move_refuses_non_task_docs(task_vault: Path) -> None:

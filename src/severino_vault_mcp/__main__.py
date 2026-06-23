@@ -189,6 +189,21 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "promote-note":
+        from .config import Config
+        from .task_service import promote_note
+        from .vault import VaultLoader
+
+        result = promote_note(
+            VaultLoader(Config.from_env()),
+            args.source,
+            title=args.title,
+            project=args.project,
+            effort=args.effort,
+            priority=args.priority,
+        )
+        _emit(result, pretty=args.pretty)
+
     if args.command == "update-frontmatter":
         from .config import Config
         from .vault import VaultLoader

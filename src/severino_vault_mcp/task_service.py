@@ -183,22 +183,27 @@ def _slugify(title: str) -> str:
     return slug.strip("-")[:60].strip("-")
 
 
-def add_task(
+_TASK_TEMPLATE_BODY = (
+    "**Problem.** \n\n"
+    "**Fix.** \n\n"
+    "**Principle.** \n\n"
+    "**Source.** \n"
+)
+
+
+def _create_task(
     loader: VaultLoader,
     *,
     title: str,
-    project: str | None = None,
-    related_projects: list[str] | None = None,
-    effort: str = "S",
-    priority: str = "med",
-    tags: list[str] | None = None,
+    project: str | None,
+    related_projects: list[str] | None,
+    effort: str,
+    priority: str,
+    tags: list[str] | None,
+    body: str,
 ) -> dict[str, Any]:
-    """Author a new task file — in its project's tasks/ folder, or the bucket.
-
-    A ``project`` colocates the task at ``01 Projects/<project>/tasks/`` and
-    becomes its sole ``related_projects`` link; omitting it files a cross-cutting
-    task in ``07 Backlog/`` (pass ``related_projects`` to record what it touches).
-    """
+    """Resolve the target, validate, and write one task file. The shared core of
+    `add_task` (template body) and `promote_note` (a captured note's body)."""
     title = title.strip()
     if not title:
         return {"ok": False, "error": "title is required"}
@@ -250,16 +255,9 @@ def add_task(
         "created": date.today().isoformat(),
         "tags": tags or ["backlog"],
     }
-    body = (
-        f"# {title}\n\n"
-        "**Problem.** \n\n"
-        "**Fix.** \n\n"
-        "**Principle.** \n\n"
-        "**Source.** \n"
-    )
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(file_path, serialize_frontmatter(frontmatter) + body)
+        atomic_write_text(file_path, serialize_frontmatter(frontmatter) + f"# {title}\n\n" + body)
     except OSError as exc:
         return {"ok": False, "error": f"write failed: {exc}"}
     loader.index(force=True)
@@ -270,6 +268,75 @@ def add_task(
         "project": project or CROSS,
         "status": "open",
     }
+
+
+def add_task(
+    loader: VaultLoader,
+    *,
+    title: str,
+    project: str | None = None,
+    related_projects: list[str] | None = None,
+    effort: str = "S",
+    priority: str = "med",
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Author a new task file — in its project's tasks/ folder, or the bucket.
+
+    A ``project`` colocates the task at ``01 Projects/<project>/tasks/`` and
+    becomes its sole ``related_projects`` link; omitting it files a cross-cutting
+    task in ``07 Backlog/`` (pass ``related_projects`` to record what it touches).
+    """
+    return _create_task(
+        loader,
+        title=title,
+        project=project,
+        related_projects=related_projects,
+        effort=effort,
+        priority=priority,
+        tags=tags,
+        body=_TASK_TEMPLATE_BODY,
+    )
+
+
+def promote_note(
+    loader: VaultLoader,
+    source: str,
+    *,
+    title: str,
+    project: str | None = None,
+    effort: str = "S",
+    priority: str = "med",
+) -> dict[str, Any]:
+    """Promote a captured note (e.g. an inbox note) into a task, preserving its
+    body, then delete the source. The capture → task half of the inbox loop."""
+    vault = loader.config.vault_path
+    src = vault / source
+    if not src.is_file():
+        return {"ok": False, "error": f"no such note: {source}"}
+    try:
+        _, body, _ = split_frontmatter(src.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {"ok": False, "error": f"read failed: {exc}"}
+
+    result = _create_task(
+        loader,
+        title=title,
+        project=project,
+        related_projects=None,
+        effort=effort,
+        priority=priority,
+        tags=None,
+        body=body.strip() + "\n" if body.strip() else _TASK_TEMPLATE_BODY,
+    )
+    if not result.get("ok"):
+        return result
+    try:
+        src.unlink()
+    except OSError as exc:
+        return {"ok": False, "error": f"task created but source delete failed: {exc}"}
+    loader.index(force=True)
+    result["promoted_from"] = source
+    return result
 
 
 def _resolve_task(loader: VaultLoader, doc_id: str):

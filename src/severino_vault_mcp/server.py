@@ -1441,6 +1441,31 @@ def add_task(
 
 
 @mcp.tool()
+def promote_note(
+    source: str,
+    title: str,
+    project: str | None = None,
+    effort: str = "S",
+    priority: str = "med",
+) -> dict[str, Any]:
+    """Promote a captured note (an inbox capture) into a task, preserving its body.
+
+    Reads the note's body, creates a task (colocated in `project` or the bucket),
+    and deletes the source — the capture → task half of the inbox loop.
+
+    Args:
+        source: Vault-relative path to the note.
+        title: Task title.
+        project: Owning project (an `01 Projects/<project>/` folder).
+        effort: S | M | L.
+        priority: high | med | low.
+    """
+    return task_service.promote_note(
+        _LOADER, source, title=title, project=project, effort=effort, priority=priority
+    )
+
+
+@mcp.tool()
 def set_task_status(doc_id: str, status: str) -> dict[str, Any]:
     """Move a task to a new status; stamp `closed:` on done, clear it on reopen.
 

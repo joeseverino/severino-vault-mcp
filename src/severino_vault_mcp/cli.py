@@ -313,6 +313,21 @@ def build_parser() -> argparse.ArgumentParser:
     task_list.add_argument("--stale-days", type=int, default=14, help="Stale window in days (default 14).")
     task_list.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
 
+    promote = subparsers.add_parser(
+        "promote-note",
+        help=(
+            "Promote a captured note (e.g. an 00 Inbox/ capture) into a task, "
+            "preserving its body and deleting the source. The capture → task "
+            "half of the inbox loop; used by the Obsidian promote command."
+        ),
+    )
+    promote.add_argument("source", help="Vault-relative path to the note.")
+    promote.add_argument("--title", required=True, help="Task title.")
+    promote.add_argument("--project", default=None, help="Owning project (colocates the task).")
+    promote.add_argument("--effort", default="S")
+    promote.add_argument("--priority", default="med")
+    promote.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     update_fm = subparsers.add_parser(
         "update-frontmatter",
         help=(
