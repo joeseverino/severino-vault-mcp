@@ -38,6 +38,15 @@ _PRIORITIES = {"high", "med", "low"}
 _STATUS_ORDER = {"active": 0, "open": 1, "parked": 2, "done": 3, "wontfix": 4}
 _PRIORITY_ORDER = {"high": 0, "med": 1, "low": 2, "": 3}
 _LIVE = {"open", "active"}
+_CLOSED = {"done", "wontfix"}
+
+
+def _filed_dir(current_dir: Path, status: str) -> Path:
+    """The folder a task belongs in for its status. Closed tasks live in a
+    ``done/`` subfolder beside the live ones, so the working folder stays clean
+    while history is kept in place (and still indexed). Idempotent."""
+    base = current_dir.parent if current_dir.name == "done" else current_dir
+    return base / "done" if status in _CLOSED else base
 
 
 def _project_of(relative_path: str) -> str:
@@ -400,18 +409,48 @@ def set_task_status(
     else:
         frontmatter.pop("closed", None)
 
+    # Auto-file: a closed task moves into done/, a reopened one moves back.
+    target_dir = _filed_dir(doc.path.parent, status)
+    final_path = target_dir / doc.path.name
     try:
-        atomic_write_text(doc.path, serialize_frontmatter(frontmatter) + body)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(final_path, serialize_frontmatter(frontmatter) + body)
+        if final_path != doc.path:
+            doc.path.unlink()
     except OSError as exc:
         return {"ok": False, "error": f"write failed: {exc}"}
     loader.index(force=True)
     return {
         "ok": True,
         "doc_id": doc.doc_id,
-        "relative_path": doc.relative_path,
+        "relative_path": str(final_path.relative_to(loader.config.vault_path)),
         "status": status,
         "previous": previous,
     }
+
+
+def reconcile_tasks(loader: VaultLoader) -> dict[str, Any]:
+    """Re-home every task into the folder its status implies (closed → done/,
+    live → the working folder). Idempotent — it's the catch-up for statuses
+    edited by hand (a Base/Properties edit) that didn't move through
+    ``set_task_status``. Returns how many were re-filed."""
+    index = loader.index()
+    moved = 0
+    for doc in list(index.by_doc_id.values()):
+        if doc.doc_type != "task":
+            continue
+        target_dir = _filed_dir(doc.path.parent, doc.status or "open")
+        if doc.path.parent == target_dir:
+            continue
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            doc.path.rename(target_dir / doc.path.name)
+            moved += 1
+        except OSError:
+            continue
+    if moved:
+        loader.index(force=True)
+    return {"ok": True, "moved": moved}
 
 
 def delete_task(loader: VaultLoader, doc_id: str) -> dict[str, Any]:

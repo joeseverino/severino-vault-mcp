@@ -15,6 +15,7 @@ from severino_vault_mcp.task_service import (
     list_projects,
     list_tasks,
     promote_note,
+    reconcile_tasks,
     set_task_status,
 )
 from severino_vault_mcp.vault import VaultLoader
@@ -109,12 +110,35 @@ def test_list_default_hides_parked_and_done(task_vault: Path) -> None:
     assert {t["slug"] for t in everything["tasks"]} == {"live-one", "shelved"}
 
 
+def test_closing_files_into_done_subfolder_and_reopen_moves_back(task_vault: Path) -> None:
+    add_task(_loader(), title="Filing", project="cordon")
+    done = set_task_status(_loader(), "filing", "done")
+    assert done["relative_path"] == "01 Projects/cordon/tasks/done/task-filing.md"
+    assert (task_vault / done["relative_path"]).exists()
+    assert not (task_vault / "01 Projects/cordon/tasks/task-filing.md").exists()
+    reopened = set_task_status(_loader(), "filing", "open")
+    assert reopened["relative_path"] == "01 Projects/cordon/tasks/task-filing.md"
+    assert not (task_vault / "01 Projects/cordon/tasks/done/task-filing.md").exists()
+
+
+def test_reconcile_rehomes_hand_edited_statuses(task_vault: Path) -> None:
+    add_task(_loader(), title="Hand done", project="cordon")
+    p = task_vault / "01 Projects/cordon/tasks/task-hand-done.md"
+    p.write_text(p.read_text().replace("status: open", "status: done"))  # hand edit, no move
+    res = reconcile_tasks(_loader())
+    assert res["moved"] == 1
+    assert (task_vault / "01 Projects/cordon/tasks/done/task-hand-done.md").exists()
+    # idempotent
+    assert reconcile_tasks(_loader())["moved"] == 0
+
+
 def test_shipped_lists_recently_done_kept_in_place(task_vault: Path) -> None:
     add_task(_loader(), title="Shipped it", project="cordon")
     set_task_status(_loader(), "shipped-it", "done")  # stamps closed: today
     board = list_tasks(_loader())
-    # Kept in place (not archived), hidden from the open board, surfaced as shipped.
-    assert (task_vault / "01 Projects/cordon/tasks/task-shipped-it.md").exists()
+    # Kept in place (filed under done/, not archived away), hidden from the open
+    # board, surfaced as shipped.
+    assert (task_vault / "01 Projects/cordon/tasks/done/task-shipped-it.md").exists()
     assert all(t["slug"] != "shipped-it" for t in board["tasks"])
     assert [t["slug"] for t in board["shipped"]] == ["shipped-it"]
 
@@ -126,8 +150,8 @@ def test_move_to_done_stamps_closed_then_reopen_clears(task_vault: Path) -> None
     fm = (task_vault / done["relative_path"]).read_text()
     assert "status: done" in fm
     assert "closed: " in fm
-    set_task_status(_loader(), "task-ship-it", "open")  # full id resolves
-    fm = (task_vault / done["relative_path"]).read_text()
+    reopened = set_task_status(_loader(), "task-ship-it", "open")  # full id resolves
+    fm = (task_vault / reopened["relative_path"]).read_text()
     assert "status: open" in fm
     assert "closed:" not in fm  # cleared on reopen
 

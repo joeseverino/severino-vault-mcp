@@ -350,6 +350,16 @@ def build_parser() -> argparse.ArgumentParser:
     update_fm.add_argument("--touch-last-reviewed", dest="touch_last_reviewed", action="store_true", help="Set last_reviewed to today.")
     update_fm.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
 
+    task_reconcile = subparsers.add_parser(
+        "task-reconcile",
+        help=(
+            "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their "
+            "status — the idempotent tidy sweep for statuses edited by hand "
+            "(a Base/Properties edit) that didn't move through task-move."
+        ),
+    )
+    task_reconcile.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     task_projects = subparsers.add_parser(
         "task-projects",
         help=(

@@ -1407,6 +1407,16 @@ def task_projects() -> dict[str, Any]:
 
 
 @mcp.tool()
+def reconcile_tasks() -> dict[str, Any]:
+    """Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status.
+
+    Idempotent tidy: catches statuses edited by hand (a Base/Properties edit) that
+    didn't move through set_task_status. Returns how many were re-filed.
+    """
+    return task_service.reconcile_tasks(_LOADER)
+
+
+@mcp.tool()
 def add_task(
     title: str,
     project: str | None = None,

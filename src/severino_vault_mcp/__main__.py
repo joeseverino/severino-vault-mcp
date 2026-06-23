@@ -225,6 +225,14 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "task-reconcile":
+        from .config import Config
+        from .task_service import reconcile_tasks
+        from .vault import VaultLoader
+
+        result = reconcile_tasks(VaultLoader(Config.from_env()))
+        _emit(result, pretty=args.pretty)
+
     if args.command == "task-projects":
         from .config import Config
         from .task_service import list_projects
