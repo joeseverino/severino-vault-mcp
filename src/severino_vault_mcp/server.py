@@ -1454,6 +1454,20 @@ def set_task_status(doc_id: str, status: str) -> dict[str, Any]:
     return task_service.set_task_status(_LOADER, doc_id, status)
 
 
+@mcp.tool()
+def delete_task(doc_id: str) -> dict[str, Any]:
+    """Permanently delete a task file — for mistakes and junk only.
+
+    Finished or abandoned *real* work should be `set_task_status` to
+    `done`/`wontfix` instead (kept and queryable). This removes the file; it is
+    git-recoverable only if it was committed. Resolves a bare slug or the full id.
+
+    Args:
+        doc_id: Task id or slug.
+    """
+    return task_service.delete_task(_LOADER, doc_id)
+
+
 # ----- entry point ------------------------------------------------------------
 
 def run() -> None:

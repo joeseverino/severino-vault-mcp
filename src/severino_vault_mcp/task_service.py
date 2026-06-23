@@ -272,6 +272,18 @@ def add_task(
     }
 
 
+def _resolve_task(loader: VaultLoader, doc_id: str):
+    """Find a task doc by full id or bare slug. Returns (doc, None) or
+    (None, error_dict) — the one resolver every task write shares."""
+    index = loader.index()
+    doc = index.by_doc_id.get(doc_id) or index.by_doc_id.get(f"task-{doc_id}")
+    if doc is None:
+        return None, {"ok": False, "error": f"no task matches: {doc_id!r}"}
+    if doc.doc_type != "task":
+        return None, {"ok": False, "error": f"{doc.doc_id!r} is not a task (doc_type {doc.doc_type})"}
+    return doc, None
+
+
 def set_task_status(
     loader: VaultLoader, doc_id: str, status: str
 ) -> dict[str, Any]:
@@ -285,12 +297,9 @@ def set_task_status(
             "ok": False,
             "error": f"status {status!r} not in {sorted(schema.TASK_STATUSES)}",
         }
-    index = loader.index()
-    doc = index.by_doc_id.get(doc_id) or index.by_doc_id.get(f"task-{doc_id}")
-    if doc is None:
-        return {"ok": False, "error": f"no task matches: {doc_id!r}"}
-    if doc.doc_type != "task":
-        return {"ok": False, "error": f"{doc.doc_id!r} is not a task (doc_type {doc.doc_type})"}
+    doc, err = _resolve_task(loader, doc_id)
+    if err:
+        return err
 
     text = doc.path.read_text(encoding="utf-8")
     frontmatter, body, _ = split_frontmatter(text)
@@ -316,3 +325,23 @@ def set_task_status(
         "status": status,
         "previous": previous,
     }
+
+
+def delete_task(loader: VaultLoader, doc_id: str) -> dict[str, Any]:
+    """Permanently delete a task file. This is for **mistakes and junk** — real
+    work that's finished or abandoned should be ``set_task_status`` to
+    ``done``/``wontfix`` (kept, queryable). Resolves a bare slug or the full id;
+    refuses any non-task doc. The file is git-tracked, so a committed delete is
+    still recoverable from history.
+    """
+    doc, err = _resolve_task(loader, doc_id)
+    if err:
+        return err
+    rel = doc.relative_path
+    resolved_id = doc.doc_id
+    try:
+        doc.path.unlink()
+    except OSError as exc:
+        return {"ok": False, "error": f"delete failed: {exc}"}
+    loader.index(force=True)
+    return {"ok": True, "doc_id": resolved_id, "relative_path": rel, "deleted": True}

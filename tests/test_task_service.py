@@ -11,6 +11,7 @@ from severino_vault_mcp import schema
 from severino_vault_mcp.config import Config
 from severino_vault_mcp.task_service import (
     add_task,
+    delete_task,
     list_projects,
     list_tasks,
     set_task_status,
@@ -138,6 +139,19 @@ def test_list_projects_is_the_colocation_universe_with_open_counts(task_vault: P
     assert set(by_slug) == {"cordon", "tools"}
     assert by_slug["cordon"] == 2
     assert by_slug["tools"] == 0
+
+
+def test_delete_removes_a_task_and_refuses_non_tasks(task_vault: Path) -> None:
+    add_task(_loader(), title="Junk", project="cordon")
+    rel = "01 Projects/cordon/tasks/task-junk.md"
+    assert (task_vault / rel).exists()
+    result = delete_task(_loader(), "junk")  # bare slug resolves
+    assert result["ok"] is True and result["deleted"] is True
+    assert not (task_vault / rel).exists()
+    # gone from the board, and a non-task is refused
+    assert all(t["slug"] != "junk" for t in list_tasks(_loader())["tasks"])
+    assert delete_task(_loader(), "project-cordon")["ok"] is False
+    assert delete_task(_loader(), "ghost")["ok"] is False
 
 
 def test_move_refuses_non_task_docs(task_vault: Path) -> None:

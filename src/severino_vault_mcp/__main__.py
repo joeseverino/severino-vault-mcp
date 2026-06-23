@@ -223,6 +223,14 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "task-delete":
+        from .config import Config
+        from .task_service import delete_task
+        from .vault import VaultLoader
+
+        result = delete_task(VaultLoader(Config.from_env()), args.doc_id)
+        _emit(result, pretty=args.pretty)
+
     if args.command == "describe":
         from .cli_introspect import describe_parser
 

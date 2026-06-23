@@ -341,6 +341,17 @@ def build_parser() -> argparse.ArgumentParser:
     task_add.add_argument("--tags", nargs="*", default=None, help="Tags (default: backlog).")
     task_add.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
 
+    task_delete = subparsers.add_parser(
+        "task-delete",
+        help=(
+            "Permanently delete a task file (for mistakes / junk only — finished "
+            "or abandoned work should be task-move'd to done/wontfix, which keeps "
+            "it queryable). Resolves a bare slug or the full id; refuses non-tasks."
+        ),
+    )
+    task_delete.add_argument("doc_id", help="Task id or slug (task-foo or foo).")
+    task_delete.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     task_move = subparsers.add_parser(
         "task-move",
         help=(
