@@ -134,6 +134,9 @@ def list_tasks(
         if task["stale"]:
             counts["stale"] += 1
 
+    def in_project(task: dict[str, Any]) -> bool:
+        return project is None or task["project"] == project or project in task["related_projects"]
+
     def visible(task: dict[str, Any]) -> bool:
         if status is not None:
             if task["status"] != status:
@@ -142,18 +145,16 @@ def list_tasks(
             return False
         if stale_only and not task["stale"]:
             return False
-        if project is not None and task["project"] != project \
-                and project not in task["related_projects"]:
-            return False
-        return True
+        return in_project(task)
 
     tasks = sorted((t for t in all_tasks if visible(t)), key=_sort_key)
 
     # The activity feed: done within the window, kept in place, newest first.
+    # Honors the project filter so a project view shows its own shipped.
     today = date.today()
     shipped: list[dict[str, Any]] = []
     for task in all_tasks:
-        if task["status"] != "done" or not task["closed"]:
+        if task["status"] != "done" or not task["closed"] or not in_project(task):
             continue
         try:
             closed = date.fromisoformat(str(task["closed"])[:10])
