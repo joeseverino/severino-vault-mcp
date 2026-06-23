@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -44,7 +43,7 @@ def _loader() -> VaultLoader:
 def test_schema_models_the_task_profile() -> None:
     assert "task" in schema.DOC_TYPES
     assert "task-" in schema.DOC_ID_PREFIXES
-    assert schema.TASK_STATUSES == {"open", "active", "parked", "done", "wontfix"}
+    assert {"open", "active", "parked", "done", "wontfix"} == schema.TASK_STATUSES
     # The profiles stay distinct where it matters: a runbook can never be
     # "parked"/"open"/"done" (only "active" is shared between the lifecycles).
     assert {"open", "parked", "done", "wontfix"}.isdisjoint(schema.STATUSES)
