@@ -174,6 +174,107 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "task-list":
+        from .config import Config
+        from .task_service import list_tasks
+        from .vault import VaultLoader
+
+        result = list_tasks(
+            VaultLoader(Config.from_env()),
+            status=args.status,
+            project=args.project,
+            stale_only=args.stale_only,
+            include_all=args.include_all,
+            stale_days=args.stale_days,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "promote-note":
+        from .config import Config
+        from .task_service import promote_note
+        from .vault import VaultLoader
+
+        result = promote_note(
+            VaultLoader(Config.from_env()),
+            args.source,
+            title=args.title,
+            project=args.project,
+            effort=args.effort,
+            priority=args.priority,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "update-frontmatter":
+        from .config import Config
+        from .vault import VaultLoader
+        from .vault_write_service import update_frontmatter
+
+        result = update_frontmatter(
+            VaultLoader(Config.from_env()),
+            args.relative_path,
+            touch_last_reviewed=args.touch_last_reviewed,
+            title=args.title,
+            doc_type=args.doc_type,
+            system=args.system,
+            environment=args.environment,
+            status=args.status,
+            sensitivity=args.sensitivity,
+            set_tags=args.set_tags,
+            set_related_projects=args.set_related_projects,
+            set_related_assets=args.set_related_assets,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-reconcile":
+        from .config import Config
+        from .task_service import reconcile_tasks
+        from .vault import VaultLoader
+
+        result = reconcile_tasks(VaultLoader(Config.from_env()))
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-projects":
+        from .config import Config
+        from .task_service import list_projects
+        from .vault import VaultLoader
+
+        result = list_projects(VaultLoader(Config.from_env()))
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-add":
+        from .config import Config
+        from .task_service import add_task
+        from .vault import VaultLoader
+
+        result = add_task(
+            VaultLoader(Config.from_env()),
+            title=args.title,
+            project=args.project,
+            related_projects=args.related_projects,
+            effort=args.effort,
+            priority=args.priority,
+            tags=args.tags,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-move":
+        from .config import Config
+        from .task_service import set_task_status
+        from .vault import VaultLoader
+
+        result = set_task_status(
+            VaultLoader(Config.from_env()), args.doc_id, args.status
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-delete":
+        from .config import Config
+        from .task_service import delete_task
+        from .vault import VaultLoader
+
+        result = delete_task(VaultLoader(Config.from_env()), args.doc_id)
+        _emit(result, pretty=args.pretty)
+
     if args.command == "describe":
         from .cli_introspect import describe_parser
 

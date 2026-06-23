@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from .task_service import list_tasks
 from .vault import VaultLoader
 from .vault_query_service import recent_changes
 
@@ -69,6 +70,16 @@ def vault_brief(
     inbox_dir = loader.config.vault_path / "00 Inbox"
     inbox_count = sum(1 for _ in inbox_dir.glob("*.md")) if inbox_dir.is_dir() else 0
 
+    # Tasks are doc-side vault data; the board's owner (list_tasks) summarizes
+    # them so the brief surfaces open work + stale debt without re-deriving.
+    board = list_tasks(loader)
+    tasks_summary = {
+        "open": board["count"],  # open + active
+        "total": board["total"],
+        "stale": board["counts"]["stale"],
+        "stale_slugs": [t["slug"] for t in board["tasks"] if t["stale"]][:8],
+    }
+
     recent: dict[str, Any] = {"days": days, "count": len(commits), "commits": commits}
     if changes_error:
         recent["error"] = changes_error
@@ -83,4 +94,5 @@ def vault_brief(
             "docs": stale,
         },
         "inbox": {"count": inbox_count},
+        "tasks": tasks_summary,
     }
