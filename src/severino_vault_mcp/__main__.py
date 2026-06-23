@@ -189,6 +189,14 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "task-projects":
+        from .config import Config
+        from .task_service import list_projects
+        from .vault import VaultLoader
+
+        result = list_projects(VaultLoader(Config.from_env()))
+        _emit(result, pretty=args.pretty)
+
     if args.command == "task-add":
         from .config import Config
         from .task_service import add_task

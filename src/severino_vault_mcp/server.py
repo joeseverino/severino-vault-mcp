@@ -1397,6 +1397,16 @@ def task_board(
 
 
 @mcp.tool()
+def task_projects() -> dict[str, Any]:
+    """List the projects a task can be filed in, with each one's open-task count.
+
+    The colocation universe: every `01 Projects/<project>/` folder. Use it to pick
+    a `project` for `add_task`, or to see which projects carry the most open work.
+    """
+    return task_service.list_projects(_LOADER)
+
+
+@mcp.tool()
 def add_task(
     title: str,
     project: str | None = None,

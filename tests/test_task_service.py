@@ -9,7 +9,12 @@ import pytest
 
 from severino_vault_mcp import schema
 from severino_vault_mcp.config import Config
-from severino_vault_mcp.task_service import add_task, list_tasks, set_task_status
+from severino_vault_mcp.task_service import (
+    add_task,
+    list_projects,
+    list_tasks,
+    set_task_status,
+)
 from severino_vault_mcp.vault import VaultLoader
 
 
@@ -119,6 +124,20 @@ def test_move_rejects_bad_status_and_missing_task(task_vault: Path) -> None:
     add_task(_loader(), title="Real", project="cordon")
     assert set_task_status(_loader(), "real", "sideways")["ok"] is False
     assert set_task_status(_loader(), "ghost", "done")["ok"] is False
+
+
+def test_list_projects_is_the_colocation_universe_with_open_counts(task_vault: Path) -> None:
+    (task_vault / "01 Projects" / "tools").mkdir()
+    add_task(_loader(), title="A cordon thing", project="cordon")
+    add_task(_loader(), title="Another cordon thing", project="cordon")
+    add_task(_loader(), title="Cross thing")  # 07 Backlog, not a project
+    result = list_projects(_loader())
+    by_slug = {p["slug"]: p["open"] for p in result["projects"]}
+    # Every 01 Projects/ folder appears (cordon + the empty tools); cross-cutting
+    # work is not a project and is excluded; counts are live tasks only.
+    assert set(by_slug) == {"cordon", "tools"}
+    assert by_slug["cordon"] == 2
+    assert by_slug["tools"] == 0
 
 
 def test_move_refuses_non_task_docs(task_vault: Path) -> None:

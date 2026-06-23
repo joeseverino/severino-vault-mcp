@@ -146,6 +146,33 @@ def list_tasks(
     }
 
 
+def list_projects(loader: VaultLoader) -> dict[str, Any]:
+    """The task-project universe: every ``01 Projects/<project>/`` folder a task
+    can be colocated in, with its live (open + active) task count.
+
+    The one owner of "where can a task go" — pickers (the Obsidian new-task
+    modal, the cockpit, shell completion) derive their project list from this and
+    never re-walk the vault layout, so the colocation contract lives in one place.
+    """
+    index = loader.index()
+    open_counts: dict[str, int] = {}
+    for doc in index.by_doc_id.values():
+        if doc.doc_type != "task" or (doc.status or "open") not in _LIVE:
+            continue
+        proj = _project_of(doc.relative_path)
+        if proj != CROSS:
+            open_counts[proj] = open_counts.get(proj, 0) + 1
+
+    projects: list[dict[str, Any]] = []
+    try:
+        names = sorted(p.name for p in (loader.config.vault_path / PROJECTS_DIR).iterdir() if p.is_dir())
+    except OSError:
+        names = []
+    for name in names:
+        projects.append({"slug": name, "open": open_counts.get(name, 0)})
+    return {"ok": True, "count": len(projects), "projects": projects}
+
+
 def _slugify(title: str) -> str:
     out = []
     for ch in title.lower():

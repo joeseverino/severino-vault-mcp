@@ -313,6 +313,17 @@ def build_parser() -> argparse.ArgumentParser:
     task_list.add_argument("--stale-days", type=int, default=14, help="Stale window in days (default 14).")
     task_list.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
 
+    task_projects = subparsers.add_parser(
+        "task-projects",
+        help=(
+            "The task-project universe: every 01 Projects/<project>/ folder a "
+            "task can be filed in, with its open-task count. The one owner of "
+            "where a task can go — pickers (the Obsidian modal, the cockpit) "
+            "derive from this instead of re-walking the vault layout."
+        ),
+    )
+    task_projects.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     task_add = subparsers.add_parser(
         "task-add",
         help=(
