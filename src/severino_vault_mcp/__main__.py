@@ -174,6 +174,47 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "task-list":
+        from .config import Config
+        from .task_service import list_tasks
+        from .vault import VaultLoader
+
+        result = list_tasks(
+            VaultLoader(Config.from_env()),
+            status=args.status,
+            project=args.project,
+            stale_only=args.stale_only,
+            include_all=args.include_all,
+            stale_days=args.stale_days,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-add":
+        from .config import Config
+        from .task_service import add_task
+        from .vault import VaultLoader
+
+        result = add_task(
+            VaultLoader(Config.from_env()),
+            title=args.title,
+            project=args.project,
+            related_projects=args.related_projects,
+            effort=args.effort,
+            priority=args.priority,
+            tags=args.tags,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "task-move":
+        from .config import Config
+        from .task_service import set_task_status
+        from .vault import VaultLoader
+
+        result = set_task_status(
+            VaultLoader(Config.from_env()), args.doc_id, args.status
+        )
+        _emit(result, pretty=args.pretty)
+
     if args.command == "describe":
         from .cli_introspect import describe_parser
 

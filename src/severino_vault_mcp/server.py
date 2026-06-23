@@ -21,6 +21,7 @@ from . import (
     daily_notes,
     infra_datasets,
     site_ops_service,
+    task_service,
     vault_query_service,
     vault_search_service,
     vault_write_service,
@@ -1361,6 +1362,86 @@ def update_frontmatter(
         add_related_assets=add_related_assets,
         remove_related_assets=remove_related_assets,
     )
+
+
+@mcp.tool()
+def task_board(
+    status: str | None = None,
+    project: str | None = None,
+    stale_only: bool = False,
+    include_all: bool = False,
+    stale_days: int = 14,
+) -> dict[str, Any]:
+    """The backlog: every open task across the whole fleet, in one view.
+
+    Tasks are `doc_type: task` vault docs — project tasks under
+    `01 Projects/<project>/tasks/`, cross-cutting ones in `07 Backlog/`. This
+    derives the board from the index (the one task brain); call it at the start
+    of a session to see what's open, and `set_task_status` to move work.
+
+    Args:
+        status: Only this status (open | active | parked | done | wontfix).
+        project: Only this project (its folder name, or a related_projects link).
+        stale_only: Only stale tasks — open/active, untouched past the window.
+        include_all: Include parked/done/wontfix (default shows open + active).
+        stale_days: Stale window in days (default 14).
+    """
+    return task_service.list_tasks(
+        _LOADER,
+        status=status,
+        project=project,
+        stale_only=stale_only,
+        include_all=include_all,
+        stale_days=stale_days,
+    )
+
+
+@mcp.tool()
+def add_task(
+    title: str,
+    project: str | None = None,
+    related_projects: list[str] | None = None,
+    effort: str = "S",
+    priority: str = "med",
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Capture a new task as a vault file.
+
+    With `project`, the task is colocated at `01 Projects/<project>/tasks/` and
+    linked to that project; without it, the task is filed in the cross-cutting
+    `07 Backlog/` bucket (pass `related_projects` to record what it touches).
+
+    Args:
+        title: Imperative task title, e.g. "Fix the bats PATH trap".
+        project: Owning project — must be an existing `01 Projects/<project>/`.
+        related_projects: Projects a cross-cutting task touches (slugs).
+        effort: S | M | L. Default S.
+        priority: high | med | low. Default med.
+        tags: Optional kebab-case tags. Default ["backlog"].
+    """
+    return task_service.add_task(
+        _LOADER,
+        title=title,
+        project=project,
+        related_projects=related_projects,
+        effort=effort,
+        priority=priority,
+        tags=tags,
+    )
+
+
+@mcp.tool()
+def set_task_status(doc_id: str, status: str) -> dict[str, Any]:
+    """Move a task to a new status; stamp `closed:` on done, clear it on reopen.
+
+    Done tasks are kept (not deleted) so "what shipped this month" stays a query.
+    Resolves either a bare slug (`backlog-cli`) or the full id (`task-backlog-cli`).
+
+    Args:
+        doc_id: Task id or slug.
+        status: Target status (open | active | parked | done | wontfix).
+    """
+    return task_service.set_task_status(_LOADER, doc_id, status)
 
 
 # ----- entry point ------------------------------------------------------------

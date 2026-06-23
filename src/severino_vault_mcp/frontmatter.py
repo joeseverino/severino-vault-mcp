@@ -149,6 +149,12 @@ _KNOWN_KEY_ORDER = (
     "related_assets",
     "tags",
     "notes",
+    # Task-profile fields. Harmless for other doc types (which never carry them);
+    # ordering them here keeps the one serializer's task output tidy and stable.
+    "effort",
+    "priority",
+    "created",
+    "closed",
 )
 
 _YAML_SPECIAL_CHARS = (

@@ -92,7 +92,9 @@ class Config:
         indexed_dirs = _value(
             vault,
             "indexed_dirs",
-            ["01 Projects", "02 Infrastructure", "03 Runbooks"],
+            # "07 Backlog" holds the cross-cutting task slice; project tasks
+            # live under "01 Projects/<project>/tasks/" and are already covered.
+            ["01 Projects", "02 Infrastructure", "03 Runbooks", "07 Backlog"],
         )
         if isinstance(indexed_dirs, str):
             indexed_dirs = [part for part in indexed_dirs.split(":") if part]

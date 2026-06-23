@@ -296,6 +296,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    task_list = subparsers.add_parser(
+        "task-list",
+        help=(
+            "The backlog board: every `doc_type: task` doc, derived from the "
+            "index (project tasks under 01 Projects/<project>/tasks/ + the "
+            "07 Backlog/ cross-cutting bucket), filtered and ranked. Default "
+            "shows live work (open + active); the thin `backlog` CLI and the "
+            "Obsidian cockpit render this — the MCP is the one task brain."
+        ),
+    )
+    task_list.add_argument("--status", default=None, help="Only this status.")
+    task_list.add_argument("--project", default=None, help="Only this project (folder or related_projects).")
+    task_list.add_argument("--stale-only", action="store_true", help="Only stale (open/active, untouched past the window).")
+    task_list.add_argument("--all", dest="include_all", action="store_true", help="Include parked/done/wontfix.")
+    task_list.add_argument("--stale-days", type=int, default=14, help="Stale window in days (default 14).")
+    task_list.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
+    task_add = subparsers.add_parser(
+        "task-add",
+        help=(
+            "Author a new task file. With --project it colocates at "
+            "01 Projects/<project>/tasks/ and links related_projects; without, "
+            "it files a cross-cutting task in 07 Backlog/. Schema-validated, "
+            "written through the one atomic serializer."
+        ),
+    )
+    task_add.add_argument("title", help="Imperative task title.")
+    task_add.add_argument("--project", default=None, help="Owning project (an 01 Projects/<project>/ folder).")
+    task_add.add_argument("--related-projects", nargs="*", default=None, help="Projects a cross-cutting task touches.")
+    task_add.add_argument("--effort", default="S", help="Effort S|M|L (default S).")
+    task_add.add_argument("--priority", default="med", help="Priority high|med|low (default med).")
+    task_add.add_argument("--tags", nargs="*", default=None, help="Tags (default: backlog).")
+    task_add.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
+    task_move = subparsers.add_parser(
+        "task-move",
+        help=(
+            "Move a task to a new status (open|active|parked|done|wontfix). "
+            "Stamps closed: on done, clears it on reopen; done tasks are kept so "
+            "'what shipped' stays a query. Resolves a bare slug or the full id."
+        ),
+    )
+    task_move.add_argument("doc_id", help="Task id or slug (task-foo or foo).")
+    task_move.add_argument("status", help="Target status (open|active|parked|done|wontfix).")
+    task_move.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indentation (default: compact).")
+
     hq_manifest = subparsers.add_parser(
         "hq-manifest",
         help=(

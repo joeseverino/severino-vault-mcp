@@ -16,6 +16,7 @@ DOC_TYPES = {
     "runbook", "architecture_note", "deployment_guide",
     "troubleshooting_guide", "recovery_procedure",
     "public_article_draft", "decision_record",
+    "task",
 }
 ENVIRONMENTS = {
     "homelab", "vps", "wordpress", "cloudflare", "tailscale",
@@ -23,10 +24,22 @@ ENVIRONMENTS = {
 }
 STATUSES = {"draft", "active", "deprecated", "archived"}
 SENSITIVITIES = {"public", "internal", "sensitive", "restricted"}
-DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-")
+DOC_ID_PREFIXES = ("rb-", "infra-", "report-", "project-", "note-", "task-")
 REQUIRED_FIELDS = (
     "doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity",
 )
+
+# Tasks are a second schema profile, not just another doc_type. A task carries
+# its own lifecycle vocabulary (a runbook can never be "parked") and a slimmer
+# required-field set — it has no system/environment/sensitivity. The write path
+# branches on doc_type to validate against the right profile; everything else
+# (the lenient index, search, the graph) treats a task like any other doc.
+TASK_STATUSES = {"open", "active", "parked", "done", "wontfix"}
+TASK_REQUIRED_FIELDS = ("doc_id", "title", "doc_type", "status")
+# The fields the task write path manages beyond the shared ones: a task closes
+# the loop with `closed:` (kept, not deleted) and associates to its project(s)
+# through the existing relation registry (related_projects), not a parallel id.
+TASK_FIELDS = ("status", "related_projects", "effort", "priority", "created", "closed")
 
 
 def as_dict() -> dict[str, list[str]]:
@@ -43,6 +56,8 @@ def as_dict() -> dict[str, list[str]]:
         "sensitivities": sorted(SENSITIVITIES),
         "doc_id_prefixes": list(DOC_ID_PREFIXES),
         "required_fields": list(REQUIRED_FIELDS),
+        "task_statuses": sorted(TASK_STATUSES),
+        "task_required_fields": list(TASK_REQUIRED_FIELDS),
     }
 
 
@@ -76,6 +91,11 @@ def check_doc_enums(text: str) -> list[str]:
         tokens = {token.strip() for token in rhs.split("|") if token.strip()}
         if len(tokens) <= 1:
             continue  # a single example value, not the enum list
+        # The schema doc also documents the task lifecycle on its own `status:`
+        # line; it is validated as the task profile, not the standard one, so
+        # skip it here regardless of where it appears (order-independent).
+        if field == "status" and tokens == TASK_STATUSES:
+            continue
         found.setdefault(field, tokens)
 
     mismatches: list[str] = []
