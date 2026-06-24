@@ -34,6 +34,27 @@
 
 ### Changed
 
+- **Single-sourced markdown-table parsing.** `tabular.py` now owns `split_row` /
+  `is_separator` alongside its existing renderer — the parse-side mirror of its
+  one-renderer rule. The Quick Index reader (`server.py`) and the technology-
+  groups catalog (`tech_groups.py`) consumed two private copies of the same
+  separator test; both now call the shared helpers. No behavior change.
+
+- **`get_runbook` no longer restates the section-menu shape.** It now composes
+  `vault_search_service.find_sections` for the canonical `hits` payload and only
+  *adds* the resolved `selected` body on top, instead of rebuilding the hit loop
+  inline with `rank` + `section_menu`. Removes a hand-maintained duplicate of the
+  emit-once payload that could silently drift from `find_runbook` / the CLI
+  `find`. Identical response shape; covered by `tests/test_search.py`.
+
+- **Removed the dead `include_restricted` / `include_secret_adjacent` parameters
+  from the `search_body` MCP tool.** They were accepted, documented as deprecated,
+  and never wired to anything (restricted bodies are *never* searched — that
+  exclusion is structural, with the one-shot local unlock living only on
+  `read_doc`). Dropping them narrows the tool schema every model sees. The tools
+  repo and Severino HQ bind to CLI subcommands / `describe` / `schema.json`, not
+  this signature, so there is no cross-repo blast radius.
+
 - **`describe` now emits a conformant [Cordon v4](https://github.com/joeseverino/cordon)
   contract** (was a v3 subset), so `tools describe --repos` folds this repo in as
   a *homogeneous* sibling: same `schema_version`, `group`/`order` inventory

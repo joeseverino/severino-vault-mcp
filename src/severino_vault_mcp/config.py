@@ -87,6 +87,11 @@ class Config:
         vault = _section(data, "vault")
         metadata = _section(data, "metadata")
         cache = _section(data, "cache")
+        # The `secret_adjacent` config section and the SVMC_SECRET_ADJACENT_*
+        # env vars below are a backward-compat shim from the rename to
+        # `restricted` (see schema.py). Retire them — the second leg of each
+        # `os.environ.get(..., os.environ.get("SVMC_SECRET_ADJACENT_...))` — once
+        # no local config predates 2026-06; tracked as cleanup, not load-bearing.
         unlock = _section(data, "restricted") or _section(data, "secret_adjacent")
 
         indexed_dirs = _value(

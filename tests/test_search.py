@@ -895,15 +895,14 @@ def test_search_body_finds_text_in_body(fake_vault: Path) -> None:
     assert "rb-add-nginx-proxy-host" in doc_ids
 
 
-def test_search_body_excludes_secret_adjacent_by_default(fake_vault: Path) -> None:
+def test_search_body_always_excludes_restricted(fake_vault: Path) -> None:
+    # Restricted bodies are never searched: search_body has no unlock affordance
+    # (that one-shot local unlock is a read_doc-only path), so there is no flag
+    # to widen this — exclusion is structural.
     server = _fresh_module("severino_vault_mcp.server")
     default = server.search_body("CA private key")
     assert default["doc_count"] == 0
     assert default["excluded"]["restricted_skipped"] >= 1
-
-    overridden = server.search_body("CA private key", include_restricted=True)
-    assert overridden["doc_count"] == 0
-    assert overridden["excluded"]["restricted_skipped"] >= 1
 
 
 def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:

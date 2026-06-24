@@ -29,7 +29,7 @@ from . import (
 )
 from . import topology as topology_mod
 from .config import Config
-from .search import best_section, rank, tokenize
+from .search import best_section, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
     audit_event,
@@ -40,6 +40,8 @@ from .secret_unlock import (
 )
 from .sections import resolve_section
 from .sensitivity import Sensitivity, advisory, body_is_releasable
+from .tabular import is_separator as _is_table_separator
+from .tabular import split_row as _split_table_row
 from .vault import Doc, VaultLoader, _normalize_alias
 from .vault_query_service import doc_to_hit as _hit_to_dict
 
@@ -162,12 +164,10 @@ mcp = FastMCP("severino-vault-mcp", instructions=_SERVER_INSTRUCTIONS)
 
 # ----- helpers ----------------------------------------------------------------
 
-def _split_table_row(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
-
-
-def _is_table_separator(cells: list[str]) -> bool:
-    return bool(cells) and all(set(cell.replace(" ", "")) <= {"-", ":"} for cell in cells)
+# Markdown table parsing is single-sourced in tabular.py (the parse-side mirror
+# of its one-renderer rule); _split_table_row / _is_table_separator are the
+# imported split_row / is_separator, kept under these local names for the
+# Quick Index reader below.
 
 
 def _wiki_targets(text: str) -> list[str]:
@@ -516,24 +516,19 @@ def get_runbook(query: str, limit: int = 5) -> dict[str, Any]:
         query: Natural-language operational question, e.g. "ssh into the VPS".
         limit: Maximum ranked hits to include for context (default 5).
     """
+    # Reuse the canonical hits payload (emit-once) instead of restating the
+    # menu shape; get_runbook only *adds* the resolved `selected` body on top.
     idx = _LOADER.index()
-    hits = rank(idx.docs, query, limit=max(1, min(limit, 25)))
-    response: dict[str, Any] = {
-        "query": query,
-        "indexed_doc_count": len(idx.docs),
-        "hits": [
-            {"score": h.score, **_hit_to_dict(h.doc), **_section_menu(h.doc, query)}
-            for h in hits
-        ],
-    }
-    top_doc_id = hits[0].doc.doc_id if hits else None
+    response = vault_search_service.find_sections(_LOADER, query, limit=limit)
+    hits = response["hits"]
+    top_doc_id = hits[0]["doc_id"] if hits else None
     _add_quick_index_recommendation(response, idx, query, top_doc_id=top_doc_id)
     if not hits:
         response["found"] = False
         return response
 
-    doc = hits[0].doc
-    selected: dict[str, Any] = {"score": hits[0].score, **_hit_to_dict(doc)}
+    doc = idx.by_doc_id[top_doc_id]
+    selected: dict[str, Any] = {"score": hits[0]["score"], **_hit_to_dict(doc)}
     if doc.sensitivity is Sensitivity.SECRET_ADJACENT:
         response["found"] = True
         response["selected"] = _withheld_secret_adjacent_response(selected, "not_requested")
@@ -757,29 +752,21 @@ def search_body(
     limit: int = 10,
     context_lines: int = 1,
     case_sensitive: bool = False,
-    include_restricted: bool = False,
-    include_secret_adjacent: bool = False,
 ) -> dict[str, Any]:
     """Full-text search across vault doc bodies using ripgrep.
 
     Searches the content of every indexed `.md`, skipping matches that fall
     inside frontmatter blocks. Results are grouped by `doc_id`. Honors the
     sensitivity gate the same way `read_doc` does: `sensitive` docs are
-    included with an advisory; `restricted` docs are always excluded.
-    Use `read_doc(..., include_restricted=True)` for per-doc local
-    unlock requests.
+    included with an advisory; `restricted` docs are always excluded. Restricted
+    bodies are never searched here — per-doc local unlock is only available
+    through `read_doc(..., include_restricted=True)`.
 
     Args:
         query: Literal string or regex (ripgrep regex syntax).
         limit: Max number of distinct documents to return (default 10).
         context_lines: Lines of context above + below each match (default 1).
         case_sensitive: If True, match case. Default False.
-        include_restricted: Deprecated compatibility flag. Restricted bodies
-            are never searched; per-doc local unlock is only available through
-            `read_doc`.
-        include_secret_adjacent: Deprecated compatibility flag. Restricted
-            bodies are never searched; per-doc local unlock is only available
-            through `read_doc`.
     """
     return vault_query_service.search_body(
         _LOADER,

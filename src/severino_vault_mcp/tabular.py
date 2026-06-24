@@ -14,6 +14,23 @@ from __future__ import annotations
 from typing import Any
 
 
+def split_row(line: str) -> list[str]:
+    """Split one markdown table row into trimmed cells.
+
+    The inverse of :func:`render_table`'s row format. Single-sourced here so
+    every table *reader* (Quick Index routing, the tech-groups catalog) splits
+    cells identically — the parse-side mirror of the one-renderer rule above.
+    """
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def is_separator(cells: list[str]) -> bool:
+    """True if `cells` is a markdown header separator row (`---`, `:--:`)."""
+    return bool(cells) and all(
+        set(cell.replace(" ", "")) <= {"-", ":"} for cell in cells if cell
+    )
+
+
 class _Blank(dict):
     """Missing template fields render empty rather than raising."""
 

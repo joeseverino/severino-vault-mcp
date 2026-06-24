@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .tabular import is_separator, split_row
+
 
 @dataclass
 class TechSlug:
@@ -21,12 +23,6 @@ class TechSlug:
     label: str
     group: str
     featured: bool
-
-
-def _is_separator_row(cells: list[str]) -> bool:
-    return bool(cells) and all(
-        set(cell.replace(" ", "")) <= {"-", ":"} for cell in cells if cell
-    )
 
 
 def load_technology_catalog(path: Path) -> list[TechSlug]:
@@ -57,9 +53,9 @@ def load_technology_catalog(path: Path) -> list[TechSlug]:
             saw_header = False
             continue
 
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        cells = split_row(stripped)
 
-        if _is_separator_row(cells):
+        if is_separator(cells):
             continue
 
         if not saw_header:
