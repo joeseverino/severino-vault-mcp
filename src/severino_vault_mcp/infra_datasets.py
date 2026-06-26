@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 from . import jsonio, tabular
 from .atomic_write import atomic_write_text
 from .frontmatter import serialize_frontmatter, split_frontmatter
+from .mirror import replace_region
 from .sensitivity import Sensitivity, advisory, body_is_releasable
 
 if TYPE_CHECKING:
@@ -222,13 +223,6 @@ def _markers(dataset_id: str) -> tuple[str, str]:
     )
 
 
-def _replace_region(text: str, begin: str, end: str, content: str) -> str | None:
-    bi, ei = text.find(begin), text.find(end)
-    if bi == -1 or ei == -1 or ei < bi:
-        return None
-    return f"{text[:bi + len(begin)]}\n{content}\n{text[ei:]}"
-
-
 def _under_vault(config: Config, rel: str):
     path = (config.vault_path / rel).resolve()
     try:
@@ -291,7 +285,7 @@ def write_dataset(config: Config, dataset_id: str, payload_text: str) -> dict:
         return result
 
     begin, end = _markers(dataset_id)
-    new_text = _replace_region(doc_text, begin, end, tabular.render_table(data, columns))
+    new_text = replace_region(doc_text, begin, end, tabular.render_table(data, columns))
     if new_text is None:
         result["doc_warning"] = f"no INFRA-DATA region for {dataset_id} in {doc_rel}"
         return result

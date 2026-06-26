@@ -583,6 +583,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    daily_write = subparsers.add_parser(
+        "daily-write",
+        help=(
+            "Replace the generated brief region of a daily note (markdown on "
+            "stdin): the marked MIRROR:daily-brief span only, leaving the "
+            "free-capture area untouched. Creates the note from the daily-note "
+            "frontmatter contract if absent. The write behind tools' `vault daily`."
+        ),
+    )
+    daily_write.add_argument(
+        "--date", help="Daily note date (YYYY-MM-DD; default today)."
+    )
+    daily_write.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     describe = subparsers.add_parser(
         "describe",
         help=(
@@ -611,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
         "backfill-aliases": "vault_write",
         "infra-write": "vault_write",
         "topology-write": "vault_write",
+        "daily-write": "vault_write",
     }
     for name, sub in subparsers.choices.items():
         set_effect(sub, _effects.get(name, "read"))
