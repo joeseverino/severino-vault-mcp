@@ -420,6 +420,15 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "daily-write":
+        from . import daily_write
+        from .config import Config
+
+        result = daily_write.write_daily_block(
+            Config.from_env(), sys.stdin.read(), note_date=args.date
+        )
+        _emit(result, pretty=args.pretty)
+
     if args.command == "topology-write":
         from . import topology as topo_mod
         from .config import Config
