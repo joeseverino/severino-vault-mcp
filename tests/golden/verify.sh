@@ -15,8 +15,8 @@
 set -uo pipefail
 
 read -r -a CLI <<< "${SVMC_CMD:-severino-vault-mcp}"
+PYBIN="${SVMC_PY:-python3}"   # interpreter that can import severino_vault_mcp
 GOLDEN="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$GOLDEN/../.." && pwd)"
 fail=0
 
 check() {
@@ -36,8 +36,8 @@ check "schema --json" "$GOLDEN/schema.json" "${CLI[@]}" schema --json
 # 2. Cordon CLI command surface (help/completions/effect ladder).
 check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe
 
-# 3. Registered MCP tool names (what Claude Code calls).
-check "mcp tool names" "$GOLDEN/mcp-tools.txt" bash -c \
-  "grep -B1 -E '^[[:space:]]*def [a-z_]+\(' '$ROOT/src/severino_vault_mcp/server.py' | grep -A1 '@mcp.tool' | grep -oE 'def [a-z_]+' | sed 's/def //' | sort -u"
+# 3. Registered MCP tool names (what Claude Code calls) — introspected at runtime
+#    from the assembled server, so tools may move between modules without drift.
+check "mcp tool names" "$GOLDEN/mcp-tools.txt" "$PYBIN" "$GOLDEN/list_tools.py"
 
 exit "$fail"

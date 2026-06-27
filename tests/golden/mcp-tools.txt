@@ -1,5 +1,6 @@
 add_frontmatter
 add_task
+apply_jseverino_d1_schema
 apply_writeup_plan
 check_jseverino_security_headers
 count_csp_reports
