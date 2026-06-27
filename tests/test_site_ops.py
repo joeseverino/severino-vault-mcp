@@ -6,6 +6,7 @@ rows (and to capture the SQL), so the gate logic is tested in isolation.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 from pathlib import Path
@@ -172,7 +173,7 @@ def test_include_pii_writes_audit_line(tmp_path: Path, monkeypatch) -> None:
         },
     )
 
-    server.list_contact_submissions(include_pii=True)
+    asyncio.run(server.mcp.call_tool("list_contact_submissions", {"include_pii": True}))
     assert audit_path.is_file()
     audit = audit_path.read_text(encoding="utf-8")
     assert "action=contact_pii_access" in audit
@@ -196,5 +197,5 @@ def test_redacted_call_writes_no_audit_line(tmp_path: Path, monkeypatch) -> None
         },
     )
 
-    server.list_contact_submissions()
+    asyncio.run(server.mcp.call_tool("list_contact_submissions", {}))
     assert not audit_path.exists()
