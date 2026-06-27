@@ -1,0 +1,65 @@
+{
+  "doc_id_prefixes": [
+    "rb-",
+    "infra-",
+    "report-",
+    "project-",
+    "note-",
+    "task-"
+  ],
+  "doc_types": [
+    "architecture_note",
+    "decision_record",
+    "deployment_guide",
+    "public_article_draft",
+    "recovery_procedure",
+    "runbook",
+    "task",
+    "troubleshooting_guide"
+  ],
+  "environments": [
+    "adguard",
+    "cloudflare",
+    "homelab",
+    "local_mac",
+    "other",
+    "tailscale",
+    "unifi",
+    "vps",
+    "wordpress"
+  ],
+  "required_fields": [
+    "doc_id",
+    "title",
+    "doc_type",
+    "system",
+    "environment",
+    "status",
+    "sensitivity"
+  ],
+  "sensitivities": [
+    "internal",
+    "public",
+    "restricted",
+    "sensitive"
+  ],
+  "statuses": [
+    "active",
+    "archived",
+    "deprecated",
+    "draft"
+  ],
+  "task_required_fields": [
+    "doc_id",
+    "title",
+    "doc_type",
+    "status"
+  ],
+  "task_statuses": [
+    "active",
+    "done",
+    "open",
+    "parked",
+    "wontfix"
+  ]
+}
