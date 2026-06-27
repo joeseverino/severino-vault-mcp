@@ -163,7 +163,7 @@ def test_include_pii_writes_audit_line(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", str(audit_path))
     server = _fresh_server()
     monkeypatch.setattr(
-        server.site_ops_service,
+        sys.modules["severino_vault_mcp.site_ops_service"],
         "_run_d1_json",
         lambda _rt, _sql, **_kw: {
             "ok": True,
@@ -187,7 +187,7 @@ def test_redacted_call_writes_no_audit_line(tmp_path: Path, monkeypatch) -> None
     monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", str(audit_path))
     server = _fresh_server()
     monkeypatch.setattr(
-        server.site_ops_service,
+        sys.modules["severino_vault_mcp.site_ops_service"],
         "_run_d1_json",
         lambda _rt, _sql, **_kw: {
             "ok": True,

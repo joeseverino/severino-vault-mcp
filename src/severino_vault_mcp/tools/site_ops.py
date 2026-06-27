@@ -9,21 +9,21 @@ shell: each tool is a fixed workflow, not arbitrary SQL or fetch.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from . import site_ops_service
-from .secret_unlock import audit_event
+from .. import site_ops_service
+from ..context import ServerContext
+from ..secret_unlock import audit_event
 
 
-def register(mcp, *, site_ops, audit_log: Path) -> None:
-    """Register the site-ops tool group on ``mcp``.
+def register(mcp, ctx: ServerContext) -> None:
+    """Register the site-ops tool group on ``mcp`` from a server context.
 
-    Args:
-        mcp: the FastMCP instance to register tools on.
-        site_ops: the SiteOpsRuntime singleton the tools query.
-        audit_log: path to the local audit log for PII-release events.
+    Pulls the SiteOpsRuntime and audit-log path off ``ctx``; a server that omits
+    this group never calls register, so the runtime is never built.
     """
+    site_ops = ctx.site_ops
+    audit_log = ctx.config.secret_unlock_audit_log
 
     @mcp.tool()
     def list_contact_submissions(

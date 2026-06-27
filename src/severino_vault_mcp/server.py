@@ -20,9 +20,7 @@ from mcp.server.fastmcp import FastMCP
 from . import (
     daily_notes,
     infra_datasets,
-    site_ops_service,
     task_service,
-    tools_site_ops,
     vault_query_service,
     vault_search_service,
     vault_write_service,
@@ -30,6 +28,7 @@ from . import (
 )
 from . import topology as topology_mod
 from .config import Config
+from .context import ServerContext
 from .search import best_section, tokenize
 from .secret_unlock import (
     SecretUnlockResult,
@@ -42,7 +41,8 @@ from .sections import resolve_section
 from .sensitivity import Sensitivity, advisory, body_is_releasable
 from .tabular import is_separator as _is_table_separator
 from .tabular import split_row as _split_table_row
-from .vault import Doc, VaultLoader, _normalize_alias
+from .tools import site_ops as site_ops_tools
+from .vault import Doc, _normalize_alias
 from .vault_query_service import doc_to_hit as _hit_to_dict
 
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
@@ -50,13 +50,14 @@ QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
 DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
 
 
-_CONFIG = Config.from_env()
-_LOADER = VaultLoader(_CONFIG)
-_WRITEUP_RUNTIME = writeup_service.WriteupRuntime.from_config(
-    _CONFIG,
-    loader=_LOADER,
-)
-_SITE_OPS = site_ops_service.SiteOpsRuntime.from_env()
+_CTX = ServerContext(Config.from_env())
+# Eager aliases for the tool groups still inlined in this module; each collapses
+# into _CTX as its group is extracted. config + loader are always needed, so
+# building the loader now costs nothing; the writeup runtime stays until the
+# writeup group moves out.
+_CONFIG = _CTX.config
+_LOADER = _CTX.loader
+_WRITEUP_RUNTIME = _CTX.writeup_runtime
 
 
 _SERVER_INSTRUCTIONS = """\
@@ -796,9 +797,7 @@ def describe_commands() -> dict[str, Any]:
 
 
 # ----- jseverino.com site-operations tools (composed group) -----------------
-tools_site_ops.register(
-    mcp, site_ops=_SITE_OPS, audit_log=_CONFIG.secret_unlock_audit_log
-)
+site_ops_tools.register(mcp, _CTX)
 
 
 # ----- jseverino.com writeup tools -------------------------------------------
