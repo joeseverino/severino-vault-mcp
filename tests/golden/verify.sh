@@ -8,9 +8,13 @@
 #
 # Run from the repo root after every refactor step:  bash tests/golden/verify.sh
 # Exit 0 = all surfaces unchanged. Exit 1 = drift (printed as a diff).
+#
+# The installed console script is the default. Override the invocation to gate a
+# source tree that isn't installed (e.g. a worktree venv) — pytest-style:
+#   SVMC_CMD="python -m severino_vault_mcp" PYTHONPATH=src bash tests/golden/verify.sh
 set -uo pipefail
 
-CLI="severino-vault-mcp"
+read -r -a CLI <<< "${SVMC_CMD:-severino-vault-mcp}"
 GOLDEN="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$GOLDEN/../.." && pwd)"
 fail=0
@@ -27,10 +31,10 @@ check() {
 }
 
 # 1. Canonical frontmatter schema (HQ commits + validates this).
-check "schema --json" "$GOLDEN/schema.json" "$CLI" schema --json
+check "schema --json" "$GOLDEN/schema.json" "${CLI[@]}" schema --json
 
 # 2. Cordon CLI command surface (help/completions/effect ladder).
-check "describe" "$GOLDEN/cli-describe.json" "$CLI" describe
+check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe
 
 # 3. Registered MCP tool names (what Claude Code calls).
 check "mcp tool names" "$GOLDEN/mcp-tools.txt" bash -c \
