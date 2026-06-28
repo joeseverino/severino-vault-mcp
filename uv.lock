@@ -715,7 +715,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "starlette", specifier = ">=1.0.1" },
-    { name = "vault-engine", directory = "../vault-engine" },
+    { name = "vault-engine", git = "https://github.com/joeseverino/vault-engine" },
 ]
 provides-extras = ["dev"]
 
@@ -782,19 +782,9 @@ wheels = [
 [[package]]
 name = "vault-engine"
 version = "0.1.0"
-source = { directory = "../vault-engine" }
+source = { git = "https://github.com/joeseverino/vault-engine#3fa0c27b111f029409db58354786035f0ff9eae6" }
 dependencies = [
     { name = "cordon-emit" },
     { name = "mcp" },
     { name = "starlette" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cordon-emit", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython" },
-    { name = "mcp", specifier = ">=1.27" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "starlette", specifier = ">=1.0.1" },
-]
-provides-extras = ["dev"]
