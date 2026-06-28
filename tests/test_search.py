@@ -153,6 +153,30 @@ def _fresh_module(name: str):
     return importlib.import_module(name)
 
 
+def _tool(server, name):
+    """The registered tool's underlying callable.
+
+    The core tools moved out of server.py into core_tools.py, where they are
+    closures registered on the FastMCP instance; reach the callable through the
+    tool manager so these tests still drive the real registered function.
+    """
+    return server.mcp._tool_manager._tools[name].fn
+
+
+def _core_tools(server):
+    """The freshly-imported core_tools module (where the core moved to)."""
+    import sys
+    return sys.modules["severino_vault_mcp.core_tools"]
+
+
+def _quick_index_fn(server):
+    return server.mcp._resource_manager._resources["vault://quick-index"].fn
+
+
+def _vault_doc_fn(server):
+    return server.mcp._resource_manager._templates["vault://doc/{doc_id}"].fn
+
+
 def _vws_runtime():
     """A freshly-imported vault_write_service plus a loader on the env vault."""
     vws = _fresh_module("severino_vault_mcp.vault_write_service")
@@ -184,7 +208,7 @@ def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
 def test_daily_progress_resolves_friday_from_anchor(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
 
-    result = server.daily_progress(
+    result = _tool(server, "daily_progress")(
         "what progress did i make on friday?",
         today="2026-06-20",
     )
@@ -201,7 +225,7 @@ def test_daily_progress_resolves_friday_from_anchor(fake_vault: Path) -> None:
 def test_daily_progress_reports_missing_note(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
 
-    result = server.daily_progress("what happened yesterday?", today="2026-06-19")
+    result = _tool(server, "daily_progress")("what happened yesterday?", today="2026-06-19")
 
     assert result["found"] is False
     assert result["resolved_date"] == "2026-06-18"
@@ -350,7 +374,7 @@ sensitivity: internal
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("rb-add-nginx-proxy-host")
+    result = _tool(server, "read_doc")("rb-add-nginx-proxy-host")
     assert result["found"] is False
     assert result["ambiguous"] is True
     assert sorted(result["paths"]) == [
@@ -358,19 +382,19 @@ sensitivity: internal
         "03 Runbooks/Duplicate.md",
     ]
 
-    search = server.find_runbook("nginx proxy")
+    search = _tool(server, "find_runbook")("nginx proxy")
     assert all(
         hit["doc_id"] != "rb-add-nginx-proxy-host"
         for hit in search["hits"]
     )
-    resource = server.vault_doc("rb-add-nginx-proxy-host")
+    resource = _vault_doc_fn(server)("rb-add-nginx-proxy-host")
     assert "# Duplicate Vault Doc ID" in resource
     assert "03 Runbooks/Duplicate.md" in resource
 
 
 def test_find_runbook_ranks_nginx_query(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("nginx proxy")
+    result = _tool(server, "find_runbook")("nginx proxy")
     assert result["hits"], result
     assert result["hits"][0]["doc_id"] == "rb-add-nginx-proxy-host"
 
@@ -380,7 +404,7 @@ def test_find_runbook_matches_body_only_term(fake_vault: Path) -> None:
     # service..."), never in its title/tags/system/doc_id. Before the capped
     # body signal this scored 0 and returned nothing; now it surfaces the doc.
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("expose a service")
+    result = _tool(server, "find_runbook")("expose a service")
     assert result["hits"], result
     assert result["hits"][0]["doc_id"] == "rb-add-nginx-proxy-host"
 
@@ -425,7 +449,7 @@ Steps.
         encoding="utf-8",
     )
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("https")
+    result = _tool(server, "find_runbook")("https")
     assert result["hits"][0]["doc_id"] == "rb-https-setup", result["hits"]
 
 
@@ -433,7 +457,7 @@ def test_find_runbook_ignores_pure_stopword_query(fake_vault: Path) -> None:
     # Every token here is a query stopword, so nothing is left to match on —
     # filler words must not manufacture hits against unrelated docs.
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("a the of and to")
+    result = _tool(server, "find_runbook")("a the of and to")
     assert result["hits"] == [], result
 
 
@@ -478,13 +502,13 @@ Use only when `ssh edge` is refused or times out.
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("how do i ssh into the VPS")
+    result = _tool(server, "find_runbook")("how do i ssh into the VPS")
     assert result["hits"][0]["doc_id"] == "rb-ssh-into-vps"
 
 
 def test_get_runbook_returns_selected_body_in_one_call(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("nginx proxy")
+    result = _tool(server, "get_runbook")("nginx proxy")
     assert result["found"] is True
     assert result["selected"]["doc_id"] == "rb-add-nginx-proxy-host"
     assert result["selected"]["body_released"] is True
@@ -534,7 +558,7 @@ tags: [index, mcp, navigation]
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("how do i check the status of the adguard home container?")
+    result = _tool(server, "get_runbook")("how do i check the status of the adguard home container?")
     assert result["found"] is True
     assert result["selected"]["doc_id"] == "infra-adguard-home"
     assert result["recommended"]["source"] == "vault://quick-index"
@@ -569,7 +593,7 @@ tags: [index, mcp, navigation]
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("restart vault mcp")
+    result = _tool(server, "get_runbook")("restart vault mcp")
 
     assert result["found"] is True
     assert result["selected"]["doc_id"] != "rb-generate-internal-cert"
@@ -579,7 +603,7 @@ tags: [index, mcp, navigation]
 
 def test_get_runbook_withholds_secret_adjacent_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("local pki")
+    result = _tool(server, "get_runbook")("local pki")
     assert result["found"] is True
     assert result["selected"]["doc_id"] == "infra-local-pki"
     assert result["selected"]["body_released"] is False
@@ -589,7 +613,7 @@ def test_get_runbook_withholds_secret_adjacent_body(fake_vault: Path) -> None:
 
 def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("infra-local-pki")
+    result = _tool(server, "read_doc")("infra-local-pki")
     assert result["found"] is True
     assert result["body_released"] is False
     assert "body" not in result
@@ -598,7 +622,7 @@ def test_read_doc_default_refuses_secret_adjacent(fake_vault: Path) -> None:
 
 def test_read_doc_secret_adjacent_request_requires_local_unlock(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("infra-local-pki", include_restricted=True)
+    result = _tool(server, "read_doc")("infra-local-pki", include_restricted=True)
     assert result["body_released"] is False
     assert "body" not in result
     assert result["unlock"]["result"] == "disabled"
@@ -617,9 +641,9 @@ def test_read_doc_releases_secret_adjacent_after_local_unlock(
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "open sesame")
+    monkeypatch.setattr(_core_tools(server), "prompt_unlock_phrase", lambda _doc_id, _title: "open sesame")
 
-    result = server.read_doc("infra-local-pki", include_restricted=True)
+    result = _tool(server, "read_doc")("infra-local-pki", include_restricted=True)
     assert result["body_released"] is True
     assert "CA private key" in result["body"]
     assert result["override_used"] is True
@@ -642,9 +666,9 @@ def test_read_doc_keeps_secret_adjacent_locked_after_bad_unlock(
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    monkeypatch.setattr(server, "prompt_unlock_phrase", lambda _doc_id, _title: "wrong")
+    monkeypatch.setattr(_core_tools(server), "prompt_unlock_phrase", lambda _doc_id, _title: "wrong")
 
-    result = server.read_doc("infra-local-pki", include_restricted=True)
+    result = _tool(server, "read_doc")("infra-local-pki", include_restricted=True)
     assert result["body_released"] is False
     assert "body" not in result
     assert result["unlock"]["result"] == "failed"
@@ -656,14 +680,14 @@ def test_read_doc_keeps_secret_adjacent_locked_after_bad_unlock(
 
 def test_read_doc_returns_body_for_internal(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("rb-add-nginx-proxy-host")
+    result = _tool(server, "read_doc")("rb-add-nginx-proxy-host")
     assert result["body_released"] is True
     assert "## Goal" in result["body"]
 
 
 def test_read_doc_resolves_local_aliases(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("https proxy")
+    result = _tool(server, "read_doc")("https proxy")
     assert result["found"] is True
     assert result["doc_id"] == "rb-add-nginx-proxy-host"
     assert result["resolved_from_alias"]["matched_alias"] == "https proxy"
@@ -672,7 +696,7 @@ def test_read_doc_resolves_local_aliases(fake_vault: Path) -> None:
 
 def test_read_doc_alias_preserves_secret_adjacent_gate(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("offline ca")
+    result = _tool(server, "read_doc")("offline ca")
     assert result["found"] is True
     assert result["doc_id"] == "infra-local-pki"
     assert result["body_released"] is False
@@ -682,7 +706,7 @@ def test_read_doc_alias_preserves_secret_adjacent_gate(fake_vault: Path) -> None
 
 def test_read_doc_missing_doc_guides_discovery(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("not a doc")
+    result = _tool(server, "read_doc")("not a doc")
     assert result["found"] is False
     assert "stable `doc_id`" in result["guidance"]
     assert result["suggested_tools"] == ["find_runbook", "lookup_system", "search_body"]
@@ -690,21 +714,21 @@ def test_read_doc_missing_doc_guides_discovery(fake_vault: Path) -> None:
 
 def test_quick_index_resource_returns_index_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.quick_index()
+    result = _quick_index_fn(server)()
     assert "# Example Operations Vault Quick Index" in result
     assert "rb-add-nginx-proxy-host" in result
 
 
 def test_vault_doc_resource_returns_releasable_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.vault_doc("rb-add-nginx-proxy-host")
+    result = _vault_doc_fn(server)("rb-add-nginx-proxy-host")
     assert "## Goal" in result
     assert "Expose an internal service" in result
 
 
 def test_vault_doc_resource_withholds_secret_adjacent_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.vault_doc("infra-local-pki")
+    result = _vault_doc_fn(server)("infra-local-pki")
     assert "restricted" in result
     assert "infra-local-pki" in result
     assert "CA private key lives offline" not in result
@@ -712,7 +736,7 @@ def test_vault_doc_resource_withholds_secret_adjacent_body(fake_vault: Path) -> 
 
 def test_vault_doc_resource_handles_missing_doc(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.vault_doc("rb-does-not-exist")
+    result = _vault_doc_fn(server)("rb-does-not-exist")
     assert "# Vault Doc Not Found" in result
     assert "rb-does-not-exist" in result
 
@@ -740,11 +764,11 @@ def test_mcp_resources_are_registered_and_resolvable(fake_vault: Path) -> None:
 
 def test_read_doc_releases_sensitive_with_advisory(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    server.update_frontmatter(
+    _tool(server, "update_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         sensitivity="sensitive",
     )
-    result = server.read_doc("rb-add-nginx-proxy-host")
+    result = _tool(server, "read_doc")("rb-add-nginx-proxy-host")
     assert result["body_released"] is True
     assert "## Goal" in result["body"]
     assert "sensitive" in result["advisory"].lower()
@@ -752,7 +776,7 @@ def test_read_doc_releases_sensitive_with_advisory(fake_vault: Path) -> None:
 
 def test_add_frontmatter_validates_enums(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.add_frontmatter(
+    result = _tool(server, "add_frontmatter")(
         relative_path="01 Projects/untagged.md",
         doc_id="bad-prefix-foo",
         title="Foo",
@@ -765,7 +789,7 @@ def test_add_frontmatter_validates_enums(fake_vault: Path) -> None:
 
 def test_add_frontmatter_accepts_homelab_environment(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.add_frontmatter(
+    result = _tool(server, "add_frontmatter")(
         relative_path="01 Projects/untagged.md",
         doc_id="project-homelab-untagged",
         title="Homelab Untagged",
@@ -780,7 +804,7 @@ def test_add_frontmatter_accepts_homelab_environment(fake_vault: Path) -> None:
 
 def test_add_frontmatter_writes(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.add_frontmatter(
+    result = _tool(server, "add_frontmatter")(
         relative_path="01 Projects/untagged.md",
         doc_id="project-untagged",
         title="Untagged",
@@ -796,7 +820,7 @@ def test_add_frontmatter_writes(fake_vault: Path) -> None:
 
 def test_add_frontmatter_refuses_overwrite(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.add_frontmatter(
+    result = _tool(server, "add_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         doc_id="rb-something-else",
         title="X",
@@ -809,7 +833,7 @@ def test_add_frontmatter_refuses_overwrite(fake_vault: Path) -> None:
 
 def test_update_frontmatter_touches_last_reviewed(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.update_frontmatter(
+    result = _tool(server, "update_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         touch_last_reviewed=True,
         add_tags=["proxy"],
@@ -838,7 +862,7 @@ def test_update_frontmatter_preserves_multiline_scalar(fake_vault: Path) -> None
     )
 
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.update_frontmatter(
+    result = _tool(server, "update_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         title="Add an Nginx Proxy Host",
     )
@@ -865,11 +889,11 @@ def test_update_frontmatter_keeps_original_on_atomic_write_failure(
         raise OSError("simulated replacement failure")
 
     monkeypatch.setattr(
-        server.vault_write_service,
+        _core_tools(server).vault_write_service,
         "atomic_write_text",
         fail_write,
     )
-    result = server.update_frontmatter(
+    result = _tool(server, "update_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         title="Should Not Persist",
     )
@@ -880,7 +904,7 @@ def test_update_frontmatter_keeps_original_on_atomic_write_failure(
 
 def test_update_frontmatter_refuses_without_frontmatter(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.update_frontmatter(
+    result = _tool(server, "update_frontmatter")(
         relative_path="01 Projects/untagged.md",
         status="active",
     )
@@ -890,7 +914,7 @@ def test_update_frontmatter_refuses_without_frontmatter(fake_vault: Path) -> Non
 
 def test_search_body_finds_text_in_body(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.search_body("HTTPS via NPM")
+    result = _tool(server, "search_body")("HTTPS via NPM")
     doc_ids = [h["doc_id"] for h in result["hits_by_doc"]]
     assert "rb-add-nginx-proxy-host" in doc_ids
 
@@ -900,7 +924,7 @@ def test_search_body_always_excludes_restricted(fake_vault: Path) -> None:
     # (that one-shot local unlock is a read_doc-only path), so there is no flag
     # to widen this — exclusion is structural.
     server = _fresh_module("severino_vault_mcp.server")
-    default = server.search_body("CA private key")
+    default = _tool(server, "search_body")("CA private key")
     assert default["doc_count"] == 0
     assert default["excluded"]["restricted_skipped"] >= 1
 
@@ -909,7 +933,7 @@ def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # "NPM" appears in the nginx runbook frontmatter system AND in the body.
     # The frontmatter hit should be excluded; the body hit should remain.
-    result = server.search_body("NPM")
+    result = _tool(server, "search_body")("NPM")
     nginx_hit = next(
         h for h in result["hits_by_doc"] if h["doc_id"] == "rb-add-nginx-proxy-host"
     )
@@ -921,11 +945,11 @@ def test_search_body_skips_frontmatter_hits(fake_vault: Path) -> None:
 def test_inventory_for_project_filters_by_slug(fake_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # Tag the nginx runbook with a related project, then look it up.
-    server.update_frontmatter(
+    _tool(server, "update_frontmatter")(
         relative_path="03 Runbooks/Add Nginx Proxy Host.md",
         add_related_projects=["client-edge-dns"],
     )
-    result = server.inventory_for_project("client-edge-dns")
+    result = _tool(server, "inventory_for_project")("client-edge-dns")
     assert result["match_count"] == 1
     assert "runbook" in result["by_doc_type"]
 
@@ -937,33 +961,33 @@ def test_sample_vault_is_reproducible(monkeypatch) -> None:
 
     server = _fresh_module("severino_vault_mcp.server")
 
-    index_body = server.quick_index()
+    index_body = _quick_index_fn(server)()
     assert "Example Operations Vault Quick Index" in index_body
     assert "rb-generate-internal-cert" in index_body
 
-    doc_body = server.vault_doc("rb-generate-internal-cert")
+    doc_body = _vault_doc_fn(server)("rb-generate-internal-cert")
     assert "## Commands" in doc_body
     assert "./cert-gen <service>.internal.example" in doc_body
 
-    cert_result = server.find_runbook("generate internal certificate")
+    cert_result = _tool(server, "find_runbook")("generate internal certificate")
     assert cert_result["hits"][0]["doc_id"] == "rb-generate-internal-cert"
 
-    ca_result = server.read_doc("infra-offline-ca")
+    ca_result = _tool(server, "read_doc")("infra-offline-ca")
     assert ca_result["found"] is True
     assert ca_result["body_released"] is False
     assert "body" not in ca_result
 
-    ca_title_result = server.read_doc("Offline CA")
+    ca_title_result = _tool(server, "read_doc")("Offline CA")
     assert ca_title_result["found"] is True
     assert ca_title_result["doc_id"] == "infra-offline-ca"
     assert ca_title_result["body_released"] is False
     assert "body" not in ca_title_result
 
-    ca_slug_result = server.read_doc("offline ca")
+    ca_slug_result = _tool(server, "read_doc")("offline ca")
     assert ca_slug_result["found"] is True
     assert ca_slug_result["doc_id"] == "infra-offline-ca"
 
-    system_result = server.lookup_system("Offline CA")
+    system_result = _tool(server, "lookup_system")("Offline CA")
     assert any(match["doc_id"] == "infra-offline-ca" for match in system_result["matches"])
 
 
@@ -1088,7 +1112,7 @@ Check the resolver logs first when latency spikes.
 def test_read_doc_default_returns_whole_body_unchanged(fake_vault: Path) -> None:
     # Back-compat: the no-section path is byte-identical to before P1.
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("rb-add-nginx-proxy-host")
+    result = _tool(server, "read_doc")("rb-add-nginx-proxy-host")
     assert "body_scope" not in result
     assert "section" not in result
     assert result["body"].startswith("## Goal")
@@ -1097,7 +1121,7 @@ def test_read_doc_default_returns_whole_body_unchanged(fake_vault: Path) -> None
 def test_read_doc_section_returns_only_that_span(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("rb-backup-ops", section="troubleshooting")
+    result = _tool(server, "read_doc")("rb-backup-ops", section="troubleshooting")
     assert result["body_scope"] == "section"
     assert result["section"] == "troubleshooting"
     assert "resolver logs" in result["body"]
@@ -1107,7 +1131,7 @@ def test_read_doc_section_returns_only_that_span(fake_vault: Path) -> None:
 def test_read_doc_unknown_section_lists_available(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.read_doc("rb-backup-ops", section="nope")
+    result = _tool(server, "read_doc")("rb-backup-ops", section="nope")
     assert result["body_released"] is False
     assert "body" not in result
     slugs = {s["section"] for s in result["available_sections"]}
@@ -1117,7 +1141,7 @@ def test_read_doc_unknown_section_lists_available(fake_vault: Path) -> None:
 def test_find_runbook_hit_carries_section_menu(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_runbook("resolver latency troubleshooting")
+    result = _tool(server, "find_runbook")("resolver latency troubleshooting")
     top = result["hits"][0]
     assert top["doc_id"] == "rb-backup-ops"
     assert top["section"] == "troubleshooting"
@@ -1128,7 +1152,7 @@ def test_find_runbook_hit_carries_section_menu(fake_vault: Path) -> None:
 def test_get_runbook_returns_matched_section_body(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("resolver latency")
+    result = _tool(server, "get_runbook")("resolver latency")
     selected = result["selected"]
     assert selected["doc_id"] == "rb-backup-ops"
     assert selected["body_scope"] == "section"
@@ -1142,7 +1166,7 @@ def test_get_runbook_metadata_only_match_returns_whole_body(fake_vault: Path) ->
     # so a metadata-only match never drops the part holding the answer.
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_runbook("backup")
+    result = _tool(server, "get_runbook")("backup")
     selected = result["selected"]
     assert selected["doc_id"] == "rb-backup-ops"
     assert selected["body_scope"] == "doc"
@@ -1163,7 +1187,7 @@ def test_find_sections_matches_find_runbook_menu(fake_vault: Path) -> None:
 
     query = "resolver latency troubleshooting"
     service = find_sections(VaultLoader(Config.from_env()), query)
-    mcp = server.find_runbook(query)
+    mcp = _tool(server, "find_runbook")(query)
     # find_runbook adds the Quick Index routing hint on top; the menu hits match.
     assert service["hits"] == mcp["hits"]
     assert service["indexed_doc_count"] == mcp["indexed_doc_count"]
@@ -1390,7 +1414,7 @@ def test_mcp_describe_commands_matches_cli(fake_vault: Path) -> None:
     from severino_vault_mcp.cli import build_parser
     from severino_vault_mcp.cli_introspect import describe_parser
 
-    result = server.describe_commands()
+    result = _tool(server, "describe_commands")()
     assert result["ok"] is True
     assert {"find", "read", "describe"} <= {c["name"] for c in result["commands"]}
     assert result["commands"] == describe_parser(build_parser())["commands"]
