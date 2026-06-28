@@ -28,14 +28,14 @@ import subprocess
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
-from .. import jsonio, tabular
-from ..atomic_write import atomic_write_text
-from ..frontmatter import serialize_frontmatter, split_frontmatter
-from ..mirror import replace_region
-from ..sensitivity import Sensitivity, advisory, body_is_releasable
+from vault_engine import jsonio, tabular
+from vault_engine.atomic_write import atomic_write_text
+from vault_engine.frontmatter import serialize_frontmatter, split_frontmatter
+from vault_engine.mirror import replace_region
+from vault_engine.sensitivity import Sensitivity, advisory, body_is_releasable
 
 if TYPE_CHECKING:
-    from ..config import Config
+    from vault_engine.config import Config
 
 # A fetcher is a drift-guard command name; we only ever run it as a fixed argv
 # (`<fetcher> show`), never through a shell, and only if it is a plain name.

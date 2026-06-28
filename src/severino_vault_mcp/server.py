@@ -13,10 +13,11 @@ the vault's navigation hub without spending a search-tool call.
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from vault_engine.config import Config
+from vault_engine.context import ServerContext
+from vault_engine.core_tools import register_core
 
-from .config import Config
-from .context import ServerContext
-from .core_tools import register_core
+from .cli import build_parser
 from .tools import infra_datasets as infra_datasets_tools
 from .tools import site_ops as site_ops_tools
 from .tools import topology as topology_tools
@@ -138,7 +139,7 @@ The configured vault root and indexed directories are controlled by
 mcp = FastMCP("severino-vault-mcp", instructions=_SERVER_INSTRUCTIONS)
 
 
-register_core(mcp, _CTX)
+register_core(mcp, _CTX, build_parser=build_parser)
 
 
 # ----- composed Labs tool groups --------------------------------------------

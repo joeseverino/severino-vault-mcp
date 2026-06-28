@@ -15,11 +15,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ..atomic_write import transactional_replace
-from ..config import Config
-from ..frontmatter import yaml_escape
-from ..paths import path_within_root
-from ..vault import VaultLoader
+from vault_engine.atomic_write import transactional_replace
+from vault_engine.config import Config
+from vault_engine.frontmatter import yaml_escape
+from vault_engine.paths import path_within_root
+from vault_engine.vault import VaultLoader
+
 from .tech_groups import TechSlug, load_technology_catalog
 from .writeups import Writeup, extract_body_image_refs, load_writeups
 

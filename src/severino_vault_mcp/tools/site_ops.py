@@ -11,18 +11,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..context import ServerContext
+from vault_engine.context import ServerContext
+from vault_engine.secret_unlock import audit_event
+
 from ..labs import site_ops_service
-from ..secret_unlock import audit_event
 
 
 def register(mcp, ctx: ServerContext) -> None:
     """Register the site-ops tool group on ``mcp`` from a server context.
 
-    Pulls the SiteOpsRuntime and audit-log path off ``ctx``; a server that omits
-    this group never calls register, so the runtime is never built.
+    Builds its SiteOpsRuntime from the environment and reads the audit-log path
+    off ``ctx.config``; a server that omits this group never calls register, so
+    the runtime is never built.
     """
-    site_ops = ctx.site_ops
+    site_ops = site_ops_service.SiteOpsRuntime.from_env()
     audit_log = ctx.config.secret_unlock_audit_log
 
     @mcp.tool()

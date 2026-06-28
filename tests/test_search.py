@@ -122,9 +122,9 @@ date: 2026-06-19
 
 
 def test_vault_brief_flags_stale_docs_and_inbox(fake_vault: Path) -> None:
-    from severino_vault_mcp.brief_service import vault_brief
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
+    from vault_engine.brief_service import vault_brief
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
 
     # A top-level inbox capture (the fixture only seeds a Daily Note subdir).
     (fake_vault / "00 Inbox" / "idea.md").write_text(
@@ -166,7 +166,7 @@ def _tool(server, name):
 def _core_tools(server):
     """The freshly-imported core_tools module (where the core moved to)."""
     import sys
-    return sys.modules["severino_vault_mcp.core_tools"]
+    return sys.modules["vault_engine.core_tools"]
 
 
 def _quick_index_fn(server):
@@ -179,9 +179,9 @@ def _vault_doc_fn(server):
 
 def _vws_runtime():
     """A freshly-imported vault_write_service plus a loader on the env vault."""
-    vws = _fresh_module("severino_vault_mcp.vault_write_service")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
+    vws = _fresh_module("vault_engine.vault_write_service")
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
 
     return vws, VaultLoader(Config.from_env())
 
@@ -192,8 +192,8 @@ def _encoded_unlock_hash(phrase: str, salt: bytes = b"test-salt") -> str:
 
 
 def test_loader_indexes_only_tagged_docs(fake_vault: Path) -> None:
-    vault_mod = _fresh_module("severino_vault_mcp.vault")
-    from severino_vault_mcp.config import Config
+    vault_mod = _fresh_module("vault_engine.vault")
+    from vault_engine.config import Config
     loader = vault_mod.VaultLoader(Config.from_env())
     idx = loader.index()
     doc_ids = {d.doc_id for d in idx.docs}
@@ -234,8 +234,8 @@ def test_daily_progress_reports_missing_note(fake_vault: Path) -> None:
 
 
 def test_loader_indexes_local_aliases(fake_vault: Path) -> None:
-    vault_mod = _fresh_module("severino_vault_mcp.vault")
-    from severino_vault_mcp.config import Config
+    vault_mod = _fresh_module("vault_engine.vault")
+    from vault_engine.config import Config
 
     loader = vault_mod.VaultLoader(Config.from_env())
     idx = loader.index()
@@ -269,7 +269,7 @@ url = "https://metadata.example.test"
     monkeypatch.delenv("SVMC_INDEXED_DIRS", raising=False)
     monkeypatch.delenv("SVMC_CACHE_SECONDS", raising=False)
 
-    config_mod = _fresh_module("severino_vault_mcp.config")
+    config_mod = _fresh_module("vault_engine.config")
     config = config_mod.Config.from_env()
     assert config.vault_path == vault_a
     assert config.indexed_dirs == ("Docs",)
@@ -289,8 +289,8 @@ url = "https://metadata.example.test"
 
 
 def test_doctor_reports_missing_frontmatter_and_proposes_fix(fake_vault: Path) -> None:
-    doctor = _fresh_module("severino_vault_mcp.doctor")
-    from severino_vault_mcp.config import Config
+    doctor = _fresh_module("vault_engine.doctor")
+    from vault_engine.config import Config
 
     report = doctor.validate_vault(Config.from_env(), propose=True)
     assert report.ok is False
@@ -318,8 +318,8 @@ sensitivity: internal
         encoding="utf-8",
     )
 
-    doctor = _fresh_module("severino_vault_mcp.doctor")
-    from severino_vault_mcp.config import Config
+    doctor = _fresh_module("vault_engine.doctor")
+    from vault_engine.config import Config
 
     report = doctor.validate_vault(Config.from_env())
     messages = [f.message for f in report.findings if f.relative_path == "03 Runbooks/Bad.md"]
@@ -345,8 +345,8 @@ sensitivity: internal
         encoding="utf-8",
     )
 
-    doctor = _fresh_module("severino_vault_mcp.doctor")
-    from severino_vault_mcp.config import Config
+    doctor = _fresh_module("vault_engine.doctor")
+    from vault_engine.config import Config
 
     report = doctor.validate_vault(Config.from_env())
     messages = [f.message for f in report.findings if f.relative_path == "03 Runbooks/Duplicate.md"]
@@ -869,7 +869,7 @@ def test_update_frontmatter_preserves_multiline_scalar(fake_vault: Path) -> None
     assert result["ok"] is True
 
     frontmatter = _fresh_module(
-        "severino_vault_mcp.frontmatter"
+        "vault_engine.frontmatter"
     ).read_frontmatter(path)
     assert frontmatter is not None
     assert frontmatter["notes"] == (
@@ -1010,7 +1010,7 @@ Check the resolver logs first when latency spikes.
 
 
 def test_parse_sections_splits_at_h2_and_keeps_h3_inside() -> None:
-    from severino_vault_mcp.sections import parse_sections
+    from vault_engine.sections import parse_sections
 
     secs = parse_sections(_MULTISECTION_BODY, body_start_line=5)
     # preamble + two H2s; the H3 stays inside its parent (under the token cap).
@@ -1027,14 +1027,14 @@ def test_parse_sections_splits_at_h2_and_keeps_h3_inside() -> None:
 
 
 def test_parse_sections_disambiguates_duplicate_headings() -> None:
-    from severino_vault_mcp.sections import parse_sections
+    from vault_engine.sections import parse_sections
 
     secs = parse_sections("## Notes\n\nfirst\n\n## Notes\n\nsecond\n")
     assert [s.slug for s in secs] == ["notes", "notes-2"]
 
 
 def test_parse_sections_ignores_headings_inside_code_fences() -> None:
-    from severino_vault_mcp.sections import parse_sections
+    from vault_engine.sections import parse_sections
 
     body = "## Real\n\n```sh\n## not a heading\necho hi\n```\n\nstill real\n"
     secs = parse_sections(body)
@@ -1042,7 +1042,7 @@ def test_parse_sections_ignores_headings_inside_code_fences() -> None:
 
 
 def test_parse_sections_subsplits_oversized_h2_at_h3() -> None:
-    from severino_vault_mcp.sections import parse_sections
+    from vault_engine.sections import parse_sections
 
     filler = ("word " * 60 + "\n") * 3  # well over a tiny cap, per H3
     body = f"## Big\n\nlead\n\n### One\n\n{filler}\n### Two\n\n{filler}"
@@ -1055,7 +1055,7 @@ def test_parse_sections_subsplits_oversized_h2_at_h3() -> None:
 
 
 def test_resolve_section_by_slug_and_heading_path() -> None:
-    from severino_vault_mcp.sections import parse_sections, resolve_section
+    from vault_engine.sections import parse_sections, resolve_section
 
     secs = parse_sections(_MULTISECTION_BODY)
     assert resolve_section(secs, "troubleshooting").heading == "Troubleshooting"
@@ -1064,10 +1064,10 @@ def test_resolve_section_by_slug_and_heading_path() -> None:
 
 
 def test_best_section_picks_the_query_matching_span() -> None:
-    from severino_vault_mcp.search import best_section
-    from severino_vault_mcp.sections import parse_sections
-    from severino_vault_mcp.sensitivity import Sensitivity
-    from severino_vault_mcp.vault import Doc
+    from vault_engine.search import best_section
+    from vault_engine.sections import parse_sections
+    from vault_engine.sensitivity import Sensitivity
+    from vault_engine.vault import Doc
 
     doc = Doc(
         doc_id="x", title="X", doc_type="runbook", system="", environment="other",
@@ -1181,9 +1181,9 @@ def test_find_sections_matches_find_runbook_menu(fake_vault: Path) -> None:
     # renders, so the CLI and MCP can never drift on the menu.
     _write_multisection_doc(fake_vault)
     server = _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import find_sections
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import find_sections
 
     query = "resolver latency troubleshooting"
     service = find_sections(VaultLoader(Config.from_env()), query)
@@ -1200,9 +1200,9 @@ def test_find_sections_matches_find_runbook_menu(fake_vault: Path) -> None:
 def test_read_section_returns_one_span(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import read_section
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import read_section
 
     loader = VaultLoader(Config.from_env())
     result = read_section(loader, "rb-backup-ops", "troubleshooting")
@@ -1216,9 +1216,9 @@ def test_read_section_returns_one_span(fake_vault: Path) -> None:
 def test_read_section_whole_body_when_no_section(fake_vault: Path) -> None:
     _write_multisection_doc(fake_vault)
     _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import read_section
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import read_section
 
     result = read_section(VaultLoader(Config.from_env()), "rb-backup-ops")
     assert result["ok"] is True
@@ -1231,9 +1231,9 @@ def test_read_section_unknown_section_is_not_ok_and_lists_available(
 ) -> None:
     _write_multisection_doc(fake_vault)
     _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import read_section
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import read_section
 
     result = read_section(VaultLoader(Config.from_env()), "rb-backup-ops", "nope")
     assert result["ok"] is False
@@ -1247,9 +1247,9 @@ def test_read_section_withholds_restricted_without_unlock(fake_vault: Path) -> N
     # The CLI path never offers the interactive unlock read_doc has — restricted
     # bodies stay withheld, the same as search_body.
     _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import read_section
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import read_section
 
     result = read_section(VaultLoader(Config.from_env()), "infra-local-pki")
     assert result["ok"] is True
@@ -1260,9 +1260,9 @@ def test_read_section_withholds_restricted_without_unlock(fake_vault: Path) -> N
 
 def test_read_section_missing_doc_is_not_ok(fake_vault: Path) -> None:
     _fresh_module("severino_vault_mcp.server")
-    from severino_vault_mcp.config import Config
-    from severino_vault_mcp.vault import VaultLoader
-    from severino_vault_mcp.vault_search_service import read_section
+    from vault_engine.config import Config
+    from vault_engine.vault import VaultLoader
+    from vault_engine.vault_search_service import read_section
 
     result = read_section(VaultLoader(Config.from_env()), "rb-nope")
     assert result["ok"] is False
@@ -1312,8 +1312,9 @@ def test_cli_find_and_read_emit_the_menu(fake_vault: Path) -> None:
 def test_describe_parser_emits_command_surface() -> None:
     # The 'Code/guards' leg: describe is generated from the same parser that
     # backs --help, so it can never drift from the real command surface.
+    from vault_engine.cli_introspect import describe_parser
+
     from severino_vault_mcp.cli import build_parser
-    from severino_vault_mcp.cli_introspect import describe_parser
 
     surface = describe_parser(build_parser())
     assert surface["name"] == "severino-vault-mcp"
@@ -1411,8 +1412,9 @@ def test_cli_describe_emits_json() -> None:
 def test_mcp_describe_commands_matches_cli(fake_vault: Path) -> None:
     # The MCP tool and the CLI subcommand render the identical surface.
     server = _fresh_module("severino_vault_mcp.server")
+    from vault_engine.cli_introspect import describe_parser
+
     from severino_vault_mcp.cli import build_parser
-    from severino_vault_mcp.cli_introspect import describe_parser
 
     result = _tool(server, "describe_commands")()
     assert result["ok"] is True
@@ -1441,7 +1443,7 @@ def test_backfill_aliases_sets_title_alias_idempotently(fake_vault: Path) -> Non
     assert "01 Projects/sitedrift/index.md" in result["updated"]
 
     # The special-char title is YAML-escaped on write, so it round-trips cleanly.
-    from severino_vault_mcp.frontmatter import read_frontmatter
+    from vault_engine.frontmatter import read_frontmatter
 
     fm = read_frontmatter(proj / "index.md")
     assert fm is not None

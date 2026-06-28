@@ -12,17 +12,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..context import ServerContext
+from vault_engine.context import ServerContext
+
 from ..labs import writeup_service
 
 
 def register(mcp, ctx: ServerContext) -> None:
     """Register the writeup tool group on ``mcp`` from a server context.
 
-    Pulls the WriteupRuntime off ``ctx``; a server that omits this group never
-    calls register, so the runtime is never built.
+    Builds its WriteupRuntime from ``ctx.config`` / ``ctx.loader``; a server that
+    omits this group never calls register, so the runtime is never built.
     """
-    writeup_runtime = ctx.writeup_runtime
+    writeup_runtime = writeup_service.WriteupRuntime.from_config(
+        ctx.config, loader=ctx.loader
+    )
 
     @mcp.tool()
     def list_featured_writeup_order() -> dict[str, Any]:

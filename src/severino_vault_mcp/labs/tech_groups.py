@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..tabular import is_separator, split_row
+from vault_engine.tabular import is_separator, split_row
 
 
 @dataclass

@@ -699,6 +699,7 @@ dependencies = [
     { name = "cordon-emit" },
     { name = "mcp" },
     { name = "starlette" },
+    { name = "vault-engine" },
 ]
 
 [package.optional-dependencies]
@@ -714,6 +715,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "starlette", specifier = ">=1.0.1" },
+    { name = "vault-engine", directory = "../vault-engine" },
 ]
 provides-extras = ["dev"]
 
@@ -776,3 +778,23 @@ sdist = { url = "https://files.pythonhosted.org/packages/f6/b1/8e7077a8641086aea
 wheels = [
     { url = "https://files.pythonhosted.org/packages/15/41/ac2dfdbc1f60c7af4f994c7a335cfa7040c01642b605d65f611cecc2a1e4/uvicorn-0.47.0-py3-none-any.whl", hash = "sha256:2c5715bc12d1892d84752049f400cd1c3cb018514967fdfeb97640443a6a9432", size = 71301, upload-time = "2026-05-14T18:16:51.762Z" },
 ]
+
+[[package]]
+name = "vault-engine"
+version = "0.1.0"
+source = { directory = "../vault-engine" }
+dependencies = [
+    { name = "cordon-emit" },
+    { name = "mcp" },
+    { name = "starlette" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cordon-emit", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython" },
+    { name = "mcp", specifier = ">=1.27" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "starlette", specifier = ">=1.0.1" },
+]
+provides-extras = ["dev"]

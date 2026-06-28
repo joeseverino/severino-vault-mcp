@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..frontmatter import split_frontmatter
+from vault_engine.frontmatter import split_frontmatter
 
 IMAGE_REF_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 

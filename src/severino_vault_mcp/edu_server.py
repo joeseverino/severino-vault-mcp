@@ -13,11 +13,10 @@ same ``register(mcp, ctx)`` seam the Labs groups use.
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
-
-from .config import Config
-from .context import ServerContext
-from .core_tools import register_core
-from .schema import EDUCATION_PROFILE
+from vault_engine.config import Config
+from vault_engine.context import ServerContext
+from vault_engine.core_tools import register_core
+from vault_engine.schema import EDUCATION_PROFILE
 
 _CTX = ServerContext(Config.from_env(), profile=EDUCATION_PROFILE)
 

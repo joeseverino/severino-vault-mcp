@@ -580,7 +580,7 @@ def test_update_writeup_frontmatter_quotes_yaml_special_chars(
     # (`[`, `,`) is quoted exactly as a generic vault write would quote it,
     # and parses back to the original string.
     server = _fresh_module("severino_vault_mcp.server")
-    frontmatter = _fresh_module("severino_vault_mcp.frontmatter")
+    frontmatter = _fresh_module("vault_engine.frontmatter")
     path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
     tricky = "Notes on [arrays], colons: and commas"
     result = _tool(server, "update_writeup_frontmatter")("draft-piece", description=tricky)

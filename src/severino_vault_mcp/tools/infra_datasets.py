@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..context import ServerContext
+from vault_engine.context import ServerContext
+
 from ..labs import infra_datasets
 
 

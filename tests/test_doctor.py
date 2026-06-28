@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from severino_vault_mcp.config import Config
-from severino_vault_mcp.doctor import run_doctor
+from vault_engine.config import Config
+from vault_engine.doctor import run_doctor
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

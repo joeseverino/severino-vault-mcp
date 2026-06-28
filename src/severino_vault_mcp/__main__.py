@@ -6,7 +6,8 @@ import hashlib
 import sys
 from pathlib import Path
 
-from . import jsonio
+from vault_engine import jsonio
+
 from .cli import build_parser
 
 
@@ -46,8 +47,8 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "doctor":
-        from .config import Config
-        from .doctor import run_doctor
+        from vault_engine.config import Config
+        from vault_engine.doctor import run_doctor
 
         raise SystemExit(run_doctor(Config.from_env(), propose=args.propose))
 
@@ -138,25 +139,25 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "touch-reviewed":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_write_service import touch_reviewed
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
+        from vault_engine.vault_write_service import touch_reviewed
 
         result = touch_reviewed(VaultLoader(Config.from_env()), args.relative_path)
         _emit(result, pretty=args.pretty)
 
     if args.command == "backfill-aliases":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_write_service import backfill_aliases
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
+        from vault_engine.vault_write_service import backfill_aliases
 
         result = backfill_aliases(VaultLoader(Config.from_env()))
         _emit(result, pretty=args.pretty)
 
     if args.command == "find":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_search_service import find_sections
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
+        from vault_engine.vault_search_service import find_sections
 
         result = {
             "ok": True,
@@ -165,9 +166,9 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "read":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_search_service import read_section
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
+        from vault_engine.vault_search_service import read_section
 
         result = read_section(
             VaultLoader(Config.from_env()), args.doc_id, args.section
@@ -175,9 +176,9 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-list":
-        from .config import Config
-        from .task_service import list_tasks
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import list_tasks
+        from vault_engine.vault import VaultLoader
 
         result = list_tasks(
             VaultLoader(Config.from_env()),
@@ -190,9 +191,9 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "promote-note":
-        from .config import Config
-        from .task_service import promote_note
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import promote_note
+        from vault_engine.vault import VaultLoader
 
         result = promote_note(
             VaultLoader(Config.from_env()),
@@ -205,9 +206,9 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "update-frontmatter":
-        from .config import Config
-        from .vault import VaultLoader
-        from .vault_write_service import update_frontmatter
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
+        from vault_engine.vault_write_service import update_frontmatter
 
         result = update_frontmatter(
             VaultLoader(Config.from_env()),
@@ -226,25 +227,25 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-reconcile":
-        from .config import Config
-        from .task_service import reconcile_tasks
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import reconcile_tasks
+        from vault_engine.vault import VaultLoader
 
         result = reconcile_tasks(VaultLoader(Config.from_env()))
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-projects":
-        from .config import Config
-        from .task_service import list_projects
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import list_projects
+        from vault_engine.vault import VaultLoader
 
         result = list_projects(VaultLoader(Config.from_env()))
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-add":
-        from .config import Config
-        from .task_service import add_task
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import add_task
+        from vault_engine.vault import VaultLoader
 
         result = add_task(
             VaultLoader(Config.from_env()),
@@ -258,9 +259,9 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-move":
-        from .config import Config
-        from .task_service import set_task_status
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import set_task_status
+        from vault_engine.vault import VaultLoader
 
         result = set_task_status(
             VaultLoader(Config.from_env()), args.doc_id, args.status
@@ -268,15 +269,15 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-delete":
-        from .config import Config
-        from .task_service import delete_task
-        from .vault import VaultLoader
+        from vault_engine.config import Config
+        from vault_engine.task_service import delete_task
+        from vault_engine.vault import VaultLoader
 
         result = delete_task(VaultLoader(Config.from_env()), args.doc_id)
         _emit(result, pretty=args.pretty)
 
     if args.command == "describe":
-        from .cli_introspect import describe_parser
+        from vault_engine.cli_introspect import describe_parser
 
         # cordon's emitter returns the full {ok, schema_version, ...} document.
         result = describe_parser(parser)
@@ -284,7 +285,7 @@ def main() -> None:
 
     if args.command == "schema":
         if args.check_doc:
-            from .schema import check_doc_enums
+            from vault_engine.schema import check_doc_enums
 
             text = Path(args.check_doc).expanduser().read_text(
                 encoding="utf-8", errors="replace"
@@ -298,7 +299,7 @@ def main() -> None:
             print(f"ok: {args.check_doc} matches the canonical schema")
             raise SystemExit(0)
 
-        from .schema import as_dict
+        from vault_engine.schema import as_dict
 
         # canonical(): sorted + indented so the committed HQ copy is a stable diff.
         print(jsonio.canonical(as_dict()))
@@ -332,9 +333,9 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "brief":
-        from .brief_service import vault_brief
-        from .config import Config
-        from .vault import VaultLoader
+        from vault_engine.brief_service import vault_brief
+        from vault_engine.config import Config
+        from vault_engine.vault import VaultLoader
 
         result = vault_brief(
             VaultLoader(Config.from_env()),
@@ -347,7 +348,8 @@ def main() -> None:
     if args.command == "topology":
         import datetime
 
-        from .config import Config
+        from vault_engine.config import Config
+
         from .labs import infra_datasets
         from .labs import topology as topo_mod
 
@@ -399,7 +401,8 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "infra":
-        from .config import Config
+        from vault_engine.config import Config
+
         from .labs import infra_datasets
 
         config = Config.from_env()
@@ -412,7 +415,8 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "infra-write":
-        from .config import Config
+        from vault_engine.config import Config
+
         from .labs import infra_datasets
 
         result = infra_datasets.write_dataset(
@@ -421,8 +425,8 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "daily-write":
-        from . import daily_write
-        from .config import Config
+        from vault_engine import daily_write
+        from vault_engine.config import Config
 
         result = daily_write.write_daily_block(
             Config.from_env(), sys.stdin.read(), note_date=args.date
@@ -430,7 +434,8 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "topology-write":
-        from .config import Config
+        from vault_engine.config import Config
+
         from .labs import topology as topo_mod
 
         payload = sys.stdin.read() if args.replace else None

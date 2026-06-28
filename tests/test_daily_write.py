@@ -9,9 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from severino_vault_mcp.config import Config
-from severino_vault_mcp.daily_write import write_daily_block
+from vault_engine.config import Config
+from vault_engine.daily_write import write_daily_block
 
 
 @pytest.fixture

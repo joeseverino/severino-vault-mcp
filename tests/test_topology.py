@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
+from vault_engine.config import Config
 
-from severino_vault_mcp.config import Config
 from severino_vault_mcp.labs import topology as topo_mod
 
 SAMPLE = {
