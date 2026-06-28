@@ -14,13 +14,7 @@ from typing import Any
 from .atomic_write import atomic_write_text
 from .frontmatter import serialize_frontmatter, split_frontmatter
 from .paths import validate_indexed_path
-from .schema import (
-    DOC_ID_PREFIXES,
-    DOC_TYPES,
-    ENVIRONMENTS,
-    SENSITIVITIES,
-    STATUSES,
-)
+from .schema import LABS_PROFILE, SchemaProfile
 from .vault import VaultLoader
 
 
@@ -39,24 +33,25 @@ def add_frontmatter(
     related_projects: list[str] | None = None,
     related_assets: list[str] | None = None,
     last_reviewed: str | None = None,
+    profile: SchemaProfile = LABS_PROFILE,
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if doc_type not in DOC_TYPES:
-        errors.append(f"doc_type {doc_type!r} not in {sorted(DOC_TYPES)}")
-    if environment not in ENVIRONMENTS:
+    if doc_type not in profile.doc_types:
+        errors.append(f"doc_type {doc_type!r} not in {sorted(profile.doc_types)}")
+    if environment not in profile.environments:
         errors.append(
-            f"environment {environment!r} not in {sorted(ENVIRONMENTS)}"
+            f"environment {environment!r} not in {sorted(profile.environments)}"
         )
-    if status not in STATUSES:
-        errors.append(f"status {status!r} not in {sorted(STATUSES)}")
-    if sensitivity not in SENSITIVITIES:
+    if status not in profile.statuses:
+        errors.append(f"status {status!r} not in {sorted(profile.statuses)}")
+    if sensitivity not in profile.sensitivities:
         errors.append(
-            f"sensitivity {sensitivity!r} not in {sorted(SENSITIVITIES)}"
+            f"sensitivity {sensitivity!r} not in {sorted(profile.sensitivities)}"
         )
-    if not doc_id.startswith(DOC_ID_PREFIXES):
+    if not doc_id.startswith(profile.doc_id_prefixes):
         errors.append(
             f"doc_id {doc_id!r} must start with one of "
-            f"{list(DOC_ID_PREFIXES)}"
+            f"{list(profile.doc_id_prefixes)}"
         )
     if errors:
         return {"ok": False, "error": "; ".join(errors)}
@@ -166,19 +161,20 @@ def update_frontmatter(
     set_related_assets: list[str] | None = None,
     add_related_assets: list[str] | None = None,
     remove_related_assets: list[str] | None = None,
+    profile: SchemaProfile = LABS_PROFILE,
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if doc_type is not None and doc_type not in DOC_TYPES:
-        errors.append(f"doc_type {doc_type!r} not in {sorted(DOC_TYPES)}")
-    if environment is not None and environment not in ENVIRONMENTS:
+    if doc_type is not None and doc_type not in profile.doc_types:
+        errors.append(f"doc_type {doc_type!r} not in {sorted(profile.doc_types)}")
+    if environment is not None and environment not in profile.environments:
         errors.append(
-            f"environment {environment!r} not in {sorted(ENVIRONMENTS)}"
+            f"environment {environment!r} not in {sorted(profile.environments)}"
         )
-    if status is not None and status not in STATUSES:
-        errors.append(f"status {status!r} not in {sorted(STATUSES)}")
-    if sensitivity is not None and sensitivity not in SENSITIVITIES:
+    if status is not None and status not in profile.statuses:
+        errors.append(f"status {status!r} not in {sorted(profile.statuses)}")
+    if sensitivity is not None and sensitivity not in profile.sensitivities:
         errors.append(
-            f"sensitivity {sensitivity!r} not in {sorted(SENSITIVITIES)}"
+            f"sensitivity {sensitivity!r} not in {sorted(profile.sensitivities)}"
         )
     if errors:
         return {"ok": False, "error": "; ".join(errors)}

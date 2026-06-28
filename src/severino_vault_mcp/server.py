@@ -863,6 +863,7 @@ def add_frontmatter(
         related_projects=related_projects,
         related_assets=related_assets,
         last_reviewed=last_reviewed,
+        profile=_CTX.profile,
     )
 
 
@@ -932,6 +933,7 @@ def update_frontmatter(
         set_related_assets=set_related_assets,
         add_related_assets=add_related_assets,
         remove_related_assets=remove_related_assets,
+        profile=_CTX.profile,
     )
 
 

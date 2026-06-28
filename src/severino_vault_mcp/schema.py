@@ -147,6 +147,31 @@ LABS_PROFILE = SchemaProfile(
     ),
 )
 
+# A second profile, proving the framework parameterizes a non-ops vault: the
+# Georgia Tech / education vault. Courses, course notes, and assignments instead
+# of runbooks; a course lifecycle instead of doc statuses; a lighter required-field
+# set (no system / environment / sensitivity). The universal task lifecycle is
+# reused verbatim — a task is a task in any vault.
+EDUCATION_PROFILE = SchemaProfile(
+    name="education",
+    doc_types=frozenset({
+        "course", "course_note", "assignment", "resource", "task",
+    }),
+    environments=frozenset({"gatech", "cert", "other"}),
+    statuses=frozenset({
+        "upcoming", "active", "completed", "dropped", "draft", "archived",
+    }),
+    sensitivities=frozenset({"public", "internal"}),
+    doc_id_prefixes=("course-", "cnote-", "asg-", "res-", "task-"),
+    required_fields=("doc_id", "title", "doc_type", "status"),
+    task_statuses=frozenset({"open", "active", "parked", "done", "wontfix"}),
+    task_required_fields=("doc_id", "title", "doc_type", "status"),
+    task_fields=(
+        "status", "related_projects", "effort", "priority", "created", "closed",
+    ),
+)
+
+
 # Backward-compatible module-level names: the Labs profile is the default vault
 # contract, so these aliases keep existing `from .schema import DOC_TYPES`-style
 # imports working unchanged through the engine extraction.

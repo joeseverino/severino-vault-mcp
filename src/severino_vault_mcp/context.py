@@ -16,14 +16,21 @@ from __future__ import annotations
 
 from .config import Config
 from .labs import site_ops_service, writeup_service
+from .schema import LABS_PROFILE, SchemaProfile
 from .vault import VaultLoader
 
 
 class ServerContext:
-    """Lazily-built runtimes a server's tool groups share, keyed off one Config."""
+    """Lazily-built runtimes a server's tool groups share, keyed off one Config.
 
-    def __init__(self, config: Config) -> None:
+    ``profile`` is the vault's frontmatter contract — the schema-validated write
+    tools check against it, so a Labs server and an Education server differ only
+    by the profile their context carries.
+    """
+
+    def __init__(self, config: Config, profile: SchemaProfile = LABS_PROFILE) -> None:
         self.config = config
+        self.profile = profile
         self._loader: VaultLoader | None = None
         self._writeup_runtime: writeup_service.WriteupRuntime | None = None
         self._site_ops: site_ops_service.SiteOpsRuntime | None = None
