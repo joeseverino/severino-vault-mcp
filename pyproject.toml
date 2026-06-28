@@ -61,9 +61,10 @@ Issues = "https://github.com/joeseverino/severino-vault-mcp/issues"
 # it during `uv sync`). Tracks cordon's main; uv.lock pins the exact commit, so
 # pull a newer emitter deliberately with `uv lock --upgrade-package cordon-emit`.
 cordon-emit = { git = "https://github.com/joeseverino/cordon", subdirectory = "emitters/python" }
-# severino-vault-engine is the sibling repo in Assets/. Path source for this
-# personal install; outside consumers get it from PyPI by version.
-severino-vault-engine = { path = "../vault-engine" }
+# severino-vault-engine resolves from its public repo (auth-free, like
+# cordon-emit), so this works in CI and on any machine, not just where the repos
+# are siblings. uv.lock pins the commit. Also on PyPI for outside consumers.
+severino-vault-engine = { git = "https://github.com/joeseverino/vault-engine" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/severino_vault_mcp"]

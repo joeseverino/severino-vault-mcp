@@ -694,21 +694,11 @@ wheels = [
 [[package]]
 name = "severino-vault-engine"
 version = "0.1.1"
-source = { directory = "../vault-engine" }
+source = { git = "https://github.com/joeseverino/vault-engine#b4f557e59fe0d4d1e5821bb3dbab49041c8e4bd9" }
 dependencies = [
     { name = "mcp" },
     { name = "starlette" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cordon-emit", marker = "extra == 'describe'", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython" },
-    { name = "mcp", specifier = ">=1.27" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "starlette", specifier = ">=1.0.1" },
-]
-provides-extras = ["describe", "dev"]
 
 [[package]]
 name = "severino-vault-mcp"
@@ -733,7 +723,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.27" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "severino-vault-engine", directory = "../vault-engine" },
+    { name = "severino-vault-engine", git = "https://github.com/joeseverino/vault-engine" },
     { name = "starlette", specifier = ">=1.0.1" },
 ]
 provides-extras = ["dev"]
