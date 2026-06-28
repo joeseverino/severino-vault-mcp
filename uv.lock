@@ -693,17 +693,22 @@ wheels = [
 
 [[package]]
 name = "severino-vault-engine"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.1"
+source = { directory = "../vault-engine" }
 dependencies = [
-    { name = "cordon-emit" },
     { name = "mcp" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/57/17/31f5b5d8690130d1ae20686bf6b740ed52b4da54e1e16966d68a10ab0497/severino_vault_engine-0.1.0.tar.gz", hash = "sha256:7ae089c4e4e537c79aefab9455c29f86082e465bb2ed3b44383d9288817126f4", size = 56201, upload-time = "2026-06-28T02:57:25.572Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/04/edcab3deaf12ec8daf371706947543068438a153d09489b0fe920fb0733c/severino_vault_engine-0.1.0-py3-none-any.whl", hash = "sha256:dcdc1834f1c769a63cd5d5109ed7f82e5d08a16a0254c78f17386723c1b4ddc1", size = 63765, upload-time = "2026-06-28T02:57:24.357Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "cordon-emit", marker = "extra == 'describe'", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython" },
+    { name = "mcp", specifier = ">=1.27" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "starlette", specifier = ">=1.0.1" },
 ]
+provides-extras = ["describe", "dev"]
 
 [[package]]
 name = "severino-vault-mcp"
@@ -728,7 +733,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.27" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "severino-vault-engine", specifier = ">=0.1.0" },
+    { name = "severino-vault-engine", directory = "../vault-engine" },
     { name = "starlette", specifier = ">=1.0.1" },
 ]
 provides-extras = ["dev"]

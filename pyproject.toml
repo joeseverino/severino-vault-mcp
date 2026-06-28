@@ -36,8 +36,10 @@ dependencies = [
     # thin binding). Resolved from cordon's main via the git source below.
     "cordon-emit",
     # The domain-agnostic engine (schema profiles, index, search, task ledger,
-    # register_core), published to PyPI. Import package is `vault_engine`.
-    "severino-vault-engine>=0.1.0",
+    # register_core). Import package is `vault_engine`. Resolved from the sibling
+    # repo via the path source below for this personal install; it's also on PyPI
+    # (`pip install severino-vault-engine`) for outside consumers.
+    "severino-vault-engine>=0.1.1",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +61,9 @@ Issues = "https://github.com/joeseverino/severino-vault-mcp/issues"
 # it during `uv sync`). Tracks cordon's main; uv.lock pins the exact commit, so
 # pull a newer emitter deliberately with `uv lock --upgrade-package cordon-emit`.
 cordon-emit = { git = "https://github.com/joeseverino/cordon", subdirectory = "emitters/python" }
-# severino-vault-engine resolves from PyPI — no source override needed.
+# severino-vault-engine is the sibling repo in Assets/. Path source for this
+# personal install; outside consumers get it from PyPI by version.
+severino-vault-engine = { path = "../vault-engine" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/severino_vault_mcp"]
