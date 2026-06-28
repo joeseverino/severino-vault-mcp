@@ -52,7 +52,7 @@ def main() -> None:
         raise SystemExit(run_doctor(Config.from_env(), propose=args.propose))
 
     if args.command == "prepare-writeup-publish":
-        from .writeup_service import WriteupRuntime, prepare_writeup_publish
+        from .labs.writeup_service import WriteupRuntime, prepare_writeup_publish
 
         result = prepare_writeup_publish(
             WriteupRuntime.from_env(),
@@ -62,7 +62,7 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "validate-writeup":
-        from .writeup_service import WriteupRuntime, validate_writeup
+        from .labs.writeup_service import WriteupRuntime, validate_writeup
 
         result = validate_writeup(
             WriteupRuntime.from_env(), args.slug, draft=args.draft
@@ -70,19 +70,19 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "list-writeups":
-        from .writeup_service import WriteupRuntime, list_writeups
+        from .labs.writeup_service import WriteupRuntime, list_writeups
 
         result = list_writeups(WriteupRuntime.from_env(), args.filter)
         _emit(result, pretty=args.pretty)
 
     if args.command == "technology-catalog":
-        from .writeup_service import WriteupRuntime, get_technology_catalog
+        from .labs.writeup_service import WriteupRuntime, get_technology_catalog
 
         result = get_technology_catalog(WriteupRuntime.from_env())
         _emit(result, pretty=args.pretty)
 
     if args.command == "validate-all-writeups":
-        from .writeup_service import WriteupRuntime, validate_all_writeups
+        from .labs.writeup_service import WriteupRuntime, validate_all_writeups
 
         result = validate_all_writeups(
             WriteupRuntime.from_env(),
@@ -91,13 +91,13 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "writeup-dashboard":
-        from .writeup_service import WriteupRuntime, writeup_dashboard
+        from .labs.writeup_service import WriteupRuntime, writeup_dashboard
 
         result = writeup_dashboard(WriteupRuntime.from_env())
         _emit(result, pretty=args.pretty)
 
     if args.command == "apply-writeup-plan":
-        from .writeup_service import WriteupRuntime, apply_writeup_plan
+        from .labs.writeup_service import WriteupRuntime, apply_writeup_plan
 
         try:
             plan = jsonio.loads(sys.stdin.read(), source="writeup plan")
@@ -108,7 +108,7 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "reorder-featured":
-        from .writeup_service import WriteupRuntime, reorder_featured
+        from .labs.writeup_service import WriteupRuntime, reorder_featured
 
         result = reorder_featured(
             WriteupRuntime.from_env(),
@@ -118,7 +118,7 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "update-writeup":
-        from .writeup_service import (
+        from .labs.writeup_service import (
             WriteupRuntime,
             update_writeup_frontmatter,
         )
@@ -305,7 +305,7 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "hq-manifest":
-        from .hq_manifest import build_hq_manifest
+        from .labs.hq_manifest import build_hq_manifest
 
         result = build_hq_manifest(
             Path(args.vault).expanduser(),
@@ -347,9 +347,9 @@ def main() -> None:
     if args.command == "topology":
         import datetime
 
-        from . import infra_datasets
-        from . import topology as topo_mod
         from .config import Config
+        from .labs import infra_datasets
+        from .labs import topology as topo_mod
 
         config = Config.from_env()
         # Reflected pointer list comes from the one registry, not topology.json.
@@ -399,8 +399,8 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "infra":
-        from . import infra_datasets
         from .config import Config
+        from .labs import infra_datasets
 
         config = Config.from_env()
         if args.dataset_id:
@@ -412,8 +412,8 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "infra-write":
-        from . import infra_datasets
         from .config import Config
+        from .labs import infra_datasets
 
         result = infra_datasets.write_dataset(
             Config.from_env(), args.dataset_id, sys.stdin.read()
@@ -430,8 +430,8 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "topology-write":
-        from . import topology as topo_mod
         from .config import Config
+        from .labs import topology as topo_mod
 
         payload = sys.stdin.read() if args.replace else None
         result = topo_mod.write_topology(Config.from_env(), payload)

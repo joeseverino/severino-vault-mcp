@@ -25,11 +25,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import jsonio
-from .atomic_write import atomic_write_text
+from .. import jsonio
+from ..atomic_write import atomic_write_text
 
 if TYPE_CHECKING:
-    from .config import Config
+    from ..config import Config
 
 # The generated tables in Topology.md live between these markers, so the doc
 # keeps a stable frontmatter + heading shell while `--check-doc` compares only

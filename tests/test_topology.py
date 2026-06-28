@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from severino_vault_mcp import topology as topo_mod
 from severino_vault_mcp.config import Config
+from severino_vault_mcp.labs import topology as topo_mod
 
 SAMPLE = {
     "version": 1,

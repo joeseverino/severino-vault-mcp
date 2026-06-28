@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import writeup_service
 from ..context import ServerContext
+from ..labs import writeup_service
 
 
 def register(mcp, ctx: ServerContext) -> None:

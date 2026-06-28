@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from severino_vault_mcp.hq_manifest import build_hq_manifest
+from severino_vault_mcp.labs.hq_manifest import build_hq_manifest
 
 
 def _write_doc(path: Path, doc_id: str, notes: str = "") -> None:

@@ -168,14 +168,14 @@ def _tool(server, name):
 
 
 def test_load_writeups_skips_bare_folders(fake_writeups_vault: Path) -> None:
-    writeups_mod = _fresh_module("severino_vault_mcp.writeups")
+    writeups_mod = _fresh_module("severino_vault_mcp.labs.writeups")
     writeups = writeups_mod.load_writeups(fake_writeups_vault / "05 Writeups")
     slugs = {w.slug for w in writeups}
     assert slugs == {"ready-piece", "draft-piece", "lead-piece"}
 
 
 def test_load_writeups_parses_typed_fields(fake_writeups_vault: Path) -> None:
-    writeups_mod = _fresh_module("severino_vault_mcp.writeups")
+    writeups_mod = _fresh_module("severino_vault_mcp.labs.writeups")
     writeups = writeups_mod.load_writeups(fake_writeups_vault / "05 Writeups")
     ready = next(w for w in writeups if w.slug == "ready-piece")
     assert ready.published is True
@@ -187,7 +187,7 @@ def test_load_writeups_parses_typed_fields(fake_writeups_vault: Path) -> None:
 
 
 def test_load_writeups_handles_empty_featured_order(fake_writeups_vault: Path) -> None:
-    writeups_mod = _fresh_module("severino_vault_mcp.writeups")
+    writeups_mod = _fresh_module("severino_vault_mcp.labs.writeups")
     writeups = writeups_mod.load_writeups(fake_writeups_vault / "05 Writeups")
     draft = next(w for w in writeups if w.slug == "draft-piece")
     assert draft.featured is False
@@ -199,7 +199,7 @@ def test_load_writeups_handles_empty_featured_order(fake_writeups_vault: Path) -
 
 
 def test_load_technology_catalog_parses_tables(fake_writeups_vault: Path) -> None:
-    tech_mod = _fresh_module("severino_vault_mcp.tech_groups")
+    tech_mod = _fresh_module("severino_vault_mcp.labs.tech_groups")
     catalog = tech_mod.load_technology_catalog(
         fake_writeups_vault / "06 Pages" / "_technology-groups.md"
     )
@@ -209,7 +209,7 @@ def test_load_technology_catalog_parses_tables(fake_writeups_vault: Path) -> Non
 
 
 def test_load_technology_catalog_missing_file_returns_empty(tmp_path: Path) -> None:
-    tech_mod = _fresh_module("severino_vault_mcp.tech_groups")
+    tech_mod = _fresh_module("severino_vault_mcp.labs.tech_groups")
     catalog = tech_mod.load_technology_catalog(tmp_path / "nope.md")
     assert catalog == []
 
@@ -467,7 +467,7 @@ def test_validate_all_writeups_loads_writeups_once(
     fake_writeups_vault: Path,
     monkeypatch,
 ) -> None:
-    service = _fresh_module("severino_vault_mcp.writeup_service")
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
     original = service.load_writeups
     calls = 0
 
@@ -489,7 +489,7 @@ def test_validate_all_writeups_loads_writeups_once(
 def test_writeup_dashboard_combines_listing_and_validation(
     fake_writeups_vault: Path,
 ) -> None:
-    service = _fresh_module("severino_vault_mcp.writeup_service")
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
     result = service.writeup_dashboard(service.WriteupRuntime.from_env())
 
     assert result["ok"] is True
@@ -639,7 +639,7 @@ def test_reorder_featured_rejects_out_of_range(fake_writeups_vault: Path) -> Non
 def test_apply_writeup_plan_updates_fields_and_complete_featured_order(
     fake_writeups_vault: Path,
 ) -> None:
-    service = _fresh_module("severino_vault_mcp.writeup_service")
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
     result = service.apply_writeup_plan(
         service.WriteupRuntime.from_env(),
         {
@@ -677,7 +677,7 @@ def test_apply_writeup_plan_rolls_back_partial_replace_failure(
     fake_writeups_vault: Path,
     monkeypatch,
 ) -> None:
-    service = _fresh_module("severino_vault_mcp.writeup_service")
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
     lead = fake_writeups_vault / "05 Writeups" / "lead-piece" / "index.md"
     ready = fake_writeups_vault / "05 Writeups" / "ready-piece" / "index.md"
     originals = {lead: lead.read_bytes(), ready: ready.read_bytes()}

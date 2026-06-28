@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import topology as topology_mod
 from ..context import ServerContext
+from ..labs import topology as topology_mod
 
 
 def register(mcp, ctx: ServerContext) -> None:

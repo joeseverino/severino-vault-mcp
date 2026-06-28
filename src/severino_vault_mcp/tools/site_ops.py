@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import site_ops_service
 from ..context import ServerContext
+from ..labs import site_ops_service
 from ..secret_unlock import audit_event
 
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from severino_vault_mcp import infra_datasets
 from severino_vault_mcp.config import Config
+from severino_vault_mcp.labs import infra_datasets
 
 REGISTRY = {
     "version": 1,

@@ -14,8 +14,8 @@ Labs context that extends it; the ``register(mcp, ctx)`` seam does not change.
 
 from __future__ import annotations
 
-from . import site_ops_service, writeup_service
 from .config import Config
+from .labs import site_ops_service, writeup_service
 from .vault import VaultLoader
 
 

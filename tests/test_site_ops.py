@@ -11,7 +11,7 @@ import importlib
 import sys
 from pathlib import Path
 
-from severino_vault_mcp import site_ops_service as ops
+from severino_vault_mcp.labs import site_ops_service as ops
 
 _RUNTIME = ops.SiteOpsRuntime(
     d1_database="jseverino-contact",
@@ -163,7 +163,7 @@ def test_include_pii_writes_audit_line(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", str(audit_path))
     server = _fresh_server()
     monkeypatch.setattr(
-        sys.modules["severino_vault_mcp.site_ops_service"],
+        sys.modules["severino_vault_mcp.labs.site_ops_service"],
         "_run_d1_json",
         lambda _rt, _sql, **_kw: {
             "ok": True,
@@ -187,7 +187,7 @@ def test_redacted_call_writes_no_audit_line(tmp_path: Path, monkeypatch) -> None
     monkeypatch.setenv("SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", str(audit_path))
     server = _fresh_server()
     monkeypatch.setattr(
-        sys.modules["severino_vault_mcp.site_ops_service"],
+        sys.modules["severino_vault_mcp.labs.site_ops_service"],
         "_run_d1_json",
         lambda _rt, _sql, **_kw: {
             "ok": True,
