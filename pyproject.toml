@@ -48,7 +48,6 @@ dev = [
 
 [project.scripts]
 severino-vault-mcp = "severino_vault_mcp.__main__:main"
-severino-edu-mcp = "severino_vault_mcp.edu_server:run"
 
 [project.urls]
 Homepage = "https://github.com/joeseverino/severino-vault-mcp"
