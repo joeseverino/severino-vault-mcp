@@ -29,6 +29,15 @@ requests over stdio from the MCP host. The important boundary is simple: the
 MCP can only see files the local user can read, under folders the operator
 explicitly indexes.
 
+The generic vault-governance core — indexing, ranked section search, the
+sensitivity gate, atomic writes, the task ledger, and the schema-profile
+framework — lives in a separate library,
+[`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
+(`pip install severino-vault-engine`). `severino-vault-mcp` is a thin domain
+server that composes that engine and adds the Severino Labs profile plus the
+jseverino.com operator tools; a sibling server, `severino-edu-mcp`, composes the
+same engine against an education vault.
+
 The project has two first-class surfaces. The generic vault surface is reusable
 by anyone with an Obsidian-style operations vault: Quick Index navigation,
 stable `doc_id` lookups, runbook search, project inventory, body search with
