@@ -154,6 +154,16 @@ def _fresh_module(name: str):
     return importlib.import_module(name)
 
 
+def _tool(server, name):
+    """The registered tool's underlying callable.
+
+    The writeup tools moved out of server.py into tools/writeups.py, where they
+    are closures registered on the FastMCP instance; reach the callable through
+    the tool manager so these tests still drive the real registered function.
+    """
+    return server.mcp._tool_manager._tools[name].fn
+
+
 # ----- writeup loader --------------------------------------------------------
 
 
@@ -211,7 +221,7 @@ def test_list_featured_writeup_order_returns_compact_order(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_featured_writeup_order()
+    result = _tool(server, "list_featured_writeup_order")()
 
     assert result["ok"] is True
     assert result["count"] == 2
@@ -235,7 +245,7 @@ def test_list_featured_writeup_order_returns_compact_order(
 
 def test_list_writeups_all_returns_every_indexed(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups()
+    result = _tool(server, "list_writeups")()
     assert result["ok"] is True
     assert result["count"] == 3
     slugs = {w["slug"] for w in result["writeups"]}
@@ -244,21 +254,21 @@ def test_list_writeups_all_returns_every_indexed(fake_writeups_vault: Path) -> N
 
 def test_list_writeups_filters_published(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups("published")
+    result = _tool(server, "list_writeups")("published")
     slugs = {w["slug"] for w in result["writeups"]}
     assert slugs == {"ready-piece", "lead-piece"}
 
 
 def test_list_writeups_filters_draft(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups("draft")
+    result = _tool(server, "list_writeups")("draft")
     slugs = {w["slug"] for w in result["writeups"]}
     assert slugs == {"draft-piece"}
 
 
 def test_list_writeups_featured_is_sorted_by_order(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups("featured")
+    result = _tool(server, "list_writeups")("featured")
     ordered = [w["slug"] for w in result["writeups"]]
     assert ordered == ["lead-piece", "ready-piece"]
     assert [w["slug"] for w in result["order"]] == ["lead-piece", "ready-piece"]
@@ -270,7 +280,7 @@ def test_list_writeups_published_includes_compact_featured_order(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups("published")
+    result = _tool(server, "list_writeups")("published")
 
     assert result["count"] == 2
     assert [w["slug"] for w in result["featured_order"]] == ["lead-piece", "ready-piece"]
@@ -294,7 +304,7 @@ def test_list_writeups_published_includes_compact_featured_order(
 
 def test_list_writeups_rejects_unknown_filter(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.list_writeups("bogus")
+    result = _tool(server, "list_writeups")("bogus")
     assert result["ok"] is False
     assert "unknown filter" in result["error"]
 
@@ -309,7 +319,7 @@ def test_list_writeups_rejects_path_outside_vault(
     monkeypatch.setenv("SVMC_JSEVERINO_WRITEUPS_DIR", str(outside))
     server = _fresh_module("severino_vault_mcp.server")
 
-    result = server.list_writeups()
+    result = _tool(server, "list_writeups")()
 
     assert result["ok"] is False
     assert "inside configured vault root" in result["error"]
@@ -320,7 +330,7 @@ def test_list_writeups_rejects_path_outside_vault(
 
 def test_get_technology_catalog_returns_grouped(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.get_technology_catalog()
+    result = _tool(server, "get_technology_catalog")()
     assert result["ok"] is True
     assert result["total_slugs"] == 4
     assert result["featured_count"] == 3
@@ -337,7 +347,7 @@ def test_get_technology_catalog_rejects_path_outside_vault(
     monkeypatch.setenv("SVMC_JSEVERINO_TECH_GROUPS", str(outside))
     server = _fresh_module("severino_vault_mcp.server")
 
-    result = server.get_technology_catalog()
+    result = _tool(server, "get_technology_catalog")()
 
     assert result["ok"] is False
     assert "inside configured vault root" in result["error"]
@@ -348,7 +358,7 @@ def test_get_technology_catalog_rejects_path_outside_vault(
 
 def test_find_writeups_using_tag_returns_matches(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_writeups_using_tag("docker")
+    result = _tool(server, "find_writeups_using_tag")("docker")
     assert result["ok"] is True
     assert result["total_matches"] == 3
     assert result["published_matches"] == 2
@@ -356,7 +366,7 @@ def test_find_writeups_using_tag_returns_matches(fake_writeups_vault: Path) -> N
 
 def test_find_writeups_using_tag_no_match(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_writeups_using_tag("does-not-exist")
+    result = _tool(server, "find_writeups_using_tag")("does-not-exist")
     assert result["ok"] is True
     assert result["total_matches"] == 0
     assert result["writeups"] == []
@@ -364,7 +374,7 @@ def test_find_writeups_using_tag_no_match(fake_writeups_vault: Path) -> None:
 
 def test_find_writeups_using_tag_requires_slug(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.find_writeups_using_tag("   ")
+    result = _tool(server, "find_writeups_using_tag")("   ")
     assert result["ok"] is False
 
 
@@ -373,7 +383,7 @@ def test_find_writeups_using_tag_requires_slug(fake_writeups_vault: Path) -> Non
 
 def test_validate_writeup_passes_for_ready_piece(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.validate_writeup("ready-piece")
+    result = _tool(server, "validate_writeup")("ready-piece")
     assert result["ok"] is True, result
     assert result["blockers"] == []
     assert result["missing_tech_slugs"] == []
@@ -382,7 +392,7 @@ def test_validate_writeup_passes_for_ready_piece(fake_writeups_vault: Path) -> N
 
 def test_validate_writeup_reports_blockers_and_misses(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.validate_writeup("draft-piece")
+    result = _tool(server, "validate_writeup")("draft-piece")
     assert result["ok"] is False
     assert any("published is false" in b for b in result["blockers"])
     assert any("published_at empty" in b for b in result["blockers"])
@@ -393,7 +403,7 @@ def test_validate_writeup_reports_blockers_and_misses(fake_writeups_vault: Path)
 
 def test_validate_writeup_missing_folder(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.validate_writeup("never-existed")
+    result = _tool(server, "validate_writeup")("never-existed")
     assert result["ok"] is False
     assert "writeup folder not found" in result["error"]
 
@@ -405,7 +415,7 @@ def test_prepare_writeup_publish_composes_validate_and_featured(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.prepare_writeup_publish("ready-piece")
+    result = _tool(server, "prepare_writeup_publish")("ready-piece")
 
     assert result["ok"] is True
     assert result["slug"] == "ready-piece"
@@ -423,7 +433,7 @@ def test_prepare_writeup_publish_reports_failed_validation(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.prepare_writeup_publish("draft-piece")
+    result = _tool(server, "prepare_writeup_publish")("draft-piece")
     assert result["ok"] is False
     assert any("published is false" in b for b in result["validation"]["blockers"])
     # unfeatured writeups have null position
@@ -434,7 +444,7 @@ def test_prepare_writeup_publish_omits_tag_usage_by_default(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.prepare_writeup_publish("ready-piece")
+    result = _tool(server, "prepare_writeup_publish")("ready-piece")
     # Default off — saves ~300-500 tokens per call.
     assert "tag_usage" not in result
 
@@ -443,7 +453,7 @@ def test_prepare_writeup_publish_includes_tag_usage_when_requested(
     fake_writeups_vault: Path,
 ) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.prepare_writeup_publish("ready-piece", include_tag_usage=True)
+    result = _tool(server, "prepare_writeup_publish")("ready-piece", include_tag_usage=True)
     # ready-piece has technologies: [docker, python] — both should show usage stats
     assert "docker" in result["tag_usage"]
     assert "python" in result["tag_usage"]
@@ -505,7 +515,7 @@ def test_validate_writeup_flags_unresolved_related_assets(fake_writeups_vault: P
     )
     index.write_text(text, encoding="utf-8")
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.validate_writeup("ready-piece")
+    result = _tool(server, "validate_writeup")("ready-piece")
     assert any("never-existed-thing" in ref for ref in result["unresolved_refs"])
     # ok should now be false because of the dangling ref
     assert result["ok"] is False
@@ -516,7 +526,7 @@ def test_validate_writeup_flags_unresolved_related_assets(fake_writeups_vault: P
 
 def test_update_writeup_frontmatter_touches_last_reviewed(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.update_writeup_frontmatter("draft-piece", touch_last_reviewed=True)
+    result = _tool(server, "update_writeup_frontmatter")("draft-piece", touch_last_reviewed=True)
     assert result["ok"] is True
     assert "last_reviewed" in result["changed_fields"]
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
@@ -529,7 +539,7 @@ def test_update_writeup_frontmatter_touches_last_reviewed(fake_writeups_vault: P
 
 def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.update_writeup_frontmatter("draft-piece", published=True, published_at="2026-05-30")
+    result = _tool(server, "update_writeup_frontmatter")("draft-piece", published=True, published_at="2026-05-30")
     assert result["ok"] is True
     assert set(result["changed_fields"]) == {"published", "published_at"}
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
@@ -542,7 +552,7 @@ def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -
 def test_update_writeup_frontmatter_no_op_when_unchanged(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # ready-piece already has published=True, so passing the same value is a no-op
-    result = server.update_writeup_frontmatter("ready-piece", published=True)
+    result = _tool(server, "update_writeup_frontmatter")("ready-piece", published=True)
     assert result["ok"] is True
     assert result.get("no_op") is True
 
@@ -551,7 +561,7 @@ def test_update_writeup_frontmatter_preserves_other_lines(fake_writeups_vault: P
     server = _fresh_module("severino_vault_mcp.server")
     path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
     before = path.read_text(encoding="utf-8")
-    server.update_writeup_frontmatter("draft-piece", cover_image="./images/new.png")
+    _tool(server, "update_writeup_frontmatter")("draft-piece", cover_image="./images/new.png")
     after = path.read_text(encoding="utf-8")
     # Only the cover_image line should differ
     before_lines = before.splitlines()
@@ -573,7 +583,7 @@ def test_update_writeup_frontmatter_quotes_yaml_special_chars(
     frontmatter = _fresh_module("severino_vault_mcp.frontmatter")
     path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
     tricky = "Notes on [arrays], colons: and commas"
-    result = server.update_writeup_frontmatter("draft-piece", description=tricky)
+    result = _tool(server, "update_writeup_frontmatter")("draft-piece", description=tricky)
     assert result["ok"] is True
     body = path.read_text(encoding="utf-8")
     assert f'description: "{tricky}"' in body
@@ -588,7 +598,7 @@ def test_update_writeup_frontmatter_quotes_yaml_special_chars(
 def test_reorder_featured_inserts_unfeatured_writeup(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # draft-piece is unfeatured; insert at position 2 (between lead and ready)
-    result = server.reorder_featured("draft-piece", position=2)
+    result = _tool(server, "reorder_featured")("draft-piece", position=2)
     assert result["ok"] is True
     assert result["new_position"] == 2
     order = result["featured_order_after"]
@@ -601,7 +611,7 @@ def test_reorder_featured_inserts_unfeatured_writeup(fake_writeups_vault: Path) 
 def test_reorder_featured_moves_existing_writeup(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # lead-piece is at 1, ready-piece at 2. Move lead to position 2.
-    result = server.reorder_featured("lead-piece", position=2)
+    result = _tool(server, "reorder_featured")("lead-piece", position=2)
     assert result["ok"] is True
     slugs = [item["slug"] for item in result["featured_order_after"]]
     assert slugs == ["ready-piece", "lead-piece"]
@@ -609,7 +619,7 @@ def test_reorder_featured_moves_existing_writeup(fake_writeups_vault: Path) -> N
 
 def test_reorder_featured_unfeatures_with_position_zero(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
-    result = server.reorder_featured("lead-piece", position=0)
+    result = _tool(server, "reorder_featured")("lead-piece", position=0)
     assert result["ok"] is True
     assert result["new_position"] is None
     slugs = [item["slug"] for item in result["featured_order_after"]]
@@ -621,7 +631,7 @@ def test_reorder_featured_unfeatures_with_position_zero(fake_writeups_vault: Pat
 def test_reorder_featured_rejects_out_of_range(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # Only 2 featured writeups + 1 unfeatured target = max insert position is 3.
-    result = server.reorder_featured("draft-piece", position=99)
+    result = _tool(server, "reorder_featured")("draft-piece", position=99)
     assert result["ok"] is False
     assert "out of range" in result["error"]
 
