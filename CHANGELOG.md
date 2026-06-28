@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.5.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.5.0) (2026-06-28)
+
+
+### Features
+
+* add daily-write — idempotent daily-note brief region ([#34](https://github.com/joeseverino/severino-vault-mcp/issues/34)) ([3790ced](https://github.com/joeseverino/severino-vault-mcp/commit/3790cedc9ce554561a2c0d510dd9218edc04a0e3))
+* add section-scoped retrieval ([0f6a888](https://github.com/joeseverino/severino-vault-mcp/commit/0f6a8881d3f955e16d10ef65d3a95dfc80cd5eca))
+* backfill-aliases makes folder-notes title-linkable; escape YAML list items ([#28](https://github.com/joeseverino/severino-vault-mcp/issues/28)) ([21a336c](https://github.com/joeseverino/severino-vault-mcp/commit/21a336c00417d1f5b5437d00395211fff339267a))
+* describe carries schema_version 3 + per-command effect ([#11](https://github.com/joeseverino/severino-vault-mcp/issues/11)) ([80f7e65](https://github.com/joeseverino/severino-vault-mcp/commit/80f7e65fa0b292ee5fe76a588dfebcb314c7a200))
+* emit the shared v4 describe contract (federation parity) ([#14](https://github.com/joeseverino/severino-vault-mcp/issues/14)) ([a51ac09](https://github.com/joeseverino/severino-vault-mcp/commit/a51ac091e4ec8dc1980f0f476b41270fb6d59d0a))
+* emit-once render-many — CLI section retrieval + describe ([#10](https://github.com/joeseverino/severino-vault-mcp/issues/10)) ([97a4247](https://github.com/joeseverino/severino-vault-mcp/commit/97a4247c98495eaaa760b6dbd9f0758ea90a0b67))
+* gate describe against cordon's validator, name the Cordon standard ([#15](https://github.com/joeseverino/severino-vault-mcp/issues/15)) ([d13a1f4](https://github.com/joeseverino/severino-vault-mcp/commit/d13a1f457b1db831f066611b2aca9edbf18178af))
+* **infra:** topology SSOT, dataset registry, and the json-cache drift model ([#30](https://github.com/joeseverino/severino-vault-mcp/issues/30)) ([248dc39](https://github.com/joeseverino/severino-vault-mcp/commit/248dc39fe35beb2baaa7b1727c61e101a6819ef1))
+* redact contact/CSP PII by default behind an include_pii gate ([60b6bfc](https://github.com/joeseverino/severino-vault-mcp/commit/60b6bfc016651ab2962da66416e0d65cd9ee27e4))
+* schema --check-doc and hq-manifest --report for downstream guards ([1e3fab9](https://github.com/joeseverino/severino-vault-mcp/commit/1e3fab911aa1f8295370717131eace54c0225f43))
+* **schema:** EDUCATION_PROFILE + profile-aware write validation ([60ed249](https://github.com/joeseverino/severino-vault-mcp/commit/60ed249db6f9f277a685625c87ee9de7f6ae00ad))
+* severino-edu-mcp — the engine's second consumer ([0d459eb](https://github.com/joeseverino/severino-vault-mcp/commit/0d459eb7e5f9c3af61cd1b36f1969d80c1527d9e))
+* single-source the frontmatter schema; emit it for HQ ([b623c9f](https://github.com/joeseverino/severino-vault-mcp/commit/b623c9f7375ee535d1abca197359a4c128561c98))
+* stopword-aware ranking + section-scoped update-mirror-block writer ([dc88d6e](https://github.com/joeseverino/severino-vault-mcp/commit/dc88d6e165537215631041861f03cbc4b6e504c9))
+* validate-writeup CLI + shared draft tolerance + JSON emit dedup ([#29](https://github.com/joeseverino/severino-vault-mcp/issues/29)) ([ba80433](https://github.com/joeseverino/severino-vault-mcp/commit/ba804331185598d41f2664e7282f682f0c891f0f))
+
+
+### Bug Fixes
+
+* **ci:** re-pin gate to [@main](https://github.com/main); make check.sh the one independently-runnable gate ([#20](https://github.com/joeseverino/severino-vault-mcp/issues/20)) ([2d8a578](https://github.com/joeseverino/severino-vault-mcp/commit/2d8a5780df4c7cb3c10ce566f0acdba4eafed157))
+* **ci:** resolve severino-vault-engine from git, not a local path ([ce6ef41](https://github.com/joeseverino/severino-vault-mcp/commit/ce6ef417c0b4f6ae9d0ac8611a27849315e43494))
+
+
+### Documentation
+
+* add AGENTS.md as the canonical agent guide; symlink CLAUDE.md ([2a66c48](https://github.com/joeseverino/severino-vault-mcp/commit/2a66c4833e2a89ec3a5f37841770af3b1eb90a0a))
+* build out the sample vault to mirror the real structure + add a README ([#12](https://github.com/joeseverino/severino-vault-mcp/issues/12)) ([be8d373](https://github.com/joeseverino/severino-vault-mcp/commit/be8d373abe072df6b168a6c8186c00a3841d3351))
+* correct AGENTS workflow — branch from fresh origin/main, then PR ([#16](https://github.com/joeseverino/severino-vault-mcp/issues/16)) ([1f8a63b](https://github.com/joeseverino/severino-vault-mcp/commit/1f8a63b463a1a0b32e82480037f00de9baa50a0f))
+* document the touch-reviewed subcommand ([5b0cb41](https://github.com/joeseverino/severino-vault-mcp/commit/5b0cb412c615629b2399983616a988f8ee3683a5))
+* note the sample vault is exercised in CI ([#13](https://github.com/joeseverino/severino-vault-mcp/issues/13)) ([da5eb10](https://github.com/joeseverino/severino-vault-mcp/commit/da5eb10b0bf6303beb10cbe1a39b7d70db767232))
+* realign for the vault-engine extraction ([#35](https://github.com/joeseverino/severino-vault-mcp/issues/35)) ([b5ed834](https://github.com/joeseverino/severino-vault-mcp/commit/b5ed834b1703d78601800a23172288d668a5ca45))
+* resolve the 6 open decisions in the federated-retrieval proposal ([3a83ea2](https://github.com/joeseverino/severino-vault-mcp/commit/3a83ea2c8e45a8b3ef1b5acbb1f923df9ee42407))
+
 ## [2.4.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0) (2026-06-16)
 
 
