@@ -4,9 +4,13 @@ This project is tested as a local stdio MCP server package. The tests exercise
 the Python functions directly and also verify FastMCP resource registration
 where that matters.
 
-The current suite has 80 tests split across the generic vault surface
+The current suite has 163 tests across the Labs vault surface
 (`tests/test_search.py`), HQ manifest generation (`tests/test_hq_manifest.py`),
-and the jseverino.com writeup surface (`tests/test_writeups.py`).
+the jseverino.com writeup surface (`tests/test_writeups.py`), the infra writers
+(`tests/test_topology.py`, `tests/test_infra_datasets.py`), CLI dispatch
+(`tests/test_cli_dispatch.py`), and the daily-note/doctor surfaces. The generic
+vault-governance core is tested in the [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
+repo, which this server depends on — so the core's behavior isn't re-tested here.
 
 ## Local Commands
 

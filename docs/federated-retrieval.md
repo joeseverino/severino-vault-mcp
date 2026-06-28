@@ -49,7 +49,7 @@ shippable and testable against the fixture vault.
 
 ### 1. Section-scoped index (biggest win, no federation yet)
 
-Today `vault.py` produces one `Doc` per file with a single `body`. Add a
+Today `vault_engine.vault` produces one `Doc` per file with a single `body`. Add a
 section view: parse the markdown heading tree and attach a list of `Section`
 spans to each `Doc`, each carrying its heading path
 (`"Routine operations > Backing commands"`), text span, start line, and the
@@ -126,11 +126,13 @@ provenance in the response makes the source auditable.
 ## Rollout
 
 - **P0** — this doc; decisions locked.
-- **P1 — done.** Section chunking (`sections.py`) + section-aware
+- **P1 — done.** Section chunking (`vault_engine.sections`) + section-aware
   `find`/`read`/`get` over the **vault only**, fully additive. Heading-slug
   addressing, H2 granularity with H3 sub-split over a token cap, two-tier
   menu→section return. Regression-tested on the fixture vault; no federation.
-- **P1-CLI — done.** Emit-once render-many over P1: `vault_search_service.py`
+  (These modules have since moved into the shared engine; see
+  `report-vault-engine-extraction`.)
+- **P1-CLI — done.** Emit-once render-many over P1: `vault_engine.vault_search_service`
   single-sources the section menu so the MCP and the shell render the same
   payload; `find` / `read --section` console subcommands expose it to the
   human/TUI path. The **command-surface** leg landed early (normally P4): a

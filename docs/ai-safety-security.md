@@ -162,11 +162,12 @@ file" or "run this command" capability.
 Common constraints:
 
 - Vault-file writes reject paths that escape the configured vault root. Path
-  validation (`paths.py`), scalar escaping (`frontmatter.yaml_escape`, used by
-  both the generic serializer and the writeup line-replacement path), and
-  durable replacement (`atomic_write.py`) each have one implementation shared
-  by every writer, so the trust boundary, escaping rules, and write-atomicity
-  cannot drift between tools.
+  validation (`vault_engine.paths`), scalar escaping
+  (`vault_engine.frontmatter.yaml_escape`, used by both the generic serializer
+  and the writeup line-replacement path), and durable replacement
+  (`vault_engine.atomic_write`) each have one implementation — now in the shared
+  engine — used by every writer in both servers, so the trust boundary, escaping
+  rules, and write-atomicity cannot drift between tools.
 - Every write tool reports failure with the same `{"ok": false, "error": "…"}`
   envelope.
 - Generic frontmatter writes validate enum fields before touching disk.

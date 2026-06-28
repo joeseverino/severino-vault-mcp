@@ -41,51 +41,77 @@ The server runs under the local user account. It can read files that account
 can read, but only files under the configured vault root and indexed folders
 are part of the generic vault index. There is no inbound network surface.
 
-### Module ownership
+### Engine vs. server
 
-- `server.py` registers MCP resources and tools. Tool bodies are thin: they
-  delegate to the service modules below rather than holding logic.
-- `frontmatter.py` owns the single constrained-YAML toolkit — parsing
+The generic vault-governance core lives in a separate library,
+[`severino-vault-engine`](https://github.com/joeseverino/vault-engine) (PyPI
+distribution `severino-vault-engine`, import package `vault_engine`), pinned in
+this repo's `pyproject.toml`. `severino-vault-mcp` is a **thin domain server**
+that composes the engine and adds the Severino Labs profile binding plus the
+jseverino.com operator tools. A second server, `severino-edu-mcp`, composes the
+same engine against an education profile — proof the core carries no Labs domain
+knowledge.
+
+`server.py` is the composition root: it builds one `ServerContext`
+(`vault_engine.context`) from `Config.from_env()`, calls `register_core` for the
+engine's generic tools, then registers the Labs tool groups. No tool logic lives
+in `server.py`.
+
+**The engine owns (don't edit these here):**
+
+- `frontmatter` — the single constrained-YAML toolkit: parsing
   (`split_frontmatter`) and serialization (`serialize_frontmatter`,
-  `yaml_escape`). Both the generic vault writers and the writeup
-  line-replacement path quote scalars through this one `yaml_escape`, so
-  escaping rules cannot fork between tools.
-- `atomic_write.py` owns durable file replacement. `atomic_write_text` (one
-  file) and `transactional_replace` (many files, locked, rollback) share one
-  staged-tempfile + `fsync` + `os.replace` primitive, so there is a single
-  implementation of "replace a file without truncating it on failure."
-- `paths.py` owns vault path validation. `validate_indexed_path` (writes must
-  land on a file under an indexed dir) and `path_within_root` (operator tools
-  must stay inside the vault root) are defined once and shared.
-- `vault.py` owns indexing, alias resolution, and duplicate-ID exclusion. At
-  index time it attaches `sections` to every `Doc`.
-- `sections.py` owns section chunking (P1 of `docs/federated-retrieval.md`):
-  `parse_sections` splits a body into addressable H2 spans (H3+ folded in,
-  over-cap sections sub-split at H3 then hard-wrapped) with doc-unique heading
-  slugs; `resolve_section` and `section_summary` back the section-scoped reads.
-  It returns structured spans only — `search.py` scores them, `read_doc`
-  serializes one for the MCP, and the CLI can render the same spans for a human.
-- `vault_write_service.py` owns generic frontmatter mutation
-  (`add_frontmatter`, `update_frontmatter`) plus the index-skipping
-  `touch_reviewed` fast path.
-- `infra_datasets.py` owns the infra-dataset registry: reading any dataset
-  from its owner (`get_infra_dataset`, cache or live `--refresh`) and the
-  drift guards' canonical write `infra-write` (JSON cache + generated doc table
-  + `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
-  arbitrary JSON into the vault).
-- `vault_query_service.py` owns the two shell-backed read tools
-  (`recent_changes` over `git log`, `search_body` over ripgrep) and the
-  shared `doc_to_hit` projection every search response uses.
-- `writeup_service.py` owns writeup reads, validation, and transactions.
-- `site_ops_service.py` owns the jseverino.com operator integrations —
-  Cloudflare D1 readers, the confirmed schema apply, and the live
-  security-header check — behind a `SiteOpsRuntime` config holder.
-- `hq_manifest.py` owns HQ manifest synthesis using the shared frontmatter
-  parser, so HQ and the MCP can never drift on how a doc is read.
+  `yaml_escape`). Generic vault writers and the writeup line-replacement path
+  quote scalars through the one `yaml_escape`, so escaping rules cannot fork.
+- `atomic_write` — durable replacement. `atomic_write_text` (one file) and
+  `transactional_replace` (many files, locked, rollback) share one
+  staged-tempfile + `fsync` + `os.replace` primitive.
+- `paths` — vault path validation: `validate_indexed_path` (writes land under an
+  indexed dir) and `path_within_root` (operator tools stay inside the vault
+  root), defined once.
+- `vault` — indexing, alias resolution, duplicate-ID exclusion; attaches
+  `sections` to every `Doc` at index time.
+- `sections` + `search` — section chunking (P1 of
+  `docs/federated-retrieval.md`) and span scoring; `parse_sections` splits a
+  body into addressable H2 spans with doc-unique slugs, `search` scores them.
+- `vault_write_service` — generic frontmatter mutation (`add_frontmatter`,
+  `update_frontmatter`) plus the index-skipping `touch_reviewed` fast path.
+- `vault_query_service` — the shell-backed reads (`recent_changes` over
+  `git log`, `search_body` over ripgrep) and the shared `doc_to_hit` projection.
+- `vault_search_service` — the section-menu single source (`find_sections` /
+  `read_section`) both the MCP and the `find`/`read` CLI render.
+- `schema` — the `SchemaProfile` framework **and** `LABS_PROFILE`, the canonical
+  Labs enum contract. Edit Labs doc-types/statuses/prefixes here in the engine.
+- plus `config`, `context`, `core_tools`, `sensitivity`, `jsonio`, `mirror`,
+  `tabular`, `daily_notes`, `daily_write`, `task_service`, `brief_service`,
+  `secret_unlock`, `doctor`, and `cli_introspect` (the cordon `describe`
+  binding).
 
-Every service module is FastMCP-free. Standalone CLI commands call them
-directly and never import FastMCP registration just to perform file, manifest,
-or D1 work. All of them report failures with one envelope:
+**This server owns (the Labs domain + composition):**
+
+- `server.py` — composition root (above).
+- `cli.py` / `__main__.py` — the argparse CLI surface (`build_parser`) and its
+  dispatch, including `schema`, the CLI-only writers, and `find` / `read`.
+- `tools/` — the FastMCP registration groups, one `register(mcp, ctx)` per
+  domain (`site_ops`, `writeups`, `topology`, `infra_datasets`), thin wiring over
+  the `labs/` services.
+- `labs/infra_datasets.py` — the infra-dataset registry: reading any dataset
+  (`get_infra_dataset`, cache or live `--refresh`) and the drift guards'
+  canonical write `infra-write` (JSON cache + generated doc table +
+  `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
+  arbitrary JSON into the vault).
+- `labs/topology.py` — the authored inventory + the CLI-only `topology-write`.
+- `labs/writeup_service.py`, `labs/writeups.py` — writeup reads, validation, and
+  transactions.
+- `labs/site_ops_service.py` — the jseverino.com integrations (Cloudflare D1
+  readers, the confirmed schema apply, the live security-header check) behind a
+  `SiteOpsRuntime`.
+- `labs/hq_manifest.py` — HQ manifest synthesis on the shared frontmatter parser.
+- `labs/tech_groups.py` — the technology-taxonomy checks.
+
+Every service module — engine or Labs — is FastMCP-free. Standalone CLI commands
+call them directly and never import FastMCP registration just to perform file,
+manifest, or D1 work. All of them report failures with one envelope:
 `{"ok": false, "error": "<message>"}` — the shape the `site` CLI and
 `site manage` already parse.
 
@@ -222,7 +248,8 @@ The write model is intentionally schema-specific:
 
 - No tool accepts an arbitrary file path and arbitrary replacement text.
 - Vault writes validate paths against the configured vault root through the
-  shared `paths.py` helpers — one implementation, not one per writer.
+  engine's shared `vault_engine.paths` helpers — one implementation, not one per
+  writer.
 - Generic frontmatter writes validate enum fields and keep `doc_id` immutable.
 - Generic frontmatter writes stage a sibling file, flush it, and replace the
   target atomically; failed replacement leaves the original unchanged.
@@ -254,8 +281,8 @@ The jseverino.com tools demonstrate a second, operator-specific surface:
 
 These tools are not a generic shell bridge. They are narrow wrappers around
 known local paths, known file schemas, and known service bindings. The D1 and
-header tools live in `site_ops_service.py` behind a `SiteOpsRuntime`, mirroring
-the writeup and vault-write services. That makes them useful portfolio
+header tools live in `labs/site_ops_service.py` behind a `SiteOpsRuntime`,
+mirroring the writeup service and the engine's vault-write service. That makes them useful portfolio
 evidence: the project shows both a reusable MCP product surface and a concrete
 production workflow built with the same safety rules.
 
@@ -288,15 +315,15 @@ To adapt the extension pattern for another operator workflow:
 
 ## Verification
 
-The current suite has 80 tests. It covers vault indexing, config overrides,
-doctor validation, runbook ranking, body release policy, restricted local
-unlock behavior, audit logging, resources/resource templates, body search,
-duplicate-ID runtime exclusion, shared multiline frontmatter parsing, atomic
-write failure behavior, HQ manifest generation, sample-vault reproducibility,
-writeup loading, taxonomy parsing, configured-path boundary checks, Quick Index
-recommendation alignment, publish-readiness validation, one-snapshot dashboard
-behavior, composite publish prep, transactional writeup plans, rollback, and
-frontmatter/featured-order mutations.
+This repo's suite has 163 tests covering the Labs domain and CLI surface: HQ
+manifest generation, writeup loading/validation/transactions and rollback,
+taxonomy parsing, the authored/pulled infra writers (`topology` /
+`infra_datasets`), CLI dispatch, the daily-note and doctor surfaces, D1/PII
+redaction, configured-path boundary checks, publish-readiness validation, the
+one-snapshot dashboard, composite publish prep, and frontmatter/featured-order
+mutations. The generic-core behavior — indexing, runbook ranking, body release
+policy, restricted local unlock, sections/search, atomic-write failure, and
+shared frontmatter parsing — is tested in the **engine** repo.
 
 See [`docs/testing-ci.md`](testing-ci.md) for local commands, CI behavior, and
 coverage notes.

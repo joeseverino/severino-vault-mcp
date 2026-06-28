@@ -7,84 +7,77 @@ editing; it answers what agents otherwise re-derive every session.
 Local stdio MCP server (FastMCP) that turns an Obsidian-style ops vault into
 structured AI context, plus an operator workflow pack for jseverino.com.
 
-## Repo conventions
-
-- **Solo-authored, but never commit to `main` — branch → PR.** Branch from a
-  freshly fetched `origin/main` (`git fetch origin && git checkout -b <name>
-  origin/main`), never from a stale local tree (multiple sessions touch these
-  repos, so local `main` lags). Push, open a PR, and hand back only on green CI
-  with no unresolved review comments; Joe approves or comments, then it merges.
-  No `Co-Authored-By` / "Claude" trailers, no AI attribution in commit messages.
-  Commit/push/PR only when asked.
-- Consumed by the `tools` repo (`~/Documents/Code/Assets/tools/`): `bin/site`,
-  `lib/site/manage-tui.mjs`, and the drift guards call the installed console
-  script. Changes to tool output or CLI subcommands are a **cross-repo
-  contract** change — see below.
+**This repo is a thin domain server on [`severino-vault-engine`](https://github.com/joeseverino/vault-engine).**
+The generic vault-governance core (index, search, sensitivity gate, atomic
+writes, task ledger, schema-profile framework, `register_core`) lives in the
+engine, distributed on PyPI as `severino-vault-engine` (import name
+`vault_engine`) and pinned in `pyproject.toml`. What's *here* is the Labs profile
+binding plus the jseverino.com domain tools. When you reach for a generic
+behavior, it's in the engine — change it there, release, bump the pin; don't
+re-implement it locally. See the engine's own `AGENTS.md` for the core's rules.
 
 ## Architecture (the spine)
 
-`server.py` only *registers* FastMCP tools/resources and delegates; the logic
-lives in FastMCP-free service modules so the same code backs both the MCP and
-the `site` CLI without importing FastMCP for short-lived shell calls:
+The spine moved to the engine. This repo composes it. `server.py` is a thin
+composition root — it builds one `ServerContext`, calls `register_core` for the
+engine generics, then registers the Labs tool groups:
 
-- `frontmatter.py` — constrained-YAML parse + serialize. `yaml_escape` is the
-  **only** scalar escaper; generic *and* writeup writes both go through it.
-- `atomic_write.py` — durable replacement. `atomic_write_text` (one file) and
-  `transactional_replace` (many files, locked, rollback) share one primitive.
-- `paths.py` — `validate_indexed_path` / `path_within_root` (single trust
-  boundary; mutations stay inside the vault root).
-- `vault.py` — indexing, alias resolution, duplicate-`doc_id` exclusion. Each
-  `Doc` carries `sections` (see below) parsed at index time.
-- `sections.py` — H2-scoped section chunking for token-minimal retrieval (P1 of
-  `docs/federated-retrieval.md`). `parse_sections` (H3-folded, token-cap
-  sub-split, doc-unique heading slugs), `resolve_section` (slug or heading-path),
-  `section_summary`. FastMCP-free; `search.py` scores spans, `read_doc(section=)`
-  returns one. Pure data — no presentation, so the CLI can render the same spans.
-- `vault_write_service.py` — generic frontmatter writes + the `touch_reviewed`
-  fast path (skips the `index(force=True)` rebuild the guards don't need).
-- `infra_datasets.py` — the infra-dataset registry (`_infra-datasets.json`):
-  the read model (`get_infra_dataset`, cache + `--refresh` read-through with
-  fallback, sensitivity-gated) and the canonical write `infra-write` (JSON cache
-  + generated doc table + `last_reviewed`, the drift guards' pull writer).
-  `infra-write` is CLI-only by design — never an MCP tool, so AI sessions can't
-  write arbitrary JSON into the vault. `topology.py` / `tabular.py` / `jsonio.py`
-  back it (authored topology, the generic table renderer, the JSON I/O home).
-- `topology.py` also owns the authored inventory's validated write —
-  `topology-write` (validate `topology.json`, regenerate `Topology.md` + the
-  figure, stamp `last_reviewed`; `--replace` takes a new inventory on stdin).
-  Like `infra-write`, CLI-only and `vault_write`.
-- `vault_query_service.py` — `recent_changes` (git log), `search_body`
-  (ripgrep), shared `doc_to_hit` projection.
-- `vault_search_service.py` — the section-menu **single source** for emit-once,
-  render-many. `find_sections` (ranked menu, the shape `find_runbook` renders)
-  and `read_section` (one span or whole body, gated; restricted withheld with no
-  CLI unlock). `server.py` and the `find`/`read` console subcommands both render
-  this — never restate the menu shape.
-- `cli_introspect.py` — a **thin binding over cordon's Python reference emitter**
-  (`cordon_emit`, the `cordon-emit` dependency). `describe_parser` injects this
-  repo's inventory coordinates (`group`/`order`) and delegates; cordon owns the
-  algorithm and the schema. It projects the argparse parser (built by
-  `cli.build_parser`) to a conformant **Cordon v4** contract
-  (`https://github.com/joeseverino/cordon`). The "Code/guards" leg of emit-once:
-  `--help` made machine-readable and drift-proof. We *introspect* the parser
-  where the `tools` repo *declares* via a DSL; both converge on the one schema,
-  so `tools describe --repos` folds this CLI in. Per-command blast radius is
-  declared with `cordon_emit.set_effect` on each subparser in `cli.build_parser`.
-  The contract revision lives in `cordon_emit.SCHEMA_VERSION` (not here); to
-  follow a new `cordon-vN.json`, bump the `cordon-emit` pin in `pyproject.toml`.
-  Conformance is gated against cordon's own `conformance/validate.mjs`
-  (`tests/test_search.py`, skips when cordon isn't a sibling).
-- `writeup_service.py` — writeup reads/validation/transactions.
-- `site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
-- `hq_manifest.py` — HQ manifest synthesis on the shared parser.
-- `schema.py` — the **canonical** frontmatter enum contract (doc types,
-  environments, statuses, sensitivities, doc_id prefixes). Edit the sets here
-  and nowhere else. `severino-vault-mcp schema --json` emits it; Severino HQ
-  commits that JSON (`docs_index/schema.json`) and validates its manifest
-  importer against it, so the two systems can't drift on what `hq sync` accepts.
-  After changing it: `site reinstall-mcp`, then `hq schema` (regenerates HQ's
-  copy), then commit + deploy HQ. Guarded by `tests/test_schema.py` here and
-  `docs_index/tests.py` in HQ.
+```python
+_CTX = ServerContext(Config.from_env())          # engine; defaults to LABS_PROFILE
+register_core(mcp, _CTX, build_parser=build_parser)  # engine: the 18 generic tools
+site_ops_tools.register(mcp, _CTX)               # Labs domain groups (this repo)
+writeups_tools.register(mcp, _CTX)
+topology_tools.register(mcp, _CTX)
+infra_datasets_tools.register(mcp, _CTX)
+```
+
+**In the engine (`vault_engine`), not here** — don't edit these in this repo:
+`config`, `context` (`ServerContext`), `core_tools` (`register_core` + the 18
+generic tools), `frontmatter` (the one serializer/`yaml_escape`), `atomic_write`
+(`atomic_write_text` / `transactional_replace`), `paths`, `vault`, `sections`,
+`search`, `sensitivity`, `jsonio`, `mirror`, `tabular`, `daily_notes`,
+`daily_write`, `task_service`, `brief_service`, `secret_unlock`, `doctor`,
+`cli_introspect` (the cordon `describe` binding), `vault_write_service`,
+`vault_search_service`, `vault_query_service`, and `schema` — which carries
+`SchemaProfile` **and** `LABS_PROFILE`, the canonical Labs enum contract. Edit
+the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
+
+**In this repo** — the Labs domain layer + the composition/CLI surface:
+
+- `server.py` — composition root (above). No `@mcp.tool()` wall anymore; it wires
+  `register_core` + the four Labs groups onto one `ServerContext`.
+- `cli.py` — `build_parser()`: the argparse CLI surface (incl. `schema`, the
+  domain writers `topology-write` / `infra-write` / `daily-write`, and the
+  `find` / `read` console subcommands). Per-command blast radius is declared with
+  `cordon_emit.set_effect` on each subparser; the engine's `cli_introspect`
+  projects this parser to the Cordon contract for `tools describe --repos`.
+- `__main__.py` — CLI dispatch over `build_parser`.
+- `tools/` — the FastMCP **registration groups**, one `register(mcp, ctx)` per
+  domain, thin wiring over the `labs/` services: `tools/site_ops.py`,
+  `tools/writeups.py`, `tools/topology.py`, `tools/infra_datasets.py`.
+- `labs/` — the Labs **domain logic** (FastMCP-free, so the same code backs both
+  the MCP and the `site` CLI):
+  - `labs/writeup_service.py`, `labs/writeups.py` — writeup reads/validation/transactions.
+  - `labs/site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
+  - `labs/topology.py` — authored inventory + the CLI-only `topology-write`
+    (validate `topology.json`, regenerate `Topology.md` + the figure, stamp
+    `last_reviewed`; `--replace` reads a new inventory on stdin).
+  - `labs/infra_datasets.py` — the infra-dataset registry (`_infra-datasets.json`):
+    the sensitivity-gated read model (`get_infra_dataset`, cache + `--refresh`
+    read-through with fallback) and the CLI-only `infra-write` (JSON cache +
+    generated doc table + `last_reviewed`). `topology-write` / `infra-write` are
+    CLI-only **by design** — never MCP tools, so AI sessions can't write arbitrary
+    JSON into the vault.
+  - `labs/hq_manifest.py` — HQ manifest synthesis on the shared parser.
+  - `labs/tech_groups.py` — the technology-taxonomy checks.
+
+The schema contract still flows out through this repo's CLI: `severino-vault-mcp
+schema --json` emits `LABS_PROFILE.as_dict()` (defined in the engine); Severino
+HQ commits that JSON (`docs_index/schema.json`) and validates its manifest
+importer against it, so the two systems can't drift on what `hq sync` accepts.
+After changing the Labs profile (in the **engine**): release the engine + bump
+the pin here, `site reinstall-mcp`, then `hq schema` (regenerates HQ's copy),
+then commit + deploy HQ. Guarded by `docs_index/tests.py` in HQ.
 
 Depth lives in `docs/architecture.md`, `docs/ai-safety-security.md`,
 `docs/ai-tool-contract.md`. Update those + `CHANGELOG.md` when you change behavior.
@@ -97,8 +90,9 @@ repos' own docs, to kill the code→repo-doc→vault copy step.
 - Every service returns one dict. Failures use a single
   `{"ok": false, "error": "<message>"}` envelope (singular `error`).
   `manage-tui.mjs` reads `json.error`; CLI subcommands exit 0/1 on `.ok`.
-- To expose a tool to the shell: add a subparser + handler in `__main__.py`
-  (mirror an existing block), then in the tools repo `site reinstall-mcp`.
+- To expose a tool to the shell: add a subparser in `cli.build_parser` (with a
+  `cordon_emit.set_effect`) and a handler in `__main__.py` (mirror an existing
+  block), then in the tools repo `site reinstall-mcp`.
   `site` runs the *installed* console script — a stale `uv tool` install is
   real drift, caught by `--fingerprint` (`site doctor`).
 
@@ -115,7 +109,7 @@ repos' own docs, to kill the code→repo-doc→vault copy step.
 ## Verify (before claiming a change works)
 
 ```bash
-uv run pytest -q                 # 105 tests, ~3s
+uv run pytest -q                 # 163 tests, ~3s
 uv run ruff check src/ tests/    # lint (CI gate)
 scripts/check.sh                 # everything CI runs
 ```
@@ -131,14 +125,20 @@ scripts/check.sh                 # everything CI runs
   `from .x import y` (binds the name in the module namespace) — patch the
   *attribute on the importing module*, not the source. This is how the
   atomic-write-failure and D1-stub tests inject behavior without real I/O.
-- New behavior gets a regression test in the matching `tests/test_*.py`
-  (`test_search.py` = vault/write, `test_writeups.py` = writeups,
-  `test_site_ops.py` = D1/PII, `test_hq_manifest.py` = manifest).
+- New behavior gets a regression test in the matching `tests/test_*.py`:
+  `test_search.py` = vault/write, `test_writeups.py` = writeups,
+  `test_site_ops.py` = D1/PII, `test_hq_manifest.py` = manifest,
+  `test_topology.py` / `test_infra_datasets.py` = the authored/pulled infra
+  writers, `test_cli_dispatch.py` = CLI wiring, `test_daily_write.py` /
+  `test_doctor.py` = the daily-note + doctor surfaces. Generic-core behavior is
+  tested in the **engine** repo, not here.
 
 ## Write model
 
 Schema-specific by design: no tool takes an arbitrary path + arbitrary text.
-Validate enum fields before touching disk, keep `doc_id` immutable, render
-through `serialize_frontmatter`, replace atomically. If you can't name the file
-shape, validate the fields, and report exactly what changed, don't expose it as
-a write tool.
+Validate enum fields against the active `SchemaProfile` before touching disk,
+keep `doc_id` immutable, render through the engine's `serialize_frontmatter`
+(`vault_engine.frontmatter`), and replace atomically via the engine's
+`atomic_write_text` / `transactional_replace` — never hand-roll YAML or
+`open(path, "w")`. If you can't name the file shape, validate the fields, and
+report exactly what changed, don't expose it as a write tool.
