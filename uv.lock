@@ -694,7 +694,7 @@ wheels = [
 [[package]]
 name = "severino-vault-engine"
 version = "0.1.3"
-source = { git = "https://github.com/joeseverino/vault-engine#fbf5db6b5ba43c99199f64e90c87f89bb74600c9" }
+source = { git = "https://github.com/joeseverino/vault-engine#cb16980c90aa7c7c7f35dd2c75e4194818376682" }
 dependencies = [
     { name = "mcp" },
     { name = "starlette" },
