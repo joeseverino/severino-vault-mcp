@@ -421,7 +421,13 @@ def build_parser() -> argparse.ArgumentParser:
     hq_manifest.add_argument("vault", help="Vault root path.")
     hq_manifest.add_argument(
         "subdirs",
-        help="Colon-separated vault subdirectories to index.",
+        nargs="?",
+        default=None,
+        help=(
+            "Colon-separated vault subdirectories to index. Default: derived "
+            "from the MCP config's indexed_dirs plus the slim content dirs "
+            "(05 Writeups, 06 Pages) — one list, one owner."
+        ),
     )
     hq_manifest.add_argument(
         "--report",

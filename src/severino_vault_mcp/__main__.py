@@ -306,12 +306,15 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "hq-manifest":
-        from .labs.hq_manifest import build_hq_manifest
+        from .labs.hq_manifest import build_hq_manifest, default_manifest_dirs
 
-        result = build_hq_manifest(
-            Path(args.vault).expanduser(),
-            [part for part in args.subdirs.split(":") if part],
-        )
+        if args.subdirs:
+            subdirs = [part for part in args.subdirs.split(":") if part]
+        else:
+            from vault_engine.config import Config
+
+            subdirs = default_manifest_dirs(Config.from_env().indexed_dirs)
+        result = build_hq_manifest(Path(args.vault).expanduser(), subdirs)
         if args.report:
             # Full structured result for `hq doctor` — no entries dump.
             print(jsonio.dumps(result, pretty=True))

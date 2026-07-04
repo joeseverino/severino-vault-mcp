@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from vault_engine.frontmatter import read_frontmatter
+from vault_engine.vault import iter_markdown_files
 
 HQ_KEYS = {
     "doc_id",
@@ -31,13 +32,6 @@ HQ_KEYS = {
     "published",
     "technologies",
     "topic",
-}
-SKIP_DIR_NAMES = {
-    ".git",
-    ".obsidian",
-    "00 Templates",
-    "Templates",
-    "source",
 }
 SLIM_WRITEUP_DIR = "05 Writeups"
 SLIM_PAGE_DIR = "06 Pages"
@@ -94,8 +88,12 @@ def _synthesize_slim_entry(
     return entry
 
 
-def _should_skip(path: Path) -> bool:
-    return any(part in SKIP_DIR_NAMES for part in path.parts)
+def default_manifest_dirs(indexed_dirs) -> list[str]:
+    """The manifest's dir list, derived — the index's dirs plus the slim
+    content dirs (writeups/pages ride the slim contract, outside the index).
+    The one source; HQ_VAULT_DIRS as a second hand-kept list is retired."""
+    extra = [d for d in (SLIM_WRITEUP_DIR, SLIM_PAGE_DIR) if d not in indexed_dirs]
+    return [*indexed_dirs, *extra]
 
 
 def build_hq_manifest(
@@ -112,55 +110,57 @@ def build_hq_manifest(
     missing_dirs: list[str] = []
     duplicates: list[dict[str, str]] = []
 
+    present: list[str] = []
     for subdir in subdirs:
-        root = vault / subdir
-        if not root.is_dir():
+        if (vault / subdir).is_dir():
+            present.append(subdir)
+        else:
             missing_dirs.append(subdir)
+    # The one vault walk: the engine's iterator owns "which files are vault
+    # docs" (dir walk + skip rules) for the index, the doctor, and this
+    # manifest alike — the third walker, retired.
+    for path in iter_markdown_files(vault, present):
+        frontmatter = read_frontmatter(path)
+        relative_path = path.relative_to(vault)
+        if frontmatter is None:
+            missing_frontmatter.append(str(relative_path))
             continue
-        for path in sorted(root.rglob("*.md")):
-            if _should_skip(path) or path.name.startswith("_"):
-                continue
-            frontmatter = read_frontmatter(path)
-            relative_path = path.relative_to(vault)
-            if frontmatter is None:
-                missing_frontmatter.append(str(relative_path))
-                continue
-            top = relative_path.parts[0] if relative_path.parts else ""
-            if top == SLIM_WRITEUP_DIR and path.name == "index.md":
-                entry = _synthesize_slim_entry(
-                    frontmatter,
-                    relative_path,
-                    kind="writeup",
-                )
-            elif top == SLIM_PAGE_DIR and path.name == "index.md":
-                entry = _synthesize_slim_entry(
-                    frontmatter,
-                    relative_path,
-                    kind="page",
-                )
-            elif not frontmatter.get("doc_id"):
-                missing_frontmatter.append(str(relative_path))
-                continue
-            else:
-                entry = {
-                    key: frontmatter[key]
-                    for key in frontmatter
-                    if key in HQ_KEYS
+        top = relative_path.parts[0] if relative_path.parts else ""
+        if top == SLIM_WRITEUP_DIR and path.name == "index.md":
+            entry = _synthesize_slim_entry(
+                frontmatter,
+                relative_path,
+                kind="writeup",
+            )
+        elif top == SLIM_PAGE_DIR and path.name == "index.md":
+            entry = _synthesize_slim_entry(
+                frontmatter,
+                relative_path,
+                kind="page",
+            )
+        elif not frontmatter.get("doc_id"):
+            missing_frontmatter.append(str(relative_path))
+            continue
+        else:
+            entry = {
+                key: frontmatter[key]
+                for key in frontmatter
+                if key in HQ_KEYS
+            }
+        entry["path"] = str(relative_path)
+        doc_id = str(entry["doc_id"])
+        previous = seen_ids.get(doc_id)
+        if previous is not None:
+            duplicates.append(
+                {
+                    "doc_id": doc_id,
+                    "first": str(previous.relative_to(vault)),
+                    "second": str(relative_path),
                 }
-            entry["path"] = str(relative_path)
-            doc_id = str(entry["doc_id"])
-            previous = seen_ids.get(doc_id)
-            if previous is not None:
-                duplicates.append(
-                    {
-                        "doc_id": doc_id,
-                        "first": str(previous.relative_to(vault)),
-                        "second": str(relative_path),
-                    }
-                )
-            else:
-                seen_ids[doc_id] = path
-            entries.append(entry)
+            )
+        else:
+            seen_ids[doc_id] = path
+        entries.append(entry)
 
     if duplicates:
         return {
