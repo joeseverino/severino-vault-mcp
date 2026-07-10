@@ -17,6 +17,7 @@ from typing import Any
 
 from vault_engine.atomic_write import transactional_replace
 from vault_engine.config import Config
+from vault_engine.contracts import MutationReceipt, canonical_fingerprint
 from vault_engine.frontmatter import yaml_escape
 from vault_engine.paths import path_within_root
 from vault_engine.vault import VaultLoader
@@ -530,12 +531,14 @@ def writeup_dashboard(runtime: WriteupRuntime) -> dict[str, Any]:
         only_published=False,
         context=context,
     )
+    writeups = listing["writeups"]
     return {
         "ok": True,
         "writeups_dir": str(runtime.writeups_dir),
-        "writeups": listing["writeups"],
+        "writeups": writeups,
         "featured_order": listing["featured_order"],
         "validation": validation,
+        "source_fingerprint": canonical_fingerprint(writeups),
     }
 
 
@@ -644,13 +647,14 @@ def update_writeup_frontmatter(
             "slug": slug,
             "message": "No fields differ — nothing written.",
         }
+    before = writeup.to_summary()
     ok, error = transactional_replace(
         runtime.writeups_dir,
         {writeup.path: text},
     )
     if not ok:
         return {"ok": False, "error": error}
-    return {
+    result = {
         "ok": True,
         "slug": slug,
         "relative_path": str(
@@ -666,6 +670,17 @@ def update_writeup_frontmatter(
             for key in changed_fields
         },
     }
+    result["receipt"] = MutationReceipt(
+        operation="writeup.update",
+        entity_type="writeup",
+        entity_id=slug,
+        changed_fields=tuple(changed_fields),
+        before_fingerprint=canonical_fingerprint(before),
+        after_fingerprint=canonical_fingerprint({**before, **updates}),
+        affected_projections=("featured_writeups", "site", "writeup_dashboard"),
+        metadata={"relative_path": result["relative_path"]},
+    ).as_dict()
+    return result
 
 
 def apply_writeup_plan(
@@ -771,7 +786,7 @@ def apply_writeup_plan(
             "error": f"writeup transaction failed: {error}",
             "rolled_back": True,
         }
-    return {
+    result = {
         "ok": True,
         "changed_writeups": sorted(changed),
         "changed_fields": changed,
@@ -786,6 +801,21 @@ def apply_writeup_plan(
             ]
         ),
     }
+    result["receipt"] = MutationReceipt(
+        operation="writeup.plan.apply",
+        entity_type="writeup_set",
+        entity_id="writeups",
+        changed_fields=tuple(
+            f"{slug}.{field}" for slug, fields in changed.items() for field in fields
+        ),
+        after_fingerprint=canonical_fingerprint({
+            "changed": changed,
+            "featured_order": result["featured_order_after"],
+        }),
+        affected_projections=("featured_writeups", "site", "writeup_dashboard"),
+        metadata={"changed_writeups": sorted(changed)},
+    ).as_dict()
+    return result
 
 
 def reorder_featured(

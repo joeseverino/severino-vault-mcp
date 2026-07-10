@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from vault_engine.context import ServerContext
+from vault_engine.context import GovernanceContext
 from vault_engine.secret_unlock import audit_event
 
 from ..labs import site_ops_service
 
 
-def register(mcp, ctx: ServerContext) -> None:
+def register(mcp, ctx: GovernanceContext) -> None:
     """Register the site-ops tool group on ``mcp`` from a server context.
 
     Builds its SiteOpsRuntime from the environment and reads the audit-log path

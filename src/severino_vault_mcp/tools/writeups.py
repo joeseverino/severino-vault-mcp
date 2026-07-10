@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from vault_engine.context import ServerContext
+from vault_engine.context import GovernanceContext
 
 from ..labs import writeup_service
 
 
-def register(mcp, ctx: ServerContext) -> None:
+def register(mcp, ctx: GovernanceContext) -> None:
     """Register the writeup tool group on ``mcp`` from a server context.
 
     Builds its WriteupRuntime from ``ctx.config`` / ``ctx.loader``; a server that

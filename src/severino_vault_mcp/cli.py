@@ -476,6 +476,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit the schema as JSON (the default).",
     )
     schema_cmd.add_argument(
+        "--contract",
+        action="store_true",
+        help=(
+            "Emit the complete versioned profile contract, including task and "
+            "per-document rules. The legacy default remains HQ-compatible."
+        ),
+    )
+    schema_cmd.add_argument(
+        "--fingerprint",
+        dest="schema_fingerprint",
+        action="store_true",
+        help="Emit the stable SHA-256 fingerprint of the complete profile contract.",
+    )
+    schema_cmd.add_argument(
         "--check-doc",
         metavar="PATH",
         help=(

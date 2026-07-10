@@ -528,6 +528,8 @@ def test_update_writeup_frontmatter_touches_last_reviewed(fake_writeups_vault: P
     server = _fresh_module("severino_vault_mcp.server")
     result = _tool(server, "update_writeup_frontmatter")("draft-piece", touch_last_reviewed=True)
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.update"
+    assert result["receipt"]["entity"] == {"type": "writeup", "id": "draft-piece"}
     assert "last_reviewed" in result["changed_fields"]
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
         encoding="utf-8"
@@ -541,6 +543,7 @@ def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -
     server = _fresh_module("severino_vault_mcp.server")
     result = _tool(server, "update_writeup_frontmatter")("draft-piece", published=True, published_at="2026-05-30")
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.update"
     assert set(result["changed_fields"]) == {"published", "published_at"}
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
         encoding="utf-8"
@@ -660,12 +663,14 @@ def test_apply_writeup_plan_updates_fields_and_complete_featured_order(
     )
 
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.plan.apply"
     assert result["featured_order_after"] == [
         "ready-piece",
         "draft-piece",
         "lead-piece",
     ]
     after = service.writeup_dashboard(service.WriteupRuntime.from_env())
+    assert len(after["source_fingerprint"]) == 64
     by_slug = {writeup["slug"]: writeup for writeup in after["writeups"]}
     assert by_slug["draft-piece"]["published"] is True
     assert by_slug["ready-piece"]["featured_order"] == 1
