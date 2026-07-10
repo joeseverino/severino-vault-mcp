@@ -126,6 +126,18 @@ Both are pure Rust binaries with no runtime dependencies. CI installs `ripgrep`
 on every job so the body-search test suite always runs against the same tool
 production uses.
 
+## Governance runtime
+
+The MCP server and console CLI are peer adapters over one engine
+`GovernanceContext`. Both call the same index, schema, sensitivity, path, and
+write services in process; the CLI does not shell through MCP and neither face
+reimplements governance.
+
+`severino-vault-mcp schema --json` remains the frozen enum contract committed by
+Severino HQ. New consumers use `schema --contract` for the complete versioned
+profile or `schema --fingerprint` for its stable SHA-256 identity. This extends
+the system without silently changing HQ's importer wire format.
+
 Edit `~/.config/severino-vault-mcp/config.toml` and set `vault.path` to your
 vault root.
 

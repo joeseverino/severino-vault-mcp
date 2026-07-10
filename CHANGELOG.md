@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- CLI and MCP are now peer adapters over the engine's `GovernanceContext`; each
+  constructs one governed runtime and calls the same application services.
+- Engine requirement raised to 0.3.0. The legacy HQ `schema --json` output is
+  unchanged; `schema --contract` and `schema --fingerprint` expose the complete
+  versioned profile contract for new consumers.
+- Writeup scalar updates and transactional plan applications emit additive,
+  body-free mutation receipts for audit and projection invalidation. Dashboard
+  snapshots carry deterministic source fingerprints.
+
 ## [2.4.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.3.0...v2.4.0) (2026-06-16)
 
 

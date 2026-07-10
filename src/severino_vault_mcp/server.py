@@ -13,8 +13,7 @@ the vault's navigation hub without spending a search-tool call.
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
-from vault_engine.config import Config
-from vault_engine.context import ServerContext
+from vault_engine.context import GovernanceContext
 from vault_engine.core_tools import register_core
 
 from .cli import build_parser
@@ -28,7 +27,7 @@ QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
 DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
 
 
-_CTX = ServerContext(Config.from_env())
+_CTX = GovernanceContext.load()
 # config + loader back the generic core tools still inlined here (find / read /
 # search / tasks / daily). They collapse into _CTX when the core moves to the
 # engine; the loader is always needed, so building it now costs nothing.
