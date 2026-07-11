@@ -694,12 +694,28 @@ def apply_writeup_plan(
         return {"ok": False, "error": "plan must be a JSON object"}
     raw_updates = plan.get("updates", [])
     raw_order = plan.get("featured_order")
+    source_fingerprint = str(plan.get("source_fingerprint") or "")
     if not isinstance(raw_updates, list):
         return {"ok": False, "error": "updates must be a list"}
     if raw_order is not None and not isinstance(raw_order, list):
         return {"ok": False, "error": "featured_order must be a list"}
 
     writeups = tuple(load_writeups(runtime.writeups_dir))
+    if source_fingerprint:
+        current_listing = list_writeups(runtime, "all")
+        current_fingerprint = canonical_fingerprint(current_listing["writeups"])
+        if current_fingerprint != source_fingerprint:
+            return {
+                "ok": False,
+                "error": (
+                    "writeup source changed after this dashboard was loaded; "
+                    "reload and review the plan again"
+                ),
+                "code": "stale_plan",
+                "retryable": True,
+                "expected_fingerprint": source_fingerprint,
+                "current_fingerprint": current_fingerprint,
+            }
     by_slug = {writeup.slug: writeup for writeup in writeups}
     updates_by_slug: dict[str, dict[str, Any]] = {}
     for item in raw_updates:
