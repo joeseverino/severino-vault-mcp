@@ -595,6 +595,38 @@ def test_update_writeup_frontmatter_quotes_yaml_special_chars(
     assert parsed["description"] == tricky
 
 
+def test_update_writeup_link_replaces_exact_link_and_removes_title(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    index = fake_writeups_vault / "05 Writeups" / "ready-piece" / "index.md"
+    with index.open("a", encoding="utf-8") as handle:
+        handle.write('\n[Dashboard](https://old.example "private note")\n')
+
+    result = _tool(server, "update_writeup_link")(
+        "ready-piece",
+        "Dashboard",
+        "https://old.example",
+        "https://github.com/example/dashboard",
+    )
+
+    assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.link.update"
+    text = index.read_text(encoding="utf-8")
+    assert "[Dashboard](https://github.com/example/dashboard)" in text
+    assert "private note" not in text
+
+
+def test_update_writeup_link_requires_exactly_one_match(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = _tool(server, "update_writeup_link")(
+        "ready-piece", "Missing", "https://old.example", "https://new.example"
+    )
+    assert result == {"ok": False, "error": "expected exactly one matching link; found 0"}
+
+
 # ----- reorder_featured ------------------------------------------------------
 
 
