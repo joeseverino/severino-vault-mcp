@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `apply_writeup_plan` accepts the dashboard `source_fingerprint` and rejects a
+  stale save before staging any files, so `site manage` cannot overwrite a
+  writeup changed after its session loaded. Older callers remain compatible
+  while migrating because the guard is opt-in when the fingerprint is present.
+
 - CLI and MCP are now peer adapters over the engine's `GovernanceContext`; each
   constructs one governed runtime and calls the same application services.
 - Engine requirement raised to 0.3.0. The legacy HQ `schema --json` output is

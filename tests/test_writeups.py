@@ -678,6 +678,26 @@ def test_apply_writeup_plan_updates_fields_and_complete_featured_order(
     assert by_slug["lead-piece"]["featured_order"] == 3
 
 
+def test_apply_writeup_plan_rejects_a_stale_dashboard(
+    fake_writeups_vault: Path,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
+    runtime = service.WriteupRuntime.from_env()
+    dashboard = service.writeup_dashboard(runtime)
+    index = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    index.write_text(index.read_text().replace("Draft Piece", "Changed Elsewhere"))
+
+    result = service.apply_writeup_plan(runtime, {
+        "source_fingerprint": dashboard["source_fingerprint"],
+        "updates": [{"slug": "draft-piece", "published": True}],
+    })
+
+    assert result["ok"] is False
+    assert result["code"] == "stale_plan"
+    assert result["retryable"] is True
+    assert "reload" in result["error"]
+
+
 def test_apply_writeup_plan_rolls_back_partial_replace_failure(
     fake_writeups_vault: Path,
     monkeypatch,

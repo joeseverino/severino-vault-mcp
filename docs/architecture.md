@@ -262,6 +262,9 @@ The write model is intentionally schema-specific:
 - Multi-writeup changes are planned in memory, staged to sibling temporary
   files, checked for concurrent modification, and replaced under a lock.
   Replacement failures trigger rollback of files already changed.
+- Interactive callers bind a plan to the dashboard's deterministic
+  `source_fingerprint`; a changed writeup makes the plan stale and is rejected
+  before staging, so a long-lived TUI session cannot overwrite newer edits.
 
 This is the core pattern for safe MCP writes: if the server cannot name the
 file shape, validate the fields, and report exactly what changed, it should not
