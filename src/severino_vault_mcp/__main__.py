@@ -145,6 +145,30 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
+    if args.command == "update-writeup-link":
+        from .labs.writeup_service import WriteupRuntime, update_writeup_link
+
+        result = update_writeup_link(
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
+            args.slug,
+            args.label,
+            args.expected_href,
+            args.replacement_href,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "update-doc-link":
+        from vault_engine.vault_write_service import update_document_link
+
+        result = update_document_link(
+            ctx.loader,
+            args.doc_id,
+            args.label,
+            args.expected_href,
+            args.replacement_href,
+        )
+        _emit(result, pretty=args.pretty)
+
     if args.command == "touch-reviewed":
         from vault_engine.vault_write_service import touch_reviewed
 

@@ -186,6 +186,23 @@ def register(mcp, ctx: GovernanceContext) -> None:
         return writeup_service.apply_writeup_plan(writeup_runtime, plan)
 
     @mcp.tool()
+    def update_writeup_link(
+        slug: str,
+        label: str,
+        expected_href: str,
+        replacement_href: str,
+    ) -> dict[str, Any]:
+        """Atomically replace one exact Markdown link in a writeup body.
+
+        The slug names the writeup; exactly one label+href pair must match and
+        both URLs must be absolute HTTP(S) targets. This does not expose an
+        arbitrary body editor.
+        """
+        return writeup_service.update_writeup_link(
+            writeup_runtime, slug, label, expected_href, replacement_href
+        )
+
+    @mcp.tool()
     def update_writeup_frontmatter(
         slug: str,
         title: str | None = None,

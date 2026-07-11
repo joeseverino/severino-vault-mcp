@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from vault_engine.atomic_write import transactional_replace
 from vault_engine.config import Config
@@ -683,6 +684,54 @@ def update_writeup_frontmatter(
     return result
 
 
+def update_writeup_link(
+    runtime: WriteupRuntime,
+    slug: str,
+    label: str,
+    expected_href: str,
+    replacement_href: str,
+) -> dict[str, Any]:
+    """Replace one exact Markdown link in a named writeup atomically."""
+    if err := runtime.path_error(runtime.writeups_dir, "writeups dir", "dir"):
+        return err
+    writeup = next((item for item in load_writeups(runtime.writeups_dir) if item.slug == slug), None)
+    if writeup is None:
+        return {"ok": False, "error": f"unknown writeup slug: {slug!r}"}
+    if not label.strip():
+        return {"ok": False, "error": "link label required"}
+    for name, href in (("expected_href", expected_href), ("replacement_href", replacement_href)):
+        parsed = urlparse(href)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return {"ok": False, "error": f"{name} must be an absolute HTTP(S) URL"}
+    text = writeup.path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        rf"\[{re.escape(label)}\]\({re.escape(expected_href)}(?:\s+\"[^\"]*\")?\)"
+    )
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        return {"ok": False, "error": f"expected exactly one matching link; found {len(matches)}"}
+    replacement = pattern.sub(f"[{label}]({replacement_href})", text, count=1)
+    ok, error = transactional_replace(runtime.writeups_dir, {writeup.path: replacement})
+    if not ok:
+        return {"ok": False, "error": f"writeup transaction failed: {error}", "rolled_back": True}
+    return {
+        "ok": True,
+        "slug": slug,
+        "label": label,
+        "old_href": expected_href,
+        "new_href": replacement_href,
+        "receipt": MutationReceipt(
+            operation="writeup.link.update",
+            entity_type="writeup",
+            entity_id=slug,
+            changed_fields=("body.link",),
+            after_fingerprint=canonical_fingerprint({"slug": slug, "href": replacement_href}),
+            affected_projections=("site", "writeup_dashboard"),
+            metadata={"label": label},
+        ).as_dict(),
+    }
+
+
 def apply_writeup_plan(
     runtime: WriteupRuntime,
     plan: dict[str, Any],
@@ -903,6 +952,7 @@ __all__ = [
     "prepare_writeup_publish",
     "reorder_featured",
     "update_writeup_frontmatter",
+    "update_writeup_link",
     "validate_all_writeups",
     "validate_writeup",
     "writeup_dashboard",

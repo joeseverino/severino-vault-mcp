@@ -216,6 +216,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    update_writeup_link = subparsers.add_parser(
+        "update-writeup-link",
+        help="Replace one exact Markdown link in a named writeup body.",
+    )
+    update_writeup_link.add_argument("slug")
+    update_writeup_link.add_argument("label")
+    update_writeup_link.add_argument("expected_href")
+    update_writeup_link.add_argument("replacement_href")
+    update_writeup_link.add_argument("--pretty", action="store_true")
+
+    update_doc_link = subparsers.add_parser(
+        "update-doc-link",
+        help="Replace one exact Markdown link in an indexed document body.",
+    )
+    update_doc_link.add_argument("doc_id")
+    update_doc_link.add_argument("label")
+    update_doc_link.add_argument("expected_href")
+    update_doc_link.add_argument("replacement_href")
+    update_doc_link.add_argument("--pretty", action="store_true")
+
     touch_reviewed = subparsers.add_parser(
         "touch-reviewed",
         help=(
@@ -645,6 +665,8 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-writeup-plan": "vault_write",
         "reorder-featured": "vault_write",
         "update-writeup": "vault_write",
+        "update-writeup-link": "vault_write",
+        "update-doc-link": "vault_write",
         "touch-reviewed": "vault_write",
         "backfill-aliases": "vault_write",
         "infra-write": "vault_write",
