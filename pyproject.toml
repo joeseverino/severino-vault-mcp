@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "mcp>=1.27",
+    "mcp>=1.28.1",
     "starlette>=1.0.1",
     # cordon's Python reference emitter — the single source for our command-surface
     # contract. We consume it rather than maintain a copy (cli_introspect.py is a
