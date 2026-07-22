@@ -584,21 +584,22 @@ def _changed_writeup_text(
     writeup: Writeup,
     updates: dict[str, Any],
 ) -> tuple[str, list[str]]:
-    current_values = writeup.to_summary()
-    changed_fields = [
-        key
-        for key, value in updates.items()
-        if current_values.get(key) != value
-    ]
-    if not changed_fields:
-        return writeup.path.read_text(encoding="utf-8"), []
+    # Decide "changed" by whether the rendered replacement alters the file
+    # text, not by diffing against the loader's coerced summary. The summary
+    # normalizes lossy hand edits (`published: yes`, quoted scalars, missing
+    # keys falling back to defaults), so a summary diff reports a false no-op
+    # for values whose on-disk line genuinely differs from what we would write.
     text = writeup.path.read_text(encoding="utf-8")
-    for key in changed_fields:
-        text = _replace_writeup_scalar(
+    changed_fields: list[str] = []
+    for key, value in updates.items():
+        new_text = _replace_writeup_scalar(
             text,
             key,
-            _yaml_writeup_scalar(updates[key]),
+            _yaml_writeup_scalar(value),
         )
+        if new_text != text:
+            changed_fields.append(key)
+            text = new_text
     return text, sorted(changed_fields)
 
 
