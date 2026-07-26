@@ -552,6 +552,28 @@ def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -
     assert "published_at: 2026-05-30" in body
 
 
+def test_update_writeup_frontmatter_rewrites_nonstandard_bool(
+    fake_writeups_vault: Path,
+) -> None:
+    # A hand-edited `published: yes` coerces to True in the loader's summary,
+    # so a summary-based diff calls published=True a no-op — but the file line
+    # genuinely differs from `published: true`, and strict YAML consumers of
+    # the file read the string "yes", not a bool. The update must write.
+    path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "published: false", "published: yes"
+        ),
+        encoding="utf-8",
+    )
+    server = _fresh_module("severino_vault_mcp.server")
+    result = _tool(server, "update_writeup_frontmatter")("draft-piece", published=True)
+    assert result["ok"] is True
+    assert result.get("no_op") is not True
+    assert result["changed_fields"] == ["published"]
+    assert "published: true" in path.read_text(encoding="utf-8")
+
+
 def test_update_writeup_frontmatter_no_op_when_unchanged(fake_writeups_vault: Path) -> None:
     server = _fresh_module("severino_vault_mcp.server")
     # ready-piece already has published=True, so passing the same value is a no-op
