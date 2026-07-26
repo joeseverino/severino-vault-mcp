@@ -206,6 +206,8 @@ def test_inventory_schema_shape() -> None:
     assert schema["required_host_fields"] == ["id", "name", "role", "kind"]
     assert "vm" in schema["host_kinds"]
     assert "laptop" in schema["host_kinds"]
+    assert "printer" in schema["host_kinds"]
+    assert "printer" not in topo_mod.DIAGRAM_KINDS  # inventory only, like laptop/mobile
 
 
 def test_get_topology_envelope(tmp_path: Path, monkeypatch) -> None:

@@ -43,7 +43,7 @@ TABLE_END = "<!-- TOPOLOGY:END -->"
 # so HQ's importer and any other consumer validate against the same definition.
 REQUIRED_TOP_LEVEL = ("version", "hosts")
 REQUIRED_HOST_FIELDS = ("id", "name", "role", "kind")
-HOST_KINDS = ("physical", "vm", "vps", "laptop", "mobile")
+HOST_KINDS = ("physical", "vm", "vps", "laptop", "mobile", "printer")
 # Kinds that belong on the device diagram (infrastructure, not admin clients).
 DIAGRAM_KINDS = ("physical", "vm", "vps")
 
