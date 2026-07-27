@@ -23,19 +23,12 @@ from vault_engine.frontmatter import yaml_escape
 from vault_engine.paths import path_within_root
 from vault_engine.vault import VaultLoader
 
+from ..contracts.site_content import mutable_scalar_fields, public_contract
 from .tech_groups import TechSlug, load_technology_catalog
 from .writeups import Writeup, extract_body_image_refs, load_writeups
 
 WRITEUP_FILTERS = ("all", "published", "draft", "featured")
-WRITEUP_SCALAR_FIELDS = {
-    "title",
-    "description",
-    "published",
-    "published_at",
-    "last_reviewed",
-    "cover_image",
-    "cover_alt",
-}
+WRITEUP_SCALAR_FIELDS = mutable_scalar_fields()
 
 
 @dataclass(frozen=True)
@@ -166,6 +159,7 @@ def list_featured_writeup_order(runtime: WriteupRuntime) -> dict[str, Any]:
     order = _featured_writeup_order(load_writeups(runtime.writeups_dir))
     return {
         "ok": True,
+        "content_contract": public_contract(),
         "writeups_dir": str(runtime.writeups_dir),
         "count": len(order),
         "order": order,

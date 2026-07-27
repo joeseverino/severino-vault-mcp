@@ -18,6 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
     Extracted from `main` so `describe` can introspect the same parser that
     backs `--help` — the command surface is declared exactly once.
     """
+    from .contracts.site_content import cli_fields
+
     parser = argparse.ArgumentParser(
         prog="severino-vault-mcp",
         description="Local stdio MCP server for Obsidian-style operations vaults.",
@@ -160,6 +162,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    writeup_contract = subparsers.add_parser(
+        "writeup-contract",
+        help=(
+            "Emit the versioned jseverino.com content contract projection "
+            "and its canonical source fingerprint."
+        ),
+    )
+    writeup_contract.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     apply_plan = subparsers.add_parser(
         "apply-writeup-plan",
         help=(
@@ -202,14 +217,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     update_writeup.add_argument("slug", help="Writeup slug to update.")
-    update_writeup.add_argument("--title", default=None)
-    update_writeup.add_argument("--description", default=None)
-    update_writeup.add_argument("--published", default=None, choices=["true", "false"])
-    update_writeup.add_argument("--published-at", default=None)
-    update_writeup.add_argument("--last-reviewed", default=None)
+    for field_name, spec in cli_fields():
+        kwargs = {"default": None, "dest": field_name}
+        if spec.get("type") == "boolean":
+            kwargs["choices"] = ["true", "false"]
+        update_writeup.add_argument(str(spec["cli_flag"]), **kwargs)
     update_writeup.add_argument("--touch-last-reviewed", action="store_true")
-    update_writeup.add_argument("--cover-image", default=None)
-    update_writeup.add_argument("--cover-alt", default=None)
     update_writeup.add_argument(
         "--pretty",
         action="store_true",
@@ -531,10 +544,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     topology.add_argument(
         "--emit",
-        choices=["summary", "tables", "doc", "figure", "schema"],
+        choices=["summary", "inventory", "tables", "doc", "figure", "schema"],
         default="summary",
         help=(
-            "summary: AI-grounding JSON (default). tables: the markdown body. "
+            "summary: AI-grounding JSON (default). inventory: the complete "
+            "validated sensitive payload for a trusted downstream importer. "
+            "tables: the markdown body. "
             "doc: the full Topology.md build artifact. figure: a `brand figure` "
             "topology spec. schema: the declared inventory contract (canonical "
             "JSON HQ validates against)."

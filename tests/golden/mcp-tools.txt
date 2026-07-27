@@ -13,6 +13,7 @@ get_infra_dataset
 get_runbook
 get_technology_catalog
 get_topology
+get_writeup_contract
 inventory_for_project
 list_contact_submissions
 list_csp_reports
@@ -30,8 +31,10 @@ search_body
 set_task_status
 task_board
 task_projects
+update_document_link
 update_frontmatter
 update_writeup_frontmatter
+update_writeup_link
 validate_all_writeups
 validate_writeup
 writeup_dashboard

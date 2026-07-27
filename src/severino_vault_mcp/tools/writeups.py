@@ -14,6 +14,7 @@ from typing import Any
 
 from vault_engine.context import GovernanceContext
 
+from ..contracts.site_content import public_contract, update_tool_signature
 from ..labs import writeup_service
 
 
@@ -203,63 +204,42 @@ def register(mcp, ctx: GovernanceContext) -> None:
         )
 
     @mcp.tool()
-    def update_writeup_frontmatter(
-        slug: str,
-        title: str | None = None,
-        description: str | None = None,
-        published: bool | None = None,
-        published_at: str | None = None,
-        last_reviewed: str | None = None,
-        touch_last_reviewed: bool = False,
-        cover_image: str | None = None,
-        cover_alt: str | None = None,
-        featured: bool | None = None,
-        featured_order: int | None = None,
-    ) -> dict[str, Any]:
+    def get_writeup_contract() -> dict[str, Any]:
+        """Return the site-owned writeup field contract and its fingerprint.
+
+        Use this before building an editor or mutation client. The web schema,
+        CLI flags, and this MCP tool schema are projections of this contract.
+        """
+        return public_contract()
+
+    def update_writeup_frontmatter(slug: str, **updates: Any) -> dict[str, Any]:
         """USE THIS — never Edit YAML in `05 Writeups/<slug>/index.md` by hand.
 
-        Mirrors `update_frontmatter` but for the writeup schema (no doc_id,
-        has published/featured/featured_order). Mutates scalar fields with
-        minimal disruption to surrounding formatting; lines you don't touch
-        stay byte-identical.
+        The accepted scalar fields are emitted by jseverino.com's versioned
+        content contract. FastMCP's visible parameter schema is generated from
+        that contract at registration time; this function intentionally does
+        not redeclare the field list.
 
         For cross-writeup reordering of `featured_order` (slotting a new
         writeup in at position N and shifting others), call
         `reorder_featured(slug, position)` instead — this tool only mutates
         one writeup at a time and won't keep the featured set sequential.
 
-        Args:
-            slug: Writeup slug.
-            title, description, published_at, cover_image, cover_alt: scalar
-                updates. None means leave unchanged.
-            published: boolean update. None means leave unchanged.
-            featured, featured_order: retained for backwards-compatible tool
-                schema parsing but refused; use `reorder_featured` or
-                `apply_writeup_plan` so ordering invariants remain transactional.
-            last_reviewed: ISO date (YYYY-MM-DD). Ignored if
-                `touch_last_reviewed=True`.
-            touch_last_reviewed: if True, set last_reviewed to today.
+        ``touch_last_reviewed`` remains an operation switch rather than stored
+        metadata: when true, the service stamps today's date.
         """
-        if featured is not None or featured_order is not None:
-            return {
-                "ok": False,
-                "error": (
-                    "featured fields must be changed through reorder_featured "
-                    "or apply_writeup_plan"
-                ),
-            }
+        touch_last_reviewed = bool(updates.pop("touch_last_reviewed", False))
         return writeup_service.update_writeup_frontmatter(
             writeup_runtime,
             slug,
-            title=title,
-            description=description,
-            published=published,
-            published_at=published_at,
-            last_reviewed=last_reviewed,
             touch_last_reviewed=touch_last_reviewed,
-            cover_image=cover_image,
-            cover_alt=cover_alt,
+            **updates,
         )
+
+    # FastMCP inspects ``__signature__``. Generate it from the site contract
+    # before registration while the implementation remains a generic adapter.
+    update_writeup_frontmatter.__signature__ = update_tool_signature()  # type: ignore[attr-defined]
+    mcp.tool()(update_writeup_frontmatter)
 
     @mcp.tool()
     def reorder_featured(slug: str, position: int) -> dict[str, Any]:
