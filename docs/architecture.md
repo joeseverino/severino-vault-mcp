@@ -103,6 +103,10 @@ directly. No tool logic lives in either adapter, and CLI never calls MCP.
   `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
   arbitrary JSON into the vault).
 - `labs/topology.py` — the authored inventory + the CLI-only `topology-write`.
+- `contracts/site_content.v1.json` — the site-owned public content contract
+  projection. MCP validates its fingerprint and derives writeup fields, CLI
+  flags, tool signatures, and dashboard metadata from it instead of carrying a
+  second schema.
 - `labs/writeup_service.py`, `labs/writeups.py` — writeup reads, validation, and
   transactions.
 - `labs/site_ops_service.py` — the jseverino.com integrations (Cloudflare D1

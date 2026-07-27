@@ -41,9 +41,12 @@ TABLE_END = "<!-- TOPOLOGY:END -->"
 # One source of truth for the inventory shape, mirroring schema.py's role for
 # frontmatter: validated on every read and emitted (`topology --emit schema`)
 # so HQ's importer and any other consumer validate against the same definition.
+# The explicit `topology --emit inventory` projection releases the complete
+# validated payload only for trusted downstream ingestion.
 REQUIRED_TOP_LEVEL = ("version", "hosts")
 REQUIRED_HOST_FIELDS = ("id", "name", "role", "kind")
 HOST_KINDS = ("physical", "vm", "vps", "laptop", "mobile", "printer")
+DEPENDENCY_RELATIONS = ("consumes", "hosted_on", "routes_to", "secured_by")
 # Kinds that belong on the device diagram (infrastructure, not admin clients).
 DIAGRAM_KINDS = ("physical", "vm", "vps")
 
@@ -64,6 +67,7 @@ _COMPASS = ("nw", "e", "s", "w", "ne", "se", "sw", "n")
 
 @dataclass(frozen=True)
 class Container:
+    id: str
     name: str
     ports: str
     note: str
@@ -71,6 +75,7 @@ class Container:
     @classmethod
     def from_dict(cls, data: dict) -> Container:
         return cls(
+            id=str(data.get("id", data.get("name", ""))),
             name=str(data.get("name", "")),
             ports=str(data.get("ports", "")),
             note=str(data.get("note", "")),
@@ -135,6 +140,9 @@ class Topology:
     tailnet: dict
     networks: tuple[dict, ...]
     pki: tuple[dict, ...]
+    externals: tuple[dict, ...]
+    dependencies: tuple[dict, ...]
+    managed_resources: tuple[dict, ...]
     invariants: tuple[str, ...]
     raw: dict = field(default_factory=dict, repr=False)
 
@@ -147,6 +155,9 @@ class Topology:
             tailnet=dict(data.get("tailnet") or {}),
             networks=tuple(data.get("networks") or []),
             pki=tuple(data.get("pki") or []),
+            externals=tuple(data.get("externals") or []),
+            dependencies=tuple(data.get("dependencies") or []),
+            managed_resources=tuple(data.get("managed_resources") or []),
             invariants=tuple(data.get("invariants") or []),
             raw=data,
         )
@@ -156,12 +167,15 @@ class TopologyError(ValueError):
     """Raised when the inventory file is missing, malformed, or off-contract."""
 
 
-def inventory_schema() -> dict[str, list[str]]:
+def inventory_schema() -> dict[str, Any]:
     """The declared contract as a JSON-serializable dict (the emit face)."""
     return {
         "required_top_level": list(REQUIRED_TOP_LEVEL),
         "required_host_fields": list(REQUIRED_HOST_FIELDS),
         "host_kinds": list(HOST_KINDS),
+        "dependency_relations": list(DEPENDENCY_RELATIONS),
+        "managed_resource_required_fields": ["key", "kind", "spec"],
+        "reference_format": "<kind>:<stable-id>",
     }
 
 
@@ -197,12 +211,112 @@ def validate_inventory(data: object) -> list[str]:
         if dupes:
             problems.append(f"duplicate host ids: {dupes}")
 
-    for field_name in ("networks", "pki", "references", "invariants"):
+    for field_name in (
+        "networks",
+        "pki",
+        "externals",
+        "dependencies",
+        "managed_resources",
+        "references",
+        "invariants",
+    ):
         value = data.get(field_name)
         if value is not None and not isinstance(value, list):
             problems.append(f"{field_name} must be a list when present")
     if (tailnet := data.get("tailnet")) is not None and not isinstance(tailnet, dict):
         problems.append("tailnet must be an object when present")
+
+    known_refs: set[str] = set()
+    if isinstance(hosts, list):
+        for i, host in enumerate(hosts):
+            if not isinstance(host, dict) or not host.get("id"):
+                continue
+            known_refs.add(f"host:{host['id']}")
+            containers = host.get("containers") or []
+            if not isinstance(containers, list):
+                problems.append(f"hosts[{i}].containers must be a list")
+                continue
+            container_ids: list[str] = []
+            for j, container in enumerate(containers):
+                if not isinstance(container, dict):
+                    problems.append(f"hosts[{i}].containers[{j}] must be an object")
+                    continue
+                container_id = container.get("id") or container.get("name")
+                if not container_id:
+                    problems.append(
+                        f"hosts[{i}].containers[{j}] missing stable id or name"
+                    )
+                    continue
+                container_ids.append(str(container_id))
+                known_refs.add(f"container:{host['id']}/{container_id}")
+            duplicates = sorted(
+                {item for item in container_ids if container_ids.count(item) > 1}
+            )
+            if duplicates:
+                problems.append(
+                    f"hosts[{i}] has duplicate container ids: {duplicates}"
+                )
+
+    for collection, prefix in (("pki", "pki"), ("externals", "external")):
+        entries = data.get(collection) or []
+        if not isinstance(entries, list):
+            continue
+        ids: list[str] = []
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                problems.append(f"{collection}[{i}] must be an object")
+                continue
+            entry_id = entry.get("id")
+            if not entry_id:
+                problems.append(f"{collection}[{i}] missing required field: id")
+                continue
+            ids.append(str(entry_id))
+            known_refs.add(f"{prefix}:{entry_id}")
+        duplicates = sorted({item for item in ids if ids.count(item) > 1})
+        if duplicates:
+            problems.append(f"duplicate {collection} ids: {duplicates}")
+
+    dependencies = data.get("dependencies") or []
+    if isinstance(dependencies, list):
+        for i, dependency in enumerate(dependencies):
+            if not isinstance(dependency, dict):
+                problems.append(f"dependencies[{i}] must be an object")
+                continue
+            relation = dependency.get("relation")
+            if relation not in DEPENDENCY_RELATIONS:
+                problems.append(
+                    f"dependencies[{i}].relation {relation!r} not in "
+                    f"{list(DEPENDENCY_RELATIONS)}"
+                )
+            for endpoint in ("from", "to"):
+                reference = dependency.get(endpoint)
+                if reference not in known_refs:
+                    problems.append(
+                        f"dependencies[{i}].{endpoint} has dangling reference "
+                        f"{reference!r}"
+                    )
+
+    managed_resources = data.get("managed_resources") or []
+    if isinstance(managed_resources, list):
+        keys: list[str] = []
+        for i, resource in enumerate(managed_resources):
+            if not isinstance(resource, dict):
+                problems.append(f"managed_resources[{i}] must be an object")
+                continue
+            for required in ("key", "kind", "spec"):
+                if required not in resource:
+                    problems.append(
+                        f"managed_resources[{i}] missing required field: {required}"
+                    )
+            if resource.get("key"):
+                keys.append(str(resource["key"]))
+            if "spec" in resource and not isinstance(resource["spec"], dict):
+                problems.append(f"managed_resources[{i}].spec must be an object")
+            if "enabled" in resource and not isinstance(resource["enabled"], bool):
+                problems.append(f"managed_resources[{i}].enabled must be a boolean")
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicates:
+            problems.append(f"duplicate managed resource keys: {duplicates}")
 
     return problems
 
@@ -250,7 +364,7 @@ def to_summary(topo: Topology) -> dict:
                 "ssh_port": h.ssh_port,
                 "tailnet": h.tailnet,
                 "containers": [
-                    {"name": c.name, "ports": c.ports, "note": c.note}
+                    {"id": c.id, "name": c.name, "ports": c.ports, "note": c.note}
                     for c in h.containers
                 ],
                 "hardening": list(h.hardening),
@@ -258,6 +372,9 @@ def to_summary(topo: Topology) -> dict:
             for h in topo.hosts
         ],
         "pki": list(topo.pki),
+        "externals": list(topo.externals),
+        "dependencies": list(topo.dependencies),
+        "managed_resources": list(topo.managed_resources),
         "invariants": list(topo.invariants),
     }
 
@@ -347,11 +464,26 @@ def render_tables(topo: Topology, references: tuple[dict, ...] = ()) -> str:
     # ── PKI ──
     if topo.pki:
         out += ["## PKI / TLS", ""]
-        out += ["| Issuer | Covers | Key location | Expires |", "|---|---|---|---|"]
+        out += [
+            "| Certificate | Issuer | Covers | Key location | Expires |",
+            "|---|---|---|---|---|",
+        ]
         for p in topo.pki:
+            covers = ", ".join(p.get("domains") or []) or _cell(p.get("covers"))
             out += [
-                f"| {_cell(p.get('issuer'))} | {_cell(p.get('covers'))} "
+                f"| `{_cell(p.get('id'))}` | {_cell(p.get('issuer'))} | {covers} "
                 f"| {_cell(p.get('key_location'))} | {_cell(p.get('expires'))} |"
+            ]
+        out += [""]
+
+    if topo.dependencies:
+        out += ["## Dependencies", ""]
+        out += ["| From | Relationship | To |", "|---|---|---|"]
+        for dependency in topo.dependencies:
+            out += [
+                f"| `{_cell(dependency.get('from'))}` "
+                f"| {_cell(dependency.get('relation'))} "
+                f"| `{_cell(dependency.get('to'))}` |"
             ]
         out += [""]
 

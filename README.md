@@ -201,6 +201,7 @@ guard mirrors live system state into a JSON cache). See the vault's
 | Tool | Read or write | What it answers |
 |---|---|---|
 | `get_topology()` | read | The authored network inventory: hosts with LAN/Tailscale/public IPs, SSH, containers, plus networks, tailnet structure, and PKI. Use for any host/IP/container question instead of re-deriving from prose. |
+| `get_writeup_contract()` | read | The versioned site-owned writeup contract used by MCP, CLI, and Tools. Use it to discover fields and capabilities instead of hardcoding them. |
 | `list_infra_datasets()` | read | The catalog of every infra dataset: id, kind (authored/reflected), owner, sensitivity, and whether it is machine-readable/refreshable. |
 | `get_infra_dataset(id, refresh=False)` | read | One dataset from its true owner — `dns_rewrites`, `proxy_hosts`, `tailscale_acl`, `public_dns`, `topology`. Default returns the git-tracked cache instantly (`live: false`, with `fetched_at`) so it answers even when the system is down; `refresh=True` reads live via the guard and falls back to the cache flagged `stale`. Sensitivity-gated. |
 

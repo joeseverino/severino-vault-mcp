@@ -102,6 +102,11 @@ def main() -> None:
         result = writeup_dashboard(WriteupRuntime.from_config(ctx.config, loader=ctx.loader))
         _emit(result, pretty=args.pretty)
 
+    if args.command == "writeup-contract":
+        from .contracts.site_content import public_contract
+
+        _emit(public_contract(), pretty=args.pretty)
+
     if args.command == "apply-writeup-plan":
         from .labs.writeup_service import WriteupRuntime, apply_writeup_plan
 
@@ -126,22 +131,26 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "update-writeup":
+        from .contracts.site_content import cli_fields
         from .labs.writeup_service import (
             WriteupRuntime,
             update_writeup_frontmatter,
         )
 
+        updates = {
+            name: (
+                getattr(args, name) == "true"
+                if spec.get("type") == "boolean"
+                else getattr(args, name)
+            )
+            for name, spec in cli_fields()
+            if getattr(args, name) is not None
+        }
         result = update_writeup_frontmatter(
             WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
             args.slug,
-            title=args.title,
-            description=args.description,
-            published=None if args.published is None else args.published == "true",
-            published_at=args.published_at,
-            last_reviewed=args.last_reviewed,
+            **updates,
             touch_last_reviewed=args.touch_last_reviewed,
-            cover_image=args.cover_image,
-            cover_alt=args.cover_alt,
         )
         _emit(result, pretty=args.pretty)
 
@@ -396,13 +405,15 @@ def main() -> None:
         if args.emit == "summary":
             _emit(topo_mod.get_topology(config), pretty=args.pretty)
 
-        # tables / doc / figure load the inventory directly.
+        # inventory / tables / doc / figure load the inventory directly.
         try:
             topo = topo_mod.load_topology(config.topology_path)
         except topo_mod.TopologyError as exc:
             _emit({"ok": False, "error": str(exc)}, pretty=args.pretty)
 
-        if args.emit == "tables":
+        if args.emit == "inventory":
+            print(jsonio.dumps(topo.raw, pretty=args.pretty))
+        elif args.emit == "tables":
             print(topo_mod.render_tables(topo, references))
         elif args.emit == "doc":
             today = datetime.date.today().isoformat()

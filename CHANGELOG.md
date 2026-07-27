@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Extended the authored topology inventory with validated identities,
+  dependency references, external resources, and an inventory JSON projection
+  so downstream systems consume topology rather than re-derive it from prose.
+- Added the site-owned content contract projection and derived MCP writeup
+  service fields, CLI flags, tool signatures, and dashboard metadata from that
+  single versioned input.
+
 - Add `update_writeup_link`, an exact-match Markdown link writer for writeup bodies that preserves transactional rollback and avoids arbitrary text mutation.
 
 - `apply_writeup_plan` accepts the dashboard `source_fingerprint` and rejects a
