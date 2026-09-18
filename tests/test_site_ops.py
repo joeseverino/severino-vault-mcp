@@ -199,3 +199,67 @@ def test_redacted_call_writes_no_audit_line(tmp_path: Path, monkeypatch) -> None
 
     asyncio.run(server.mcp.call_tool("list_contact_submissions", {}))
     assert not audit_path.exists()
+
+
+# ----- Cloudflare credential resolution --------------------------------------
+
+
+def test_cloudflare_env_prefers_real_environment(monkeypatch) -> None:
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "from-env")
+    monkeypatch.setattr(ops, "_cf_env_cache", None)
+
+    def _boom(*_a, **_k):  # op must not be consulted when the env has a token
+        raise AssertionError("op should not be invoked")
+
+    monkeypatch.setattr(ops.subprocess, "run", _boom)
+    env = ops._cloudflare_env()
+    assert env["CLOUDFLARE_API_TOKEN"] == "from-env"
+
+
+def test_cloudflare_env_resolves_from_op_and_caches(monkeypatch) -> None:
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.setattr(ops, "_cf_env_cache", None)
+    monkeypatch.setattr(ops.shutil, "which", lambda _n: "/fake/op")
+    calls: list[str] = []
+
+    class _Proc:
+        returncode = 0
+
+        def __init__(self, ref: str) -> None:
+            self.stdout = "tok-123\n" if ref.endswith("/token") else "acct-456\n"
+
+    def _fake_run(argv, **_kw):
+        calls.append(argv[-1])
+        return _Proc(argv[-1])
+
+    monkeypatch.setattr(ops.subprocess, "run", _fake_run)
+    env = ops._cloudflare_env()
+    assert env["CLOUDFLARE_API_TOKEN"] == "tok-123"
+    assert env["CLOUDFLARE_ACCOUNT_ID"] == "acct-456"
+    assert len(calls) == 2
+
+    ops._cloudflare_env()  # second call must hit the cache, not op
+    assert len(calls) == 2
+
+
+def test_cloudflare_env_failure_degrades_and_caches(monkeypatch) -> None:
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.setattr(ops, "_cf_env_cache", None)
+    monkeypatch.setattr(ops.shutil, "which", lambda _n: "/fake/op")
+    calls: list[str] = []
+
+    class _Failed:
+        returncode = 1
+        stdout = ""
+
+    def _fake_run(argv, **_kw):
+        calls.append(argv[-1])
+        return _Failed()
+
+    monkeypatch.setattr(ops.subprocess, "run", _fake_run)
+    env = ops._cloudflare_env()
+    assert "CLOUDFLARE_API_TOKEN" not in env
+    first = len(calls)
+
+    ops._cloudflare_env()  # denied/failed resolution must not re-prompt
+    assert len(calls) == first

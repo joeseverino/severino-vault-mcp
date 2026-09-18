@@ -52,10 +52,11 @@ jseverino.com operator tools. A second server, `severino-edu-mcp`, composes the
 same engine against an education profile — proof the core carries no Labs domain
 knowledge.
 
-`server.py` is the composition root: it builds one `ServerContext`
-(`vault_engine.context`) from `Config.from_env()`, calls `register_core` for the
-engine's generic tools, then registers the Labs tool groups. No tool logic lives
-in `server.py`.
+`server.py` is the MCP composition root: it builds one `GovernanceContext`
+(`vault_engine.context`) with `GovernanceContext.load()`, calls `register_core` for the
+engine's generic tools, then registers the Labs tool groups. `__main__.py` builds
+the same context once for the CLI and calls the same application services
+directly. No tool logic lives in either adapter, and CLI never calls MCP.
 
 **The engine owns (don't edit these here):**
 
@@ -63,8 +64,9 @@ in `server.py`.
   (`split_frontmatter`) and serialization (`serialize_frontmatter`,
   `yaml_escape`). Generic vault writers and the writeup line-replacement path
   quote scalars through the one `yaml_escape`, so escaping rules cannot fork.
-- `atomic_write` — durable replacement. `atomic_write_text` (one file) and
-  `transactional_replace` (many files, locked, rollback) share one
+- `atomic_write` — durable creation/replacement. `atomic_create_text` (new file),
+  `atomic_write_text` (one replacement), and `transactional_replace` (many files,
+  locked, rollback) share one
   staged-tempfile + `fsync` + `os.replace` primitive.
 - `paths` — vault path validation: `validate_indexed_path` (writes land under an
   indexed dir) and `path_within_root` (operator tools stay inside the vault
@@ -101,6 +103,10 @@ in `server.py`.
   `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
   arbitrary JSON into the vault).
 - `labs/topology.py` — the authored inventory + the CLI-only `topology-write`.
+- `contracts/site_content.v1.json` — the site-owned public content contract
+  projection. MCP validates its fingerprint and derives writeup fields, CLI
+  flags, tool signatures, and dashboard metadata from it instead of carrying a
+  second schema.
 - `labs/writeup_service.py`, `labs/writeups.py` — writeup reads, validation, and
   transactions.
 - `labs/site_ops_service.py` — the jseverino.com integrations (Cloudflare D1
@@ -260,6 +266,9 @@ The write model is intentionally schema-specific:
 - Multi-writeup changes are planned in memory, staged to sibling temporary
   files, checked for concurrent modification, and replaced under a lock.
   Replacement failures trigger rollback of files already changed.
+- Interactive callers bind a plan to the dashboard's deterministic
+  `source_fingerprint`; a changed writeup makes the plan stale and is rejected
+  before staging, so a long-lived TUI session cannot overwrite newer edits.
 
 This is the core pattern for safe MCP writes: if the server cannot name the
 file shape, validate the fields, and report exactly what changed, it should not

@@ -528,6 +528,8 @@ def test_update_writeup_frontmatter_touches_last_reviewed(fake_writeups_vault: P
     server = _fresh_module("severino_vault_mcp.server")
     result = _tool(server, "update_writeup_frontmatter")("draft-piece", touch_last_reviewed=True)
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.update"
+    assert result["receipt"]["entity"] == {"type": "writeup", "id": "draft-piece"}
     assert "last_reviewed" in result["changed_fields"]
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
         encoding="utf-8"
@@ -541,12 +543,35 @@ def test_update_writeup_frontmatter_flips_published(fake_writeups_vault: Path) -
     server = _fresh_module("severino_vault_mcp.server")
     result = _tool(server, "update_writeup_frontmatter")("draft-piece", published=True, published_at="2026-05-30")
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.update"
     assert set(result["changed_fields"]) == {"published", "published_at"}
     body = (fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md").read_text(
         encoding="utf-8"
     )
     assert "published: true" in body
     assert "published_at: 2026-05-30" in body
+
+
+def test_update_writeup_frontmatter_rewrites_nonstandard_bool(
+    fake_writeups_vault: Path,
+) -> None:
+    # A hand-edited `published: yes` coerces to True in the loader's summary,
+    # so a summary-based diff calls published=True a no-op — but the file line
+    # genuinely differs from `published: true`, and strict YAML consumers of
+    # the file read the string "yes", not a bool. The update must write.
+    path = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "published: false", "published: yes"
+        ),
+        encoding="utf-8",
+    )
+    server = _fresh_module("severino_vault_mcp.server")
+    result = _tool(server, "update_writeup_frontmatter")("draft-piece", published=True)
+    assert result["ok"] is True
+    assert result.get("no_op") is not True
+    assert result["changed_fields"] == ["published"]
+    assert "published: true" in path.read_text(encoding="utf-8")
 
 
 def test_update_writeup_frontmatter_no_op_when_unchanged(fake_writeups_vault: Path) -> None:
@@ -590,6 +615,38 @@ def test_update_writeup_frontmatter_quotes_yaml_special_chars(
     parsed, _body, _start = frontmatter.split_frontmatter(body)
     assert parsed is not None
     assert parsed["description"] == tricky
+
+
+def test_update_writeup_link_replaces_exact_link_and_removes_title(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    index = fake_writeups_vault / "05 Writeups" / "ready-piece" / "index.md"
+    with index.open("a", encoding="utf-8") as handle:
+        handle.write('\n[Dashboard](https://old.example "private note")\n')
+
+    result = _tool(server, "update_writeup_link")(
+        "ready-piece",
+        "Dashboard",
+        "https://old.example",
+        "https://github.com/example/dashboard",
+    )
+
+    assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.link.update"
+    text = index.read_text(encoding="utf-8")
+    assert "[Dashboard](https://github.com/example/dashboard)" in text
+    assert "private note" not in text
+
+
+def test_update_writeup_link_requires_exactly_one_match(
+    fake_writeups_vault: Path,
+) -> None:
+    server = _fresh_module("severino_vault_mcp.server")
+    result = _tool(server, "update_writeup_link")(
+        "ready-piece", "Missing", "https://old.example", "https://new.example"
+    )
+    assert result == {"ok": False, "error": "expected exactly one matching link; found 0"}
 
 
 # ----- reorder_featured ------------------------------------------------------
@@ -660,17 +717,39 @@ def test_apply_writeup_plan_updates_fields_and_complete_featured_order(
     )
 
     assert result["ok"] is True
+    assert result["receipt"]["operation"] == "writeup.plan.apply"
     assert result["featured_order_after"] == [
         "ready-piece",
         "draft-piece",
         "lead-piece",
     ]
     after = service.writeup_dashboard(service.WriteupRuntime.from_env())
+    assert len(after["source_fingerprint"]) == 64
     by_slug = {writeup["slug"]: writeup for writeup in after["writeups"]}
     assert by_slug["draft-piece"]["published"] is True
     assert by_slug["ready-piece"]["featured_order"] == 1
     assert by_slug["draft-piece"]["featured_order"] == 2
     assert by_slug["lead-piece"]["featured_order"] == 3
+
+
+def test_apply_writeup_plan_rejects_a_stale_dashboard(
+    fake_writeups_vault: Path,
+) -> None:
+    service = _fresh_module("severino_vault_mcp.labs.writeup_service")
+    runtime = service.WriteupRuntime.from_env()
+    dashboard = service.writeup_dashboard(runtime)
+    index = fake_writeups_vault / "05 Writeups" / "draft-piece" / "index.md"
+    index.write_text(index.read_text().replace("Draft Piece", "Changed Elsewhere"))
+
+    result = service.apply_writeup_plan(runtime, {
+        "source_fingerprint": dashboard["source_fingerprint"],
+        "updates": [{"slug": "draft-piece", "published": True}],
+    })
+
+    assert result["ok"] is False
+    assert result["code"] == "stale_plan"
+    assert result["retryable"] is True
+    assert "reload" in result["error"]
 
 
 def test_apply_writeup_plan_rolls_back_partial_replace_failure(

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "severino-vault-mcp"
-version = "2.4.0"
+version = "2.5.0"
 description = "Local-first MCP server for safely querying Git-backed Obsidian runbooks and operations inventories with AI tools."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "mcp>=1.27",
+    "mcp>=1.28.1",
     "starlette>=1.0.1",
     # cordon's Python reference emitter — the single source for our command-surface
     # contract. We consume it rather than maintain a copy (cli_introspect.py is a
@@ -39,7 +39,7 @@ dependencies = [
     # register_core). Import package is `vault_engine`. Resolved from the sibling
     # repo via the path source below for this personal install; it's also on PyPI
     # (`pip install severino-vault-engine`) for outside consumers.
-    "severino-vault-engine>=0.1.1",
+    "severino-vault-engine>=0.3.0",
 ]
 
 [project.optional-dependencies]

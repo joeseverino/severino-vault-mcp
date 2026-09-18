@@ -19,11 +19,11 @@ re-implement it locally. See the engine's own `AGENTS.md` for the core's rules.
 ## Architecture (the spine)
 
 The spine moved to the engine. This repo composes it. `server.py` is a thin
-composition root — it builds one `ServerContext`, calls `register_core` for the
+composition root — it builds one `GovernanceContext`, calls `register_core` for the
 engine generics, then registers the Labs tool groups:
 
 ```python
-_CTX = ServerContext(Config.from_env())          # engine; defaults to LABS_PROFILE
+_CTX = GovernanceContext.load()                  # engine; defaults to LABS_PROFILE
 register_core(mcp, _CTX, build_parser=build_parser)  # engine: the 18 generic tools
 site_ops_tools.register(mcp, _CTX)               # Labs domain groups (this repo)
 writeups_tools.register(mcp, _CTX)
@@ -32,9 +32,10 @@ infra_datasets_tools.register(mcp, _CTX)
 ```
 
 **In the engine (`vault_engine`), not here** — don't edit these in this repo:
-`config`, `context` (`ServerContext`), `core_tools` (`register_core` + the 18
+`config`, `context` (`GovernanceContext`; `ServerContext` is compatibility), `core_tools` (`register_core` + the 18
 generic tools), `frontmatter` (the one serializer/`yaml_escape`), `atomic_write`
-(`atomic_write_text` / `transactional_replace`), `paths`, `vault`, `sections`,
+(`atomic_create_text` / `atomic_write_text` / `transactional_replace`), `contracts`
+(`GovernancePlan`, fingerprints, mutation receipts), `paths`, `vault`, `sections`,
 `search`, `sensitivity`, `jsonio`, `mirror`, `tabular`, `daily_notes`,
 `daily_write`, `task_service`, `brief_service`, `secret_unlock`, `doctor`,
 `cli_introspect` (the cordon `describe` binding), `vault_write_service`,
@@ -45,13 +46,15 @@ the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
 **In this repo** — the Labs domain layer + the composition/CLI surface:
 
 - `server.py` — composition root (above). No `@mcp.tool()` wall anymore; it wires
-  `register_core` + the four Labs groups onto one `ServerContext`.
+  `register_core` + the four Labs groups onto one `GovernanceContext`.
 - `cli.py` — `build_parser()`: the argparse CLI surface (incl. `schema`, the
   domain writers `topology-write` / `infra-write` / `daily-write`, and the
   `find` / `read` console subcommands). Per-command blast radius is declared with
   `cordon_emit.set_effect` on each subparser; the engine's `cli_introspect`
   projects this parser to the Cordon contract for `tools describe --repos`.
 - `__main__.py` — CLI dispatch over `build_parser`.
+  It constructs the same `GovernanceContext` shape once per invocation and
+  passes its config/loader into the same services as MCP; CLI never calls MCP.
 - `tools/` — the FastMCP **registration groups**, one `register(mcp, ctx)` per
   domain, thin wiring over the `labs/` services: `tools/site_ops.py`,
   `tools/writeups.py`, `tools/topology.py`, `tools/infra_datasets.py`.
@@ -78,6 +81,9 @@ importer against it, so the two systems can't drift on what `hq sync` accepts.
 After changing the Labs profile (in the **engine**): release the engine + bump
 the pin here, `site reinstall-mcp`, then `hq schema` (regenerates HQ's copy),
 then commit + deploy HQ. Guarded by `docs_index/tests.py` in HQ.
+The legacy `schema --json` shape is frozen for HQ. `schema --contract` emits the
+complete versioned engine contract and `schema --fingerprint` emits its stable
+identity; new consumers use those without broadening HQ's committed schema.
 
 Depth lives in `docs/architecture.md`, `docs/ai-safety-security.md`,
 `docs/ai-tool-contract.md`. Update those + `CHANGELOG.md` when you change behavior.

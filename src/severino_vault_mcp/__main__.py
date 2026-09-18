@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from vault_engine import jsonio
+from vault_engine.context import GovernanceContext
 
 from .cli import build_parser
 
@@ -46,17 +47,21 @@ def main() -> None:
         print(_fingerprint())
         raise SystemExit(0)
 
+    # One governed runtime per invocation. Every CLI branch uses the same
+    # config/profile/loader composition as the MCP adapter; neither face calls
+    # the other transport or reconstructs vault policy ad hoc.
+    ctx = GovernanceContext.load()
+
     if args.command == "doctor":
-        from vault_engine.config import Config
         from vault_engine.doctor import run_doctor
 
-        raise SystemExit(run_doctor(Config.from_env(), propose=args.propose))
+        raise SystemExit(run_doctor(ctx.config, propose=args.propose))
 
     if args.command == "prepare-writeup-publish":
         from .labs.writeup_service import WriteupRuntime, prepare_writeup_publish
 
         result = prepare_writeup_publish(
-            WriteupRuntime.from_env(),
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
             args.slug,
             include_tag_usage=args.include_tag_usage,
         )
@@ -66,27 +71,27 @@ def main() -> None:
         from .labs.writeup_service import WriteupRuntime, validate_writeup
 
         result = validate_writeup(
-            WriteupRuntime.from_env(), args.slug, draft=args.draft
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader), args.slug, draft=args.draft
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "list-writeups":
         from .labs.writeup_service import WriteupRuntime, list_writeups
 
-        result = list_writeups(WriteupRuntime.from_env(), args.filter)
+        result = list_writeups(WriteupRuntime.from_config(ctx.config, loader=ctx.loader), args.filter)
         _emit(result, pretty=args.pretty)
 
     if args.command == "technology-catalog":
         from .labs.writeup_service import WriteupRuntime, get_technology_catalog
 
-        result = get_technology_catalog(WriteupRuntime.from_env())
+        result = get_technology_catalog(WriteupRuntime.from_config(ctx.config, loader=ctx.loader))
         _emit(result, pretty=args.pretty)
 
     if args.command == "validate-all-writeups":
         from .labs.writeup_service import WriteupRuntime, validate_all_writeups
 
         result = validate_all_writeups(
-            WriteupRuntime.from_env(),
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
             only_published=not args.include_drafts,
         )
         _emit(result, pretty=args.pretty)
@@ -94,8 +99,13 @@ def main() -> None:
     if args.command == "writeup-dashboard":
         from .labs.writeup_service import WriteupRuntime, writeup_dashboard
 
-        result = writeup_dashboard(WriteupRuntime.from_env())
+        result = writeup_dashboard(WriteupRuntime.from_config(ctx.config, loader=ctx.loader))
         _emit(result, pretty=args.pretty)
+
+    if args.command == "writeup-contract":
+        from .contracts.site_content import public_contract
+
+        _emit(public_contract(), pretty=args.pretty)
 
     if args.command == "apply-writeup-plan":
         from .labs.writeup_service import WriteupRuntime, apply_writeup_plan
@@ -105,83 +115,103 @@ def main() -> None:
         except jsonio.JsonError as exc:
             result = {"ok": False, "error": str(exc)}
         else:
-            result = apply_writeup_plan(WriteupRuntime.from_env(), plan)
+            result = apply_writeup_plan(
+                WriteupRuntime.from_config(ctx.config, loader=ctx.loader), plan
+            )
         _emit(result, pretty=args.pretty)
 
     if args.command == "reorder-featured":
         from .labs.writeup_service import WriteupRuntime, reorder_featured
 
         result = reorder_featured(
-            WriteupRuntime.from_env(),
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
             args.slug,
             args.position,
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "update-writeup":
+        from .contracts.site_content import cli_fields
         from .labs.writeup_service import (
             WriteupRuntime,
             update_writeup_frontmatter,
         )
 
+        updates = {
+            name: (
+                getattr(args, name) == "true"
+                if spec.get("type") == "boolean"
+                else getattr(args, name)
+            )
+            for name, spec in cli_fields()
+            if getattr(args, name) is not None
+        }
         result = update_writeup_frontmatter(
-            WriteupRuntime.from_env(),
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
             args.slug,
-            title=args.title,
-            description=args.description,
-            published=None if args.published is None else args.published == "true",
-            published_at=args.published_at,
-            last_reviewed=args.last_reviewed,
+            **updates,
             touch_last_reviewed=args.touch_last_reviewed,
-            cover_image=args.cover_image,
-            cover_alt=args.cover_alt,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "update-writeup-link":
+        from .labs.writeup_service import WriteupRuntime, update_writeup_link
+
+        result = update_writeup_link(
+            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
+            args.slug,
+            args.label,
+            args.expected_href,
+            args.replacement_href,
+        )
+        _emit(result, pretty=args.pretty)
+
+    if args.command == "update-doc-link":
+        from vault_engine.vault_write_service import update_document_link
+
+        result = update_document_link(
+            ctx.loader,
+            args.doc_id,
+            args.label,
+            args.expected_href,
+            args.replacement_href,
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "touch-reviewed":
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
         from vault_engine.vault_write_service import touch_reviewed
 
-        result = touch_reviewed(VaultLoader(Config.from_env()), args.relative_path)
+        result = touch_reviewed(ctx.loader, args.relative_path)
         _emit(result, pretty=args.pretty)
 
     if args.command == "backfill-aliases":
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
         from vault_engine.vault_write_service import backfill_aliases
 
-        result = backfill_aliases(VaultLoader(Config.from_env()))
+        result = backfill_aliases(ctx.loader)
         _emit(result, pretty=args.pretty)
 
     if args.command == "find":
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
         from vault_engine.vault_search_service import find_sections
 
         result = {
             "ok": True,
-            **find_sections(VaultLoader(Config.from_env()), args.query, limit=args.limit),
+            **find_sections(ctx.loader, args.query, limit=args.limit),
         }
         _emit(result, pretty=args.pretty)
 
     if args.command == "read":
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
         from vault_engine.vault_search_service import read_section
 
         result = read_section(
-            VaultLoader(Config.from_env()), args.doc_id, args.section
+            ctx.loader, args.doc_id, args.section
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-list":
-        from vault_engine.config import Config
         from vault_engine.task_service import list_tasks
-        from vault_engine.vault import VaultLoader
 
         result = list_tasks(
-            VaultLoader(Config.from_env()),
+            ctx.loader,
             status=args.status,
             project=args.project,
             stale_only=args.stale_only,
@@ -191,12 +221,10 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "promote-note":
-        from vault_engine.config import Config
         from vault_engine.task_service import promote_note
-        from vault_engine.vault import VaultLoader
 
         result = promote_note(
-            VaultLoader(Config.from_env()),
+            ctx.loader,
             args.source,
             title=args.title,
             project=args.project,
@@ -206,12 +234,10 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "update-frontmatter":
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
         from vault_engine.vault_write_service import update_frontmatter
 
         result = update_frontmatter(
-            VaultLoader(Config.from_env()),
+            ctx.loader,
             args.relative_path,
             touch_last_reviewed=args.touch_last_reviewed,
             title=args.title,
@@ -227,28 +253,22 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-reconcile":
-        from vault_engine.config import Config
         from vault_engine.task_service import reconcile_tasks
-        from vault_engine.vault import VaultLoader
 
-        result = reconcile_tasks(VaultLoader(Config.from_env()))
+        result = reconcile_tasks(ctx.loader)
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-projects":
-        from vault_engine.config import Config
         from vault_engine.task_service import list_projects
-        from vault_engine.vault import VaultLoader
 
-        result = list_projects(VaultLoader(Config.from_env()))
+        result = list_projects(ctx.loader)
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-add":
-        from vault_engine.config import Config
         from vault_engine.task_service import add_task
-        from vault_engine.vault import VaultLoader
 
         result = add_task(
-            VaultLoader(Config.from_env()),
+            ctx.loader,
             title=args.title,
             project=args.project,
             related_projects=args.related_projects,
@@ -259,21 +279,17 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-move":
-        from vault_engine.config import Config
         from vault_engine.task_service import set_task_status
-        from vault_engine.vault import VaultLoader
 
         result = set_task_status(
-            VaultLoader(Config.from_env()), args.doc_id, args.status
+            ctx.loader, args.doc_id, args.status
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "task-delete":
-        from vault_engine.config import Config
         from vault_engine.task_service import delete_task
-        from vault_engine.vault import VaultLoader
 
-        result = delete_task(VaultLoader(Config.from_env()), args.doc_id)
+        result = delete_task(ctx.loader, args.doc_id)
         _emit(result, pretty=args.pretty)
 
     if args.command == "describe":
@@ -299,19 +315,27 @@ def main() -> None:
             print(f"ok: {args.check_doc} matches the canonical schema")
             raise SystemExit(0)
 
-        from vault_engine.schema import as_dict
+        from vault_engine.schema import LABS_PROFILE, as_dict
 
-        # canonical(): sorted + indented so the committed HQ copy is a stable diff.
-        print(jsonio.canonical(as_dict()))
+        if args.schema_fingerprint:
+            print(LABS_PROFILE.fingerprint())
+        elif args.contract:
+            print(jsonio.canonical(LABS_PROFILE.contract_dict()))
+        else:
+            # Frozen legacy shape: HQ commits this exact output. New consumers
+            # opt into --contract / --fingerprint instead of broadening it.
+            print(jsonio.canonical(as_dict()))
         raise SystemExit(0)
 
     if args.command == "hq-manifest":
-        from .labs.hq_manifest import build_hq_manifest
+        from .labs.hq_manifest import build_hq_manifest, default_manifest_dirs
 
-        result = build_hq_manifest(
-            Path(args.vault).expanduser(),
-            [part for part in args.subdirs.split(":") if part],
-        )
+        if args.subdirs:
+            subdirs = [part for part in args.subdirs.split(":") if part]
+        else:
+
+            subdirs = default_manifest_dirs(ctx.config.indexed_dirs)
+        result = build_hq_manifest(Path(args.vault).expanduser(), subdirs)
         if args.report:
             # Full structured result for `hq doctor` — no entries dump.
             print(jsonio.dumps(result, pretty=True))
@@ -334,11 +358,9 @@ def main() -> None:
 
     if args.command == "brief":
         from vault_engine.brief_service import vault_brief
-        from vault_engine.config import Config
-        from vault_engine.vault import VaultLoader
 
         result = vault_brief(
-            VaultLoader(Config.from_env()),
+            ctx.loader,
             days=args.days,
             review_after_days=args.review_after,
             recent_limit=args.limit,
@@ -348,12 +370,10 @@ def main() -> None:
     if args.command == "topology":
         import datetime
 
-        from vault_engine.config import Config
-
         from .labs import infra_datasets
         from .labs import topology as topo_mod
 
-        config = Config.from_env()
+        config = ctx.config
         # Reflected pointer list comes from the one registry, not topology.json.
         references = tuple(infra_datasets.reflected_references(config))
 
@@ -385,13 +405,15 @@ def main() -> None:
         if args.emit == "summary":
             _emit(topo_mod.get_topology(config), pretty=args.pretty)
 
-        # tables / doc / figure load the inventory directly.
+        # inventory / tables / doc / figure load the inventory directly.
         try:
             topo = topo_mod.load_topology(config.topology_path)
         except topo_mod.TopologyError as exc:
             _emit({"ok": False, "error": str(exc)}, pretty=args.pretty)
 
-        if args.emit == "tables":
+        if args.emit == "inventory":
+            print(jsonio.dumps(topo.raw, pretty=args.pretty))
+        elif args.emit == "tables":
             print(topo_mod.render_tables(topo, references))
         elif args.emit == "doc":
             today = datetime.date.today().isoformat()
@@ -401,11 +423,10 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.command == "infra":
-        from vault_engine.config import Config
 
         from .labs import infra_datasets
 
-        config = Config.from_env()
+        config = ctx.config
         if args.dataset_id:
             result = infra_datasets.read_dataset(
                 config, args.dataset_id, refresh=args.refresh
@@ -415,31 +436,28 @@ def main() -> None:
         _emit(result, pretty=args.pretty)
 
     if args.command == "infra-write":
-        from vault_engine.config import Config
 
         from .labs import infra_datasets
 
         result = infra_datasets.write_dataset(
-            Config.from_env(), args.dataset_id, sys.stdin.read()
+            ctx.config, args.dataset_id, sys.stdin.read()
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "daily-write":
         from vault_engine import daily_write
-        from vault_engine.config import Config
 
         result = daily_write.write_daily_block(
-            Config.from_env(), sys.stdin.read(), note_date=args.date
+            ctx.config, sys.stdin.read(), note_date=args.date
         )
         _emit(result, pretty=args.pretty)
 
     if args.command == "topology-write":
-        from vault_engine.config import Config
 
         from .labs import topology as topo_mod
 
         payload = sys.stdin.read() if args.replace else None
-        result = topo_mod.write_topology(Config.from_env(), payload)
+        result = topo_mod.write_topology(ctx.config, payload)
         _emit(result, pretty=args.pretty)
 
     from .server import run

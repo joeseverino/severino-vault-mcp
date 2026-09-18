@@ -76,7 +76,34 @@ SAMPLE = {
         },
     ],
     "pki": [
-        {"issuer": "Local CA", "covers": ".lab certs", "key_location": "offline", "expires": "2036"},
+        {
+            "id": "local-ca",
+            "issuer": "Local CA",
+            "covers": ".homelab certs",
+            "key_location": "offline",
+            "expires": "2036",
+        },
+    ],
+    "externals": [{"id": "shared-hosting", "name": "Shared hosting"}],
+    "dependencies": [
+        {
+            "from": "container:core/nginx",
+            "relation": "consumes",
+            "to": "pki:local-ca",
+        },
+        {
+            "from": "external:shared-hosting",
+            "relation": "consumes",
+            "to": "pki:local-ca",
+        },
+    ],
+    "managed_resources": [
+        {
+            "key": "internal-app-dns",
+            "kind": "adguard.rewrite",
+            "spec": {"domain": "app.example.test", "answer": "192.0.2.10"},
+            "enabled": True,
+        }
     ],
     "invariants": ["Nothing public except the site."],
 }
@@ -101,8 +128,10 @@ def test_load_and_summary(inventory: Path) -> None:
     assert summary["version"] == 1
     assert [h["id"] for h in summary["hosts"]] == ["core", "edge", "mac"]
     assert summary["hosts"][0]["containers"][0]["name"] == "nginx"
+    assert summary["hosts"][0]["containers"][0]["id"] == "nginx"
     assert summary["tailnet"]["name"] == "tail-sample.ts.net"
     assert summary["networks"][0]["cidr"] == "192.168.1.0/24"
+    assert summary["managed_resources"][0]["key"] == "internal-app-dns"
     assert "references" not in summary  # owned by the registry, not topology.json
 
 
@@ -194,6 +223,23 @@ def test_validate_flags_missing_top_level() -> None:
     )
 
 
+def test_validate_flags_dangling_dependency_reference() -> None:
+    bad = {
+        **SAMPLE,
+        "dependencies": [
+            {
+                "from": "container:core/missing",
+                "relation": "consumes",
+                "to": "pki:local-ca",
+            }
+        ],
+    }
+    assert any(
+        "dangling reference" in problem
+        for problem in topo_mod.validate_inventory(bad)
+    )
+
+
 def test_load_rejects_off_contract(tmp_path: Path) -> None:
     path = tmp_path / "topology.json"
     path.write_text(json.dumps({"version": 1, "hosts": "nope"}), encoding="utf-8")
@@ -206,6 +252,8 @@ def test_inventory_schema_shape() -> None:
     assert schema["required_host_fields"] == ["id", "name", "role", "kind"]
     assert "vm" in schema["host_kinds"]
     assert "laptop" in schema["host_kinds"]
+    assert "printer" in schema["host_kinds"]
+    assert "printer" not in topo_mod.DIAGRAM_KINDS  # inventory only, like laptop/mobile
 
 
 def test_get_topology_envelope(tmp_path: Path, monkeypatch) -> None:

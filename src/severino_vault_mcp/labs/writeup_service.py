@@ -14,26 +14,21 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from vault_engine.atomic_write import transactional_replace
 from vault_engine.config import Config
+from vault_engine.contracts import MutationReceipt, canonical_fingerprint
 from vault_engine.frontmatter import yaml_escape
 from vault_engine.paths import path_within_root
 from vault_engine.vault import VaultLoader
 
+from ..contracts.site_content import mutable_scalar_fields, public_contract
 from .tech_groups import TechSlug, load_technology_catalog
 from .writeups import Writeup, extract_body_image_refs, load_writeups
 
 WRITEUP_FILTERS = ("all", "published", "draft", "featured")
-WRITEUP_SCALAR_FIELDS = {
-    "title",
-    "description",
-    "published",
-    "published_at",
-    "last_reviewed",
-    "cover_image",
-    "cover_alt",
-}
+WRITEUP_SCALAR_FIELDS = mutable_scalar_fields()
 
 
 @dataclass(frozen=True)
@@ -164,6 +159,7 @@ def list_featured_writeup_order(runtime: WriteupRuntime) -> dict[str, Any]:
     order = _featured_writeup_order(load_writeups(runtime.writeups_dir))
     return {
         "ok": True,
+        "content_contract": public_contract(),
         "writeups_dir": str(runtime.writeups_dir),
         "count": len(order),
         "order": order,
@@ -530,12 +526,14 @@ def writeup_dashboard(runtime: WriteupRuntime) -> dict[str, Any]:
         only_published=False,
         context=context,
     )
+    writeups = listing["writeups"]
     return {
         "ok": True,
         "writeups_dir": str(runtime.writeups_dir),
-        "writeups": listing["writeups"],
+        "writeups": writeups,
         "featured_order": listing["featured_order"],
         "validation": validation,
+        "source_fingerprint": canonical_fingerprint(writeups),
     }
 
 
@@ -580,21 +578,22 @@ def _changed_writeup_text(
     writeup: Writeup,
     updates: dict[str, Any],
 ) -> tuple[str, list[str]]:
-    current_values = writeup.to_summary()
-    changed_fields = [
-        key
-        for key, value in updates.items()
-        if current_values.get(key) != value
-    ]
-    if not changed_fields:
-        return writeup.path.read_text(encoding="utf-8"), []
+    # Decide "changed" by whether the rendered replacement alters the file
+    # text, not by diffing against the loader's coerced summary. The summary
+    # normalizes lossy hand edits (`published: yes`, quoted scalars, missing
+    # keys falling back to defaults), so a summary diff reports a false no-op
+    # for values whose on-disk line genuinely differs from what we would write.
     text = writeup.path.read_text(encoding="utf-8")
-    for key in changed_fields:
-        text = _replace_writeup_scalar(
+    changed_fields: list[str] = []
+    for key, value in updates.items():
+        new_text = _replace_writeup_scalar(
             text,
             key,
-            _yaml_writeup_scalar(updates[key]),
+            _yaml_writeup_scalar(value),
         )
+        if new_text != text:
+            changed_fields.append(key)
+            text = new_text
     return text, sorted(changed_fields)
 
 
@@ -644,13 +643,14 @@ def update_writeup_frontmatter(
             "slug": slug,
             "message": "No fields differ — nothing written.",
         }
+    before = writeup.to_summary()
     ok, error = transactional_replace(
         runtime.writeups_dir,
         {writeup.path: text},
     )
     if not ok:
         return {"ok": False, "error": error}
-    return {
+    result = {
         "ok": True,
         "slug": slug,
         "relative_path": str(
@@ -666,6 +666,65 @@ def update_writeup_frontmatter(
             for key in changed_fields
         },
     }
+    result["receipt"] = MutationReceipt(
+        operation="writeup.update",
+        entity_type="writeup",
+        entity_id=slug,
+        changed_fields=tuple(changed_fields),
+        before_fingerprint=canonical_fingerprint(before),
+        after_fingerprint=canonical_fingerprint({**before, **updates}),
+        affected_projections=("featured_writeups", "site", "writeup_dashboard"),
+        metadata={"relative_path": result["relative_path"]},
+    ).as_dict()
+    return result
+
+
+def update_writeup_link(
+    runtime: WriteupRuntime,
+    slug: str,
+    label: str,
+    expected_href: str,
+    replacement_href: str,
+) -> dict[str, Any]:
+    """Replace one exact Markdown link in a named writeup atomically."""
+    if err := runtime.path_error(runtime.writeups_dir, "writeups dir", "dir"):
+        return err
+    writeup = next((item for item in load_writeups(runtime.writeups_dir) if item.slug == slug), None)
+    if writeup is None:
+        return {"ok": False, "error": f"unknown writeup slug: {slug!r}"}
+    if not label.strip():
+        return {"ok": False, "error": "link label required"}
+    for name, href in (("expected_href", expected_href), ("replacement_href", replacement_href)):
+        parsed = urlparse(href)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return {"ok": False, "error": f"{name} must be an absolute HTTP(S) URL"}
+    text = writeup.path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        rf"\[{re.escape(label)}\]\({re.escape(expected_href)}(?:\s+\"[^\"]*\")?\)"
+    )
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        return {"ok": False, "error": f"expected exactly one matching link; found {len(matches)}"}
+    replacement = pattern.sub(f"[{label}]({replacement_href})", text, count=1)
+    ok, error = transactional_replace(runtime.writeups_dir, {writeup.path: replacement})
+    if not ok:
+        return {"ok": False, "error": f"writeup transaction failed: {error}", "rolled_back": True}
+    return {
+        "ok": True,
+        "slug": slug,
+        "label": label,
+        "old_href": expected_href,
+        "new_href": replacement_href,
+        "receipt": MutationReceipt(
+            operation="writeup.link.update",
+            entity_type="writeup",
+            entity_id=slug,
+            changed_fields=("body.link",),
+            after_fingerprint=canonical_fingerprint({"slug": slug, "href": replacement_href}),
+            affected_projections=("site", "writeup_dashboard"),
+            metadata={"label": label},
+        ).as_dict(),
+    }
 
 
 def apply_writeup_plan(
@@ -679,12 +738,28 @@ def apply_writeup_plan(
         return {"ok": False, "error": "plan must be a JSON object"}
     raw_updates = plan.get("updates", [])
     raw_order = plan.get("featured_order")
+    source_fingerprint = str(plan.get("source_fingerprint") or "")
     if not isinstance(raw_updates, list):
         return {"ok": False, "error": "updates must be a list"}
     if raw_order is not None and not isinstance(raw_order, list):
         return {"ok": False, "error": "featured_order must be a list"}
 
     writeups = tuple(load_writeups(runtime.writeups_dir))
+    if source_fingerprint:
+        current_listing = list_writeups(runtime, "all")
+        current_fingerprint = canonical_fingerprint(current_listing["writeups"])
+        if current_fingerprint != source_fingerprint:
+            return {
+                "ok": False,
+                "error": (
+                    "writeup source changed after this dashboard was loaded; "
+                    "reload and review the plan again"
+                ),
+                "code": "stale_plan",
+                "retryable": True,
+                "expected_fingerprint": source_fingerprint,
+                "current_fingerprint": current_fingerprint,
+            }
     by_slug = {writeup.slug: writeup for writeup in writeups}
     updates_by_slug: dict[str, dict[str, Any]] = {}
     for item in raw_updates:
@@ -771,7 +846,7 @@ def apply_writeup_plan(
             "error": f"writeup transaction failed: {error}",
             "rolled_back": True,
         }
-    return {
+    result = {
         "ok": True,
         "changed_writeups": sorted(changed),
         "changed_fields": changed,
@@ -786,6 +861,21 @@ def apply_writeup_plan(
             ]
         ),
     }
+    result["receipt"] = MutationReceipt(
+        operation="writeup.plan.apply",
+        entity_type="writeup_set",
+        entity_id="writeups",
+        changed_fields=tuple(
+            f"{slug}.{field}" for slug, fields in changed.items() for field in fields
+        ),
+        after_fingerprint=canonical_fingerprint({
+            "changed": changed,
+            "featured_order": result["featured_order_after"],
+        }),
+        affected_projections=("featured_writeups", "site", "writeup_dashboard"),
+        metadata={"changed_writeups": sorted(changed)},
+    ).as_dict()
+    return result
 
 
 def reorder_featured(
@@ -857,6 +947,7 @@ __all__ = [
     "prepare_writeup_publish",
     "reorder_featured",
     "update_writeup_frontmatter",
+    "update_writeup_link",
     "validate_all_writeups",
     "validate_writeup",
     "writeup_dashboard",

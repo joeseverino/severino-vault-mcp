@@ -1,0 +1,125 @@
+{
+  "source": "jseverino.com/contracts/content.v1.json",
+  "fingerprint": "181ea2533a258f890b436793b0ca07ab243243239c7269865e32a02656490684",
+  "contract": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "contract": "com.jseverino.site.content",
+    "version": 1,
+    "collections": {
+      "pages": {
+        "fields": {
+          "title": {
+            "type": "string",
+            "required": true,
+            "public": true
+          },
+          "description": {
+            "type": "string",
+            "public": true
+          },
+          "intro": {
+            "type": "string",
+            "public": true
+          },
+          "path": {
+            "type": "string",
+            "public": true
+          },
+          "published": {
+            "type": "boolean",
+            "default": true,
+            "public": true
+          }
+        }
+      },
+      "writeups": {
+        "fields": {
+          "doc_id": {
+            "type": "string",
+            "editable": false,
+            "public": false,
+            "ownership": "vault"
+          },
+          "title": {
+            "type": "string",
+            "required": true,
+            "editable": true,
+            "public": true,
+            "cli_flag": "--title"
+          },
+          "description": {
+            "type": "string",
+            "editable": true,
+            "public": true,
+            "cli_flag": "--description"
+          },
+          "published": {
+            "type": "boolean",
+            "default": false,
+            "editable": true,
+            "public": true,
+            "ownership": "publish-state"
+          },
+          "published_at": {
+            "type": "date",
+            "editable": true,
+            "public": true,
+            "cli_flag": "--published-at"
+          },
+          "last_reviewed": {
+            "type": "date",
+            "editable": true,
+            "public": true,
+            "cli_flag": "--last-reviewed"
+          },
+          "cover_image": {
+            "type": "string",
+            "editable": true,
+            "public": true,
+            "cli_flag": "--cover-image"
+          },
+          "cover_alt": {
+            "type": "string",
+            "editable": true,
+            "public": true,
+            "cli_flag": "--cover-alt"
+          },
+          "technologies": {
+            "type": "string[]",
+            "default": [],
+            "editable": false,
+            "public": true,
+            "ownership": "vault"
+          },
+          "featured": {
+            "type": "boolean",
+            "default": false,
+            "editable": false,
+            "public": true,
+            "ownership": "featured-order"
+          },
+          "featured_order": {
+            "type": "integer",
+            "editable": false,
+            "public": true,
+            "ownership": "featured-order"
+          },
+          "related_projects": {
+            "type": "string[]",
+            "default": [],
+            "editable": false,
+            "public": false,
+            "ownership": "vault"
+          },
+          "related_assets": {
+            "type": "string[]",
+            "default": [],
+            "editable": false,
+            "public": false,
+            "ownership": "vault"
+          }
+        }
+      }
+    }
+  }
+}

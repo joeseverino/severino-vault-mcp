@@ -126,6 +126,18 @@ Both are pure Rust binaries with no runtime dependencies. CI installs `ripgrep`
 on every job so the body-search test suite always runs against the same tool
 production uses.
 
+## Governance runtime
+
+The MCP server and console CLI are peer adapters over one engine
+`GovernanceContext`. Both call the same index, schema, sensitivity, path, and
+write services in process; the CLI does not shell through MCP and neither face
+reimplements governance.
+
+`severino-vault-mcp schema --json` remains the frozen enum contract committed by
+Severino HQ. New consumers use `schema --contract` for the complete versioned
+profile or `schema --fingerprint` for its stable SHA-256 identity. This extends
+the system without silently changing HQ's importer wire format.
+
 Edit `~/.config/severino-vault-mcp/config.toml` and set `vault.path` to your
 vault root.
 
@@ -189,6 +201,7 @@ guard mirrors live system state into a JSON cache). See the vault's
 | Tool | Read or write | What it answers |
 |---|---|---|
 | `get_topology()` | read | The authored network inventory: hosts with LAN/Tailscale/public IPs, SSH, containers, plus networks, tailnet structure, and PKI. Use for any host/IP/container question instead of re-deriving from prose. |
+| `get_writeup_contract()` | read | The versioned site-owned writeup contract used by MCP, CLI, and Tools. Use it to discover fields and capabilities instead of hardcoding them. |
 | `list_infra_datasets()` | read | The catalog of every infra dataset: id, kind (authored/reflected), owner, sensitivity, and whether it is machine-readable/refreshable. |
 | `get_infra_dataset(id, refresh=False)` | read | One dataset from its true owner — `dns_rewrites`, `proxy_hosts`, `tailscale_acl`, `public_dns`, `topology`. Default returns the git-tracked cache instantly (`live: false`, with `fetched_at`) so it answers even when the system is down; `refresh=True` reads live via the guard and falls back to the cache flagged `stale`. Sensitivity-gated. |
 

@@ -69,6 +69,59 @@ def _sql_string(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+# The operator's wrangler auth lives in 1Password (the shell-plugin item), not
+# in plaintext wrangler config — subprocesses see neither the shell alias nor a
+# token. Resolve credentials lazily, only when a D1 tool actually runs, so MCP
+# spawn never depends on 1Password being available (headless sessions degrade
+# to wrangler's own clear non-interactive error).
+_CF_ITEM_ID = "2pja62v63o6sd7zcjw7j6i274q"  # "Cloudflare wrangler (Mac)", Infrastructure
+_cf_env_cache: dict[str, str] | None = None
+
+
+def _cloudflare_env() -> dict[str, str]:
+    """Subprocess env for wrangler, with Cloudflare credentials resolved.
+
+    Order: a real CLOUDFLARE_API_TOKEN in the environment wins untouched;
+    otherwise read the token (and account id) from 1Password via `op read`.
+    Results — including a failed or denied resolution — are cached for the
+    process lifetime so a denied authorization prompt doesn't re-fire on
+    every tool call.
+    """
+    global _cf_env_cache
+    env = dict(os.environ)
+    if env.get("CLOUDFLARE_API_TOKEN"):
+        return env
+    if _cf_env_cache is None:
+        _cf_env_cache = {}
+        op = shutil.which("op")
+        refs = {
+            "CLOUDFLARE_API_TOKEN": os.environ.get(
+                "SVMC_CF_TOKEN_REF",
+                f"op://Infrastructure/{_CF_ITEM_ID}/token",
+            ),
+            "CLOUDFLARE_ACCOUNT_ID": os.environ.get(
+                "SVMC_CF_ACCOUNT_REF",
+                f"op://Infrastructure/{_CF_ITEM_ID}/account id",
+            ),
+        }
+        if op:
+            for key, ref in refs.items():
+                try:
+                    proc = subprocess.run(
+                        [op, "read", ref],
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
+                        check=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    break
+                if proc.returncode == 0 and proc.stdout.strip():
+                    _cf_env_cache[key] = proc.stdout.strip()
+    env.update(_cf_env_cache)
+    return env
+
+
 def _run_d1_json(
     runtime: SiteOpsRuntime,
     command: str,
@@ -93,6 +146,7 @@ def _run_d1_json(
                 command,
             ],
             cwd=str(runtime.site_repo),
+            env=_cloudflare_env(),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -345,6 +399,7 @@ def apply_d1_schema(
                 str(schema),
             ],
             cwd=str(runtime.site_repo),
+            env=_cloudflare_env(),
             capture_output=True,
             text=True,
             timeout=60,

@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from vault_engine.context import ServerContext
+from vault_engine.context import GovernanceContext
 
 from ..labs import infra_datasets
 
 
-def register(mcp, ctx: ServerContext) -> None:
+def register(mcp, ctx: GovernanceContext) -> None:
     """Register the infra-dataset tool group on ``mcp`` from a server context.
 
     Pulls the configured ``Config`` off ``ctx``; a server that omits this group
