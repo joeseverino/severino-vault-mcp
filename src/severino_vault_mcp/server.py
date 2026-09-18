@@ -22,17 +22,7 @@ from .tools import site_ops as site_ops_tools
 from .tools import topology as topology_tools
 from .tools import writeups as writeups_tools
 
-QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
-QUICK_INDEX_RESOURCE_URI = "vault://quick-index"
-DOC_RESOURCE_TEMPLATE_URI = "vault://doc/{doc_id}"
-
-
 _CTX = GovernanceContext.load()
-# config + loader back the generic core tools still inlined here (find / read /
-# search / tasks / daily). They collapse into _CTX when the core moves to the
-# engine; the loader is always needed, so building it now costs nothing.
-_CONFIG = _CTX.config
-_LOADER = _CTX.loader
 
 
 _SERVER_INSTRUCTIONS = """\
