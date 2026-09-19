@@ -25,6 +25,23 @@
   body-free mutation receipts for audit and projection invalidation. Dashboard
   snapshots carry deterministic source fingerprints.
 
+## [2.6.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.5.0...v2.6.0) (2026-09-19)
+
+
+### Features
+
+* add safe vault link updates ([#46](https://github.com/joeseverino/severino-vault-mcp/issues/46)) ([50d25c0](https://github.com/joeseverino/severino-vault-mcp/commit/50d25c0e87e32c0bf7305d86b645fc2e0b4cf9c9))
+* expose topology and site content contracts ([#51](https://github.com/joeseverino/severino-vault-mcp/issues/51)) ([e44b915](https://github.com/joeseverino/severino-vault-mcp/commit/e44b9158c5f789d0da7d9a3b333cf2f97f3db050))
+* **site-ops:** resolve Cloudflare credentials lazily from 1Password for wrangler subprocesses ([#48](https://github.com/joeseverino/severino-vault-mcp/issues/48)) ([f001375](https://github.com/joeseverino/severino-vault-mcp/commit/f00137569a0fcbfd97d765392fd81dd5b2b507ac))
+* **topology:** add printer to the inventory host kinds ([#50](https://github.com/joeseverino/severino-vault-mcp/issues/50)) ([4b97aad](https://github.com/joeseverino/severino-vault-mcp/commit/4b97aad840541c88ba81fee4e409462cef95fe00))
+
+
+### Bug Fixes
+
+* **deps:** bump cryptography to 50.0.1 and anyio to 4.15.1 ([#52](https://github.com/joeseverino/severino-vault-mcp/issues/52)) ([937087e](https://github.com/joeseverino/severino-vault-mcp/commit/937087e88e2eed2c442f4c742fc7b64b1d0918e7))
+* **labs:** reject stale writeup plans ([#44](https://github.com/joeseverino/severino-vault-mcp/issues/44)) ([b616620](https://github.com/joeseverino/severino-vault-mcp/commit/b616620547ab6d0aec0abe7665330f9336a1561e))
+* **writeups:** compare against file text in update_writeup_frontmatter no-op detection ([#49](https://github.com/joeseverino/severino-vault-mcp/issues/49)) ([ce6a230](https://github.com/joeseverino/severino-vault-mcp/commit/ce6a230021543bb79842aa15e06a8e82eb95f201))
+
 ## [2.5.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.5.0) (2026-07-10)
 
 
