@@ -726,7 +726,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cordon-emit", git = "https://github.com/joeseverino/cordon?subdirectory=emitters%2Fpython" },
-    { name = "mcp", specifier = ">=1.28.1" },
+    { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "severino-vault-engine", git = "https://github.com/joeseverino/vault-engine" },
