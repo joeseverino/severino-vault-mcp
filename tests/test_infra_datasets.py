@@ -14,15 +14,6 @@ REGISTRY = {
     "version": 1,
     "datasets": [
         {
-            "id": "topology",
-            "kind": "authored",
-            "title": "Topology inventory",
-            "owner": "topology.json",
-            "sensitivity": "internal",
-            "doc": "Topology",
-            "source": {"type": "file", "path": "02 Infrastructure/Topology/topology.json"},
-        },
-        {
             "id": "dns_rewrites",
             "kind": "reflected",
             "title": "AdGuard DNS rewrites",
@@ -39,7 +30,7 @@ REGISTRY = {
             "owner": "x",
             "sensitivity": "restricted",
             "doc": "Restricted",
-            "source": {"type": "file", "path": "02 Infrastructure/Topology/topology.json"},
+            "source": {"type": "file", "path": "02 Infrastructure/AdGuard/restricted.json"},
         },
         {
             "id": "vps_ingress",
@@ -74,16 +65,15 @@ REWRITES = [{"answer": "192.168.1.233", "domain": "homelab"}]
 
 @pytest.fixture
 def config(tmp_path: Path, monkeypatch) -> Config:
-    (tmp_path / "02 Infrastructure" / "Topology").mkdir(parents=True)
     (tmp_path / "02 Infrastructure" / "AdGuard").mkdir(parents=True)
     (tmp_path / "02 Infrastructure" / "_infra-datasets.json").write_text(
         json.dumps(REGISTRY), encoding="utf-8"
     )
-    (tmp_path / "02 Infrastructure" / "Topology" / "topology.json").write_text(
-        json.dumps({"version": 1, "hosts": []}), encoding="utf-8"
-    )
     (tmp_path / "02 Infrastructure" / "AdGuard" / "dns-rewrites.json").write_text(
         json.dumps(REWRITES), encoding="utf-8"
+    )
+    (tmp_path / "02 Infrastructure" / "AdGuard" / "restricted.json").write_text(
+        json.dumps([{"secret": "withheld"}]), encoding="utf-8"
     )
     monkeypatch.setenv("SVMC_VAULT_PATH", str(tmp_path))
     return Config.from_env()
@@ -98,13 +88,12 @@ def test_list_datasets_catalog(config: Config) -> None:
     assert by_id["dns_rewrites"]["refreshable"] is True
     assert by_id["dns_rewrites"]["sensitivity"] == "sensitive"
     assert by_id["vps_ingress"]["readable"] is False  # doc-only reference
-    assert by_id["topology"]["refreshable"] is False  # no fetcher
+    assert by_id["writable"]["refreshable"] is False  # no fetcher
 
 
 def test_read_file_dataset_has_freshness(config: Config) -> None:
-    result = infra_datasets.read_dataset(config, "topology")
+    result = infra_datasets.read_dataset(config, "dns_rewrites")
     assert result["ok"] is True
-    assert result["data"]["version"] == 1
     assert result["live"] is False
     assert result["fetched_at"]  # mtime-derived freshness
 
@@ -158,13 +147,6 @@ def test_unknown_dataset_lists_known(config: Config) -> None:
     assert result["ok"] is False
     assert "unknown dataset" in result["error"]
     assert "dns_rewrites" in result["error"]
-
-
-def test_reflected_references_for_topology(config: Config) -> None:
-    refs = infra_datasets.reflected_references(config)
-    concepts = {r["concept"] for r in refs}
-    assert "AdGuard DNS rewrites" in concepts
-    assert "Topology inventory" not in concepts  # authored, not reflected
 
 
 def test_missing_registry_is_error(tmp_path: Path, monkeypatch) -> None:

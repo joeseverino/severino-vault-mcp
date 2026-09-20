@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Extended the authored topology inventory with validated identities,
-  dependency references, external resources, and an inventory JSON projection
-  so downstream systems consume topology rather than re-derive it from prose.
+- Retired the topology feature: `get_topology`, the `topology` /
+  `topology-write` subcommands, and the authored inventory reader are gone.
+  Severino HQ owns the host and container inventory now, so the vault's copy had
+  become a stale mirror presenting itself as the source of truth. Ask the HQ MCP
+  for machines and addresses.
 - Added the site-owned content contract projection and derived MCP writeup
   service fields, CLI flags, tool signatures, and dashboard metadata from that
   single versioned input.

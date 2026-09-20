@@ -1,11 +1,11 @@
 """The infra-dataset registry: one catalog the MCP reads every dataset through.
 
 `<vault>/02 Infrastructure/_infra-datasets.json` declares every structured
-infra dataset once — `topology.json` (authored), the drift-guard mirrors
-(reflected: DNS rewrites, proxy hosts, ACL), and doc-only references. This
-module loads the registry and reads any dataset from its declared source, so an
-AI session gets every infra fact through one grounded interface, each from its
-true owner.
+infra dataset once — the drift-guard mirrors (reflected: DNS rewrites, proxy
+hosts, ACL, public DNS), any authored JSON a human declares directly, and
+doc-only references. This module loads the registry and reads any dataset from
+its declared source, so an AI session gets every infra fact through one
+grounded interface, each from its true owner.
 
 Read model (the NPM-down resilience): a read returns the git-tracked **cache**
 instantly — fast, offline, always answers — with freshness metadata. With
@@ -82,23 +82,6 @@ def list_datasets(config: Config) -> dict:
     except RegistryError as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "datasets": [_catalog_entry(d) for d in datasets]}
-
-
-def reflected_references(config: Config) -> list[dict]:
-    """The reflected datasets, shaped for Topology.md's canonical-sources table.
-
-    The single catalog Topology.md derives its 'not duplicated here' section
-    from — the pointer list lives in the registry, not hand-copied elsewhere.
-    """
-    try:
-        datasets = load_registry(config)
-    except RegistryError:
-        return []
-    return [
-        {"concept": d.get("title", d.get("id")), "doc": d.get("doc"), "owner": d.get("owner")}
-        for d in datasets
-        if d.get("kind") == "reflected"
-    ]
 
 
 def _iso_mtime(path) -> str | None:

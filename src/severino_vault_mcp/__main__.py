@@ -367,61 +367,6 @@ def main() -> None:
         )
         _emit(result, pretty=args.pretty)
 
-    if args.command == "topology":
-        import datetime
-
-        from .labs import infra_datasets
-        from .labs import topology as topo_mod
-
-        config = ctx.config
-        # Reflected pointer list comes from the one registry, not topology.json.
-        references = tuple(infra_datasets.reflected_references(config))
-
-        if args.check_doc:
-            try:
-                topo = topo_mod.load_topology(config.topology_path)
-            except topo_mod.TopologyError as exc:
-                print(f"topology: {exc}", file=sys.stderr)
-                raise SystemExit(1) from exc
-            text = Path(args.check_doc).expanduser().read_text(
-                encoding="utf-8", errors="replace"
-            )
-            mismatches = topo_mod.check_doc(topo, text, references)
-            if mismatches:
-                print(f"topology doc drift in {args.check_doc}:", file=sys.stderr)
-                for mismatch in mismatches:
-                    print(f"  - {mismatch}", file=sys.stderr)
-                raise SystemExit(1)
-            print(f"ok: {args.check_doc} matches the topology inventory")
-            raise SystemExit(0)
-
-        if args.emit == "schema":
-            # The declared inventory contract — static, no inventory load. The
-            # canonical form so HQ can commit and validate against it, exactly
-            # like `schema --json`.
-            print(jsonio.canonical(topo_mod.inventory_schema()))
-            raise SystemExit(0)
-
-        if args.emit == "summary":
-            _emit(topo_mod.get_topology(config), pretty=args.pretty)
-
-        # inventory / tables / doc / figure load the inventory directly.
-        try:
-            topo = topo_mod.load_topology(config.topology_path)
-        except topo_mod.TopologyError as exc:
-            _emit({"ok": False, "error": str(exc)}, pretty=args.pretty)
-
-        if args.emit == "inventory":
-            print(jsonio.dumps(topo.raw, pretty=args.pretty))
-        elif args.emit == "tables":
-            print(topo_mod.render_tables(topo, references))
-        elif args.emit == "doc":
-            today = datetime.date.today().isoformat()
-            print(topo_mod.render_doc(topo, last_reviewed=today, references=references))
-        elif args.emit == "figure":
-            print(jsonio.dumps(topo_mod.render_figure(topo), pretty=args.pretty))
-        raise SystemExit(0)
-
     if args.command == "infra":
 
         from .labs import infra_datasets
@@ -450,14 +395,6 @@ def main() -> None:
         result = daily_write.write_daily_block(
             ctx.config, sys.stdin.read(), note_date=args.date
         )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "topology-write":
-
-        from .labs import topology as topo_mod
-
-        payload = sys.stdin.read() if args.replace else None
-        result = topo_mod.write_topology(ctx.config, payload)
         _emit(result, pretty=args.pretty)
 
     from .server import run

@@ -191,26 +191,23 @@ structured reads, and narrow writes.
 
 ### Infrastructure data layer
 
-Structured infra facts (the network inventory and the live-mirrored config of
-AdGuard / NPM / Tailscale / Cloudflare) are read through one catalog — the
-infra-dataset registry at `02 Infrastructure/_infra-datasets.json`. Each dataset
-is **authored** (a human declares it, e.g. `topology`) or **reflected** (a drift
-guard mirrors live system state into a JSON cache). See the vault's
-`Infra Data Store` note for the full model and how to add a dataset.
+Structured infra facts (the live-mirrored config of AdGuard / NPM / Tailscale /
+Cloudflare) are read through one catalog — the infra-dataset registry at
+`02 Infrastructure/_infra-datasets.json`. Each dataset is **reflected** (a drift
+guard mirrors live system state into a JSON cache) or **authored** (a human
+declares the JSON directly). Hosts, addresses, and containers are not here at
+all: Severino HQ owns that inventory, so ask the HQ MCP for a machine. See the
+vault's `Infra Data Store` note for the full model and how to add a dataset.
 
 | Tool | Read or write | What it answers |
 |---|---|---|
-| `get_topology()` | read | The authored network inventory: hosts with LAN/Tailscale/public IPs, SSH, containers, plus networks, tailnet structure, and PKI. Use for any host/IP/container question instead of re-deriving from prose. |
 | `get_writeup_contract()` | read | The versioned site-owned writeup contract used by MCP, CLI, and Tools. Use it to discover fields and capabilities instead of hardcoding them. |
 | `list_infra_datasets()` | read | The catalog of every infra dataset: id, kind (authored/reflected), owner, sensitivity, and whether it is machine-readable/refreshable. |
-| `get_infra_dataset(id, refresh=False)` | read | One dataset from its true owner — `dns_rewrites`, `proxy_hosts`, `tailscale_acl`, `public_dns`, `topology`. Default returns the git-tracked cache instantly (`live: false`, with `fetched_at`) so it answers even when the system is down; `refresh=True` reads live via the guard and falls back to the cache flagged `stale`. Sensitivity-gated. |
+| `get_infra_dataset(id, refresh=False)` | read | One dataset from its true owner — `dns_rewrites`, `proxy_hosts`, `tailscale_acl`, `public_dns`. Default returns the git-tracked cache instantly (`live: false`, with `fetched_at`) so it answers even when the system is down; `refresh=True` reads live via the guard and falls back to the cache flagged `stale`. Sensitivity-gated. |
 
 CLI faces for this layer (effects: reads are `read`, `infra-write` is `vault_write`):
 
 ```bash
-severino-vault-mcp topology --emit summary|tables|doc|figure|schema   # derive views from the authored inventory
-severino-vault-mcp topology --check-doc <Topology.md>                 # parity-gate the generated doc
-severino-vault-mcp topology-write [--replace]     # validate topology.json + regenerate Topology.md + figure (authored write path)
 severino-vault-mcp infra                          # list the dataset catalog
 severino-vault-mcp infra <id> [--refresh]         # read a dataset (cache, or live)
 severino-vault-mcp infra-write <id>               # write a dataset's cache + doc table (JSON on stdin) — the guards' `pull`

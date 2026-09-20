@@ -12,7 +12,6 @@ find_writeups_using_tag
 get_infra_dataset
 get_runbook
 get_technology_catalog
-get_topology
 get_writeup_contract
 inventory_for_project
 list_contact_submissions
