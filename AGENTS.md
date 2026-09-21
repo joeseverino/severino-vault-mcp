@@ -27,7 +27,6 @@ _CTX = GovernanceContext.load()                  # engine; defaults to LABS_PROF
 register_core(mcp, _CTX, build_parser=build_parser)  # engine: the 18 generic tools
 site_ops_tools.register(mcp, _CTX)               # Labs domain groups (this repo)
 writeups_tools.register(mcp, _CTX)
-topology_tools.register(mcp, _CTX)
 infra_datasets_tools.register(mcp, _CTX)
 ```
 
@@ -46,9 +45,9 @@ the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
 **In this repo** — the Labs domain layer + the composition/CLI surface:
 
 - `server.py` — composition root (above). No `@mcp.tool()` wall anymore; it wires
-  `register_core` + the four Labs groups onto one `GovernanceContext`.
+  `register_core` + the three Labs groups onto one `GovernanceContext`.
 - `cli.py` — `build_parser()`: the argparse CLI surface (incl. `schema`, the
-  domain writers `topology-write` / `infra-write` / `daily-write`, and the
+  domain writers `infra-write` / `daily-write`, and the
   `find` / `read` console subcommands). Per-command blast radius is declared with
   `cordon_emit.set_effect` on each subparser; the engine's `cli_introspect`
   projects this parser to the Cordon contract for `tools describe --repos`.
@@ -57,20 +56,17 @@ the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
   passes its config/loader into the same services as MCP; CLI never calls MCP.
 - `tools/` — the FastMCP **registration groups**, one `register(mcp, ctx)` per
   domain, thin wiring over the `labs/` services: `tools/site_ops.py`,
-  `tools/writeups.py`, `tools/topology.py`, `tools/infra_datasets.py`.
+  `tools/writeups.py`, `tools/infra_datasets.py`.
 - `labs/` — the Labs **domain logic** (FastMCP-free, so the same code backs both
   the MCP and the `site` CLI):
   - `labs/writeup_service.py`, `labs/writeups.py` — writeup reads/validation/transactions.
   - `labs/site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
-  - `labs/topology.py` — authored inventory + the CLI-only `topology-write`
-    (validate `topology.json`, regenerate `Topology.md` + the figure, stamp
-    `last_reviewed`; `--replace` reads a new inventory on stdin).
   - `labs/infra_datasets.py` — the infra-dataset registry (`_infra-datasets.json`):
     the sensitivity-gated read model (`get_infra_dataset`, cache + `--refresh`
     read-through with fallback) and the CLI-only `infra-write` (JSON cache +
-    generated doc table + `last_reviewed`). `topology-write` / `infra-write` are
-    CLI-only **by design** — never MCP tools, so AI sessions can't write arbitrary
-    JSON into the vault.
+    generated doc table + `last_reviewed`). `infra-write` is CLI-only **by
+    design** — never an MCP tool, so AI sessions can't write arbitrary JSON into
+    the vault.
   - `labs/hq_manifest.py` — HQ manifest synthesis on the shared parser.
   - `labs/tech_groups.py` — the technology-taxonomy checks.
 
@@ -134,7 +130,7 @@ scripts/check.sh                 # everything CI runs
 - New behavior gets a regression test in the matching `tests/test_*.py`:
   `test_search.py` = vault/write, `test_writeups.py` = writeups,
   `test_site_ops.py` = D1/PII, `test_hq_manifest.py` = manifest,
-  `test_topology.py` / `test_infra_datasets.py` = the authored/pulled infra
+  `test_infra_datasets.py` = the pulled infra
   writers, `test_cli_dispatch.py` = CLI wiring, `test_daily_write.py` /
   `test_doctor.py` = the daily-note + doctor surfaces. Generic-core behavior is
   tested in the **engine** repo, not here.

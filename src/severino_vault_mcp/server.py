@@ -19,7 +19,6 @@ from vault_engine.core_tools import register_core
 from .cli import build_parser
 from .tools import infra_datasets as infra_datasets_tools
 from .tools import site_ops as site_ops_tools
-from .tools import topology as topology_tools
 from .tools import writeups as writeups_tools
 
 _CTX = GovernanceContext.load()
@@ -134,7 +133,6 @@ register_core(mcp, _CTX, build_parser=build_parser)
 # ----- composed Labs tool groups --------------------------------------------
 site_ops_tools.register(mcp, _CTX)
 writeups_tools.register(mcp, _CTX)
-topology_tools.register(mcp, _CTX)
 infra_datasets_tools.register(mcp, _CTX)
 
 

@@ -34,7 +34,7 @@ the code can describe about itself.
 
 | Owner | Owns | Surfaced as |
 |---|---|---|
-| **Vault** | Infra topology, runbooks, decisions, the *why* — human-authored knowledge no repo owns | `.md` + frontmatter (today) |
+| **Vault** | Runbooks, decisions, the *why* — human-authored knowledge no repo owns | `.md` + frontmatter (today) |
 | **Each repo** | Its own mechanics: CLI surface, schema, deploy model, changelog | `AGENTS.md`, `README`, `docs/**`, `CHANGELOG` (already maintained in every repo) |
 | **Code** | Structured facts: command help, enum contracts, tool lists | emitted (`--help`, `schema --json`, `--fingerprint`) — already done for schema |
 

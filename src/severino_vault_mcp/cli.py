@@ -532,64 +532,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    topology = subparsers.add_parser(
-        "topology",
-        help=(
-            "Derive views from the topology inventory "
-            "(02 Infrastructure/Topology/topology.json) — the SSOT for hosts, "
-            "containers, DNS rewrites, and access rules. The hosts/DNS/diagram "
-            "all derive from this one file; AI reads it via get_topology. "
-            "Write/regenerate with `topology-write`."
-        ),
-    )
-    topology.add_argument(
-        "--emit",
-        choices=["summary", "inventory", "tables", "doc", "figure", "schema"],
-        default="summary",
-        help=(
-            "summary: AI-grounding JSON (default). inventory: the complete "
-            "validated sensitive payload for a trusted downstream importer. "
-            "tables: the markdown body. "
-            "doc: the full Topology.md build artifact. figure: a `brand figure` "
-            "topology spec. schema: the declared inventory contract (canonical "
-            "JSON HQ validates against)."
-        ),
-    )
-    topology.add_argument(
-        "--check-doc",
-        metavar="PATH",
-        help=(
-            "Verify the generated region of a rendered Topology.md matches the "
-            "inventory. Exit 1 and print mismatches on drift."
-        ),
-    )
-    topology.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON output (summary / figure).",
-    )
-
-    topology_write = subparsers.add_parser(
-        "topology-write",
-        help=(
-            "The validated write path for the authored topology inventory: "
-            "validate topology.json and regenerate its derived artifacts "
-            "(Topology.md + topology.figure.json) and the last_reviewed stamp. "
-            "With --replace, first read a new inventory from stdin (validated) "
-            "and write topology.json. Use this instead of hand-regenerating."
-        ),
-    )
-    topology_write.add_argument(
-        "--replace",
-        action="store_true",
-        help="Read a new topology.json from stdin (validated) before regenerating.",
-    )
-    topology_write.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
     infra = subparsers.add_parser(
         "infra",
         help=(
@@ -604,7 +546,7 @@ def build_parser() -> argparse.ArgumentParser:
         "dataset_id",
         nargs="?",
         default=None,
-        help="Dataset id (e.g. dns_rewrites, proxy_hosts, topology). Omit to list.",
+        help="Dataset id (e.g. dns_rewrites, proxy_hosts, tailscale_acl). Omit to list.",
     )
     infra.add_argument(
         "--refresh",
@@ -673,7 +615,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Blast-radius (effect) per command, on cordon's escalating ladder
     # (schema_version 4). Every MCP CLI fast-path is a local-filesystem op: the
-    # five writers mutate the vault, the rest only read — none touch the network
+    # nine writers mutate the vault, the rest only read — none touch the network
     # or block on a TTY, so only the effect class is recorded. set_effect()
     # annotates each subparser; cordon's emitter reads it back at describe time.
     _effects = {
@@ -685,7 +627,6 @@ def build_parser() -> argparse.ArgumentParser:
         "touch-reviewed": "vault_write",
         "backfill-aliases": "vault_write",
         "infra-write": "vault_write",
-        "topology-write": "vault_write",
         "daily-write": "vault_write",
     }
     for name, sub in subparsers.choices.items():

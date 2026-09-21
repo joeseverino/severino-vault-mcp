@@ -95,14 +95,13 @@ directly. No tool logic lives in either adapter, and CLI never calls MCP.
 - `cli.py` / `__main__.py` — the argparse CLI surface (`build_parser`) and its
   dispatch, including `schema`, the CLI-only writers, and `find` / `read`.
 - `tools/` — the FastMCP registration groups, one `register(mcp, ctx)` per
-  domain (`site_ops`, `writeups`, `topology`, `infra_datasets`), thin wiring over
-  the `labs/` services.
+  domain (`site_ops`, `writeups`, `infra_datasets`), thin wiring over the
+  `labs/` services.
 - `labs/infra_datasets.py` — the infra-dataset registry: reading any dataset
   (`get_infra_dataset`, cache or live `--refresh`) and the drift guards'
   canonical write `infra-write` (JSON cache + generated doc table +
   `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
   arbitrary JSON into the vault).
-- `labs/topology.py` — the authored inventory + the CLI-only `topology-write`.
 - `contracts/site_content.v1.json` — the site-owned public content contract
   projection. MCP validates its fingerprint and derives writeup fields, CLI
   flags, tool signatures, and dashboard metadata from it instead of carrying a
@@ -326,8 +325,7 @@ To adapt the extension pattern for another operator workflow:
 
 This repo's suite has 163 tests covering the Labs domain and CLI surface: HQ
 manifest generation, writeup loading/validation/transactions and rollback,
-taxonomy parsing, the authored/pulled infra writers (`topology` /
-`infra_datasets`), CLI dispatch, the daily-note and doctor surfaces, D1/PII
+taxonomy parsing, the pulled infra writer (`infra_datasets`), CLI dispatch, the daily-note and doctor surfaces, D1/PII
 redaction, configured-path boundary checks, publish-readiness validation, the
 one-snapshot dashboard, composite publish prep, and frontmatter/featured-order
 mutations. The generic-core behavior — indexing, runbook ranking, body release
