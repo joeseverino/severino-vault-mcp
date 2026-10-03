@@ -1,18 +1,9 @@
 # Release Checklist
 
-Normal flow:
-
-```bash
-scripts/prepare-release.sh X.Y.Z "short headline"
-# edit CHANGELOG.md if needed
-scripts/check.sh --release
-git add ...
-git commit
-scripts/release.sh X.Y.Z "short headline"
-```
-
-The helper scripts are the source of truth. The sections below explain what
-they cover and how to recover manually if needed.
+Releases are cut by release-please through cordon's reusable release workflow.
+Every push to `main` updates one standing release PR that bumps the version and
+writes `CHANGELOG.md` from the Conventional Commit titles; merging it tags
+`vX.Y.Z` and creates the GitHub Release. There is no manual version bump.
 
 ## Repository Hygiene
 
@@ -50,58 +41,6 @@ severino-vault-mcp --help
 
 Then confirm MCP client examples in `README.md` and `QUICKSTART.md` still match
 the installed command name.
-
-## Version Bump
-
-Use the prep helper for normal releases:
-
-```bash
-scripts/prepare-release.sh X.Y.Z "short headline"
-```
-
-It bumps `pyproject.toml`, `src/severino_vault_mcp/__init__.py`, README
-status, creates a starter `CHANGELOG.md` section, and refreshes `uv.lock`.
-Edit the generated changelog section before committing.
-
-Manual fallback:
-
-- `pyproject.toml` — the `version = "X.Y.Z"` line under `[project]`.
-- `src/severino_vault_mcp/__init__.py` — the `__version__` string.
-- `README.md` status paragraph.
-- `CHANGELOG.md` release section and compare-link footer.
-- `uv.lock` after `uv sync --extra dev`.
-
-## CHANGELOG
-
-- Add a new `## [X.Y.Z] - YYYY-MM-DD` section above the previous entry.
-- Move anything currently under `[Unreleased]` into the new section.
-- Update the compare-link footer at the bottom of the file:
-
-  ```text
-  [Unreleased]: https://github.com/joeseverino/severino-vault-mcp/compare/vX.Y.Z...HEAD
-  [X.Y.Z]: https://github.com/joeseverino/severino-vault-mcp/compare/vPREV...vX.Y.Z
-  ```
-
-## Tag and Publish
-
-Use the release helper for normal releases:
-
-```bash
-scripts/release.sh X.Y.Z "short headline"
-```
-
-It runs lint, tests, sample-vault validation, installed-tool smoke checks,
-version alignment checks, creates an annotated tag, pushes `main` and the tag,
-and creates the GitHub release from the matching `CHANGELOG.md` section.
-
-Manual fallback, if needed:
-
-```bash
-git tag -a vX.Y.Z -m "vX.Y.Z - short headline"
-git push origin main
-git push origin vX.Y.Z
-gh release create vX.Y.Z --title "vX.Y.Z - short headline" --latest
-```
 
 ## Dependabot Pull Requests
 

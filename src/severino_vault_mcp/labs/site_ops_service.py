@@ -124,6 +124,12 @@ def _cloudflare_env() -> dict[str, str]:
     return env
 
 
+def _site_wrangler(runtime: SiteOpsRuntime) -> Path | None:
+    """The site repo's pinned wrangler, so D1 calls use the version it locks."""
+    path = runtime.site_repo / "node_modules" / ".bin" / "wrangler"
+    return path if os.access(path, os.X_OK) else None
+
+
 def _run_d1_json(
     runtime: SiteOpsRuntime,
     command: str,
@@ -131,14 +137,17 @@ def _run_d1_json(
     timeout: int = 20,
 ) -> dict[str, Any]:
     """Run one fixed D1 SQL command through Wrangler and parse JSON output."""
-    wrangler = shutil.which("wrangler")
-    if not wrangler:
-        return {"ok": False, "error": "wrangler not found on PATH"}
+    wrangler = _site_wrangler(runtime)
+    if wrangler is None:
+        return {
+            "ok": False,
+            "error": f"wrangler not installed in {runtime.site_repo}; run npm ci there",
+        }
 
     try:
         proc = subprocess.run(
             [
-                wrangler,
+                str(wrangler),
                 "d1",
                 "execute",
                 runtime.d1_database,

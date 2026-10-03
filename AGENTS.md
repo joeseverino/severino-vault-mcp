@@ -27,7 +27,6 @@ _CTX = GovernanceContext.load()                  # engine; defaults to LABS_PROF
 register_core(mcp, _CTX, build_parser=build_parser)  # engine: the 18 generic tools
 site_ops_tools.register(mcp, _CTX)               # Labs domain groups (this repo)
 writeups_tools.register(mcp, _CTX)
-infra_datasets_tools.register(mcp, _CTX)
 ```
 
 **In the engine (`vault_engine`), not here** — don't edit these in this repo:
@@ -45,9 +44,9 @@ the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
 **In this repo** — the Labs domain layer + the composition/CLI surface:
 
 - `server.py` — composition root (above). No `@mcp.tool()` wall anymore; it wires
-  `register_core` + the three Labs groups onto one `GovernanceContext`.
+  `register_core` + the two Labs groups onto one `GovernanceContext`.
 - `cli.py` — `build_parser()`: the argparse CLI surface (incl. `schema`, the
-  domain writers `infra-write` / `daily-write`, and the
+  domain writer `daily-write`, and the
   `find` / `read` console subcommands). Per-command blast radius is declared with
   `cordon_emit.set_effect` on each subparser; the engine's `cli_introspect`
   projects this parser to the Cordon contract for `tools describe --repos`.
@@ -56,17 +55,11 @@ the Labs doc-types/statuses/prefixes in the **engine's** `schema.py`, not here.
   passes its config/loader into the same services as MCP; CLI never calls MCP.
 - `tools/` — the FastMCP **registration groups**, one `register(mcp, ctx)` per
   domain, thin wiring over the `labs/` services: `tools/site_ops.py`,
-  `tools/writeups.py`, `tools/infra_datasets.py`.
+  `tools/writeups.py`.
 - `labs/` — the Labs **domain logic** (FastMCP-free, so the same code backs both
-  the MCP and the `site` CLI):
+  the MCP and the CLI):
   - `labs/writeup_service.py`, `labs/writeups.py` — writeup reads/validation/transactions.
   - `labs/site_ops_service.py` — jseverino.com D1 readers, schema apply, header check.
-  - `labs/infra_datasets.py` — the infra-dataset registry (`_infra-datasets.json`):
-    the sensitivity-gated read model (`get_infra_dataset`, cache + `--refresh`
-    read-through with fallback) and the CLI-only `infra-write` (JSON cache +
-    generated doc table + `last_reviewed`). `infra-write` is CLI-only **by
-    design** — never an MCP tool, so AI sessions can't write arbitrary JSON into
-    the vault.
   - `labs/hq_manifest.py` — HQ manifest synthesis on the shared parser.
   - `labs/tech_groups.py` — the technology-taxonomy checks.
 
@@ -75,7 +68,7 @@ schema --json` emits `LABS_PROFILE.as_dict()` (defined in the engine); Severino
 HQ commits that JSON (`docs_index/schema.json`) and validates its manifest
 importer against it, so the two systems can't drift on what `hq sync` accepts.
 After changing the Labs profile (in the **engine**): release the engine + bump
-the pin here, `site reinstall-mcp`, then `hq schema` (regenerates HQ's copy),
+the pin here, `tools reinstall severino-vault-mcp`, then `hq schema` (regenerates HQ's copy),
 then commit + deploy HQ. Guarded by `docs_index/tests.py` in HQ.
 The legacy `schema --json` shape is frozen for HQ. `schema --contract` emits the
 complete versioned engine contract and `schema --fingerprint` emits its stable
@@ -91,12 +84,12 @@ repos' own docs, to kill the code→repo-doc→vault copy step.
 
 - Every service returns one dict. Failures use a single
   `{"ok": false, "error": "<message>"}` envelope (singular `error`).
-  `manage-tui.mjs` reads `json.error`; CLI subcommands exit 0/1 on `.ok`.
+  The site repo's `site` CLI reads `json.error`; CLI subcommands exit 0/1 on `.ok`.
 - To expose a tool to the shell: add a subparser in `cli.build_parser` (with a
   `cordon_emit.set_effect`) and a handler in `__main__.py` (mirror an existing
-  block), then in the tools repo `site reinstall-mcp`.
-  `site` runs the *installed* console script — a stale `uv tool` install is
-  real drift, caught by `--fingerprint` (`site doctor`).
+  block), then `tools reinstall severino-vault-mcp`.
+  Consumers run the *installed* console script, so a stale `uv tool` install is
+  real drift, caught by `--fingerprint` (`tools doctor`).
 
 ## Safety model (keep it symmetric)
 
@@ -111,7 +104,7 @@ repos' own docs, to kill the code→repo-doc→vault copy step.
 ## Verify (before claiming a change works)
 
 ```bash
-uv run pytest -q                 # 163 tests, ~3s
+uv run pytest -q
 uv run ruff check src/ tests/    # lint (CI gate)
 scripts/check.sh                 # everything CI runs
 ```
@@ -130,8 +123,7 @@ scripts/check.sh                 # everything CI runs
 - New behavior gets a regression test in the matching `tests/test_*.py`:
   `test_search.py` = vault/write, `test_writeups.py` = writeups,
   `test_site_ops.py` = D1/PII, `test_hq_manifest.py` = manifest,
-  `test_infra_datasets.py` = the pulled infra
-  writers, `test_cli_dispatch.py` = CLI wiring, `test_daily_write.py` /
+  `test_cli_dispatch.py` = CLI wiring, `test_daily_write.py` /
   `test_doctor.py` = the daily-note + doctor surfaces. Generic-core behavior is
   tested in the **engine** repo, not here.
 

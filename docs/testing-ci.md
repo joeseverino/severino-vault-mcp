@@ -4,10 +4,9 @@ This project is tested as a local stdio MCP server package. The tests exercise
 the Python functions directly and also verify FastMCP resource registration
 where that matters.
 
-The current suite has 163 tests across the Labs vault surface
+The suite covers the Labs vault surface
 (`tests/test_search.py`), HQ manifest generation (`tests/test_hq_manifest.py`),
-the jseverino.com writeup surface (`tests/test_writeups.py`), the infra writer
-(`tests/test_infra_datasets.py`), CLI dispatch
+the jseverino.com writeup surface (`tests/test_writeups.py`), CLI dispatch
 (`tests/test_cli_dispatch.py`), and the daily-note/doctor surfaces. The generic
 vault-governance core is tested in the [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
 repo, which this server depends on — so the core's behavior isn't re-tested here.
@@ -20,22 +19,10 @@ Use the wrapper for normal local verification:
 scripts/check.sh
 ```
 
-For a faster edit loop:
+Run one check by id (the rerun line in a failure report):
 
 ```bash
-scripts/check.sh --quick
-```
-
-For release-grade local verification, including installed-tool smoke checks:
-
-```bash
-scripts/check.sh --release
-```
-
-Prepare a release bump and starter changelog:
-
-```bash
-scripts/prepare-release.sh X.Y.Z "short headline"
+scripts/check.sh --only pytest
 ```
 
 Install dependencies:
@@ -62,31 +49,12 @@ The `search_body` tests require `rg` on `PATH`.
 
 The repository runs five workflows, each scoped to a single concern.
 
-### `ci.yml` — pytest + ruff
+### `ci.yml`: the cordon gate
 
-Runs on:
-
-- push to `main`
-- pull requests targeting `main`
-
-Matrix:
-
-- Python 3.11
-- Python 3.12
-- Python 3.13
-
-Steps:
-
-1. Check out the repository.
-2. Install `ripgrep`, because body search shells out to `rg`.
-3. Install `uv` with cache enabled.
-4. Install the matrix Python version.
-5. Run `uv sync --extra dev`.
-6. Run `uv run ruff check src tests`.
-7. Run `uv run pytest -q`.
-8. Reinstall the project non-editably and smoke-test the installed package:
-   import `severino_vault_mcp` and run `severino-vault-mcp doctor` against
-   `examples/sample-vault`.
+Runs on pushes to `main` and pull requests. It calls cordon's reusable gate
+(`cordon-gate.yml@v2`), which detects the uv stack and runs ruff, pytest,
+version alignment, and an import smoke of the built wheel, plus cordon's repo
+invariants. `scripts/check.sh` runs the same engine locally.
 
 ### `codeql.yml` — SAST
 
