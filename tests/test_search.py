@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -132,12 +133,17 @@ def test_vault_brief_flags_stale_docs_and_inbox(fake_vault: Path) -> None:
         encoding="utf-8",
     )
 
+    # Keep the PKI doc inside the review window whatever today is.
+    pki = fake_vault / "02 Infrastructure" / "Local PKI.md"
+    fresh = (date.today() - timedelta(days=30)).isoformat()
+    pki.write_text(pki.read_text(encoding="utf-8").replace("last_reviewed: 2026-04-01", f"last_reviewed: {fresh}"), encoding="utf-8")
+
     result = vault_brief(VaultLoader(Config.from_env()), review_after_days=180)
 
     assert result["ok"] is True
     review_ids = {doc["doc_id"] for doc in result["docs_to_review"]["docs"]}
     assert "rb-add-nginx-proxy-host" in review_ids  # last_reviewed 2025-01-01
-    assert "infra-local-pki" not in review_ids       # 2026-04-01, still fresh
+    assert "infra-local-pki" not in review_ids       # reviewed 30 days ago
     assert result["inbox"]["count"] == 1
     # tmp vault is not a git repo, so recent_changes degrades gracefully
     assert result["recent_changes"]["count"] == 0
