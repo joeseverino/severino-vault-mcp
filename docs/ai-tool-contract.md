@@ -8,7 +8,7 @@ docs: the goal is correct tool selection with small responses. Architecture:
 
 Use tools before prose. Don't answer an operational question from model memory
 when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
-`edu`, `life` when configured).
+`edu` and each provider's vault when configured).
 
 ## Routing
 
@@ -46,7 +46,7 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 | One section or a whole body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
 | The edu dataset | `severino-vault-mcp export education` |
 
-`describe` is generated from the argparse parser and emits a
+`describe` is generated from the CLI's command table and emits a
 [Cordon v4](https://github.com/joeseverino/cordon) contract; prefer it over
 restating commands from this doc.
 

@@ -1,24 +1,9 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
-.eggs/
-
-# uv / virtualenvs
-.venv/
-venv/
-# uv.lock is committed — this is an application, not a library; CI needs a
-# stable lockfile to build reproducibly.
-
-# Tooling caches
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-htmlcov/
-.coverage
-.coverage.*
+# Go
+/bin/
+/severino-vault-mcp
+*.test
+*.out
+coverage.*
 
 # Editor
 .idea/

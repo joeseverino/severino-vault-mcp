@@ -18,8 +18,8 @@ writes `CHANGELOG.md` from the Conventional Commit titles; merging it tags
 ## Verification
 
 ```bash
-uv sync --extra dev
 scripts/check.sh
+bash tests/golden/verify.sh
 ```
 
 In an MCP client, verify:
@@ -35,8 +35,9 @@ In an MCP client, verify:
 ## Packaging
 
 ```bash
-uv tool install --from . severino-vault-mcp --force
+go install ./cmd/severino-vault-mcp
 severino-vault-mcp --help
+severino-vault-mcp --fingerprint
 ```
 
 Then confirm MCP client examples in `README.md` and `QUICKSTART.md` still match
@@ -44,7 +45,7 @@ the installed command name.
 
 ## Dependabot Pull Requests
 
-Dependabot will open PRs for both `pip` and `github-actions` updates. They
+Dependabot will open PRs for both `gomod` and `github-actions` updates. They
 arrive pre-pinned to the new SHA with the version comment updated, e.g.
 `uses: actions/checkout@<sha> # v6.0.2`.
 
@@ -69,8 +70,8 @@ To merge:
 
 If a PR proposes a major version jump (for example `v3 → v8`), skim the
 upstream release notes Dependabot includes in the PR body before merging.
-CI is the final safety net — a green matrix across Python 3.11/3.12/3.13
-plus CodeQL plus pip-audit is sufficient signal to merge.
+CI is the final safety net: a green gate (gofmt, vet, test, govulncheck) plus
+CodeQL is sufficient signal to merge.
 
 ## GitHub Release Notes
 

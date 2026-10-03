@@ -9,17 +9,17 @@ secrets, or hostnames appear.
 Point the server at it and reproduce the whole demo flow:
 
 ```bash
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```
 
 The full transcript (broad question → Quick Index → target doc, plus the
 sensitivity gate in action) lives in [`../../docs/demo.md`](../../docs/demo.md).
-This exact vault is also wired into CI: every run points the server at it
-(`SVMC_VAULT_PATH=examples/sample-vault severino-vault-mcp doctor` in
-`ci.yml`), and the
-[`test_sample_vault_is_reproducible`](../../tests/test_search.py) test
-asserts its retrieval stays deterministic — so it can never silently drift
-from the behavior documented here. See
+This exact vault is also wired into CI:
+[`TestDoctorPassesOnTheSampleVault`](../../internal/doctor/doctor_test.go)
+validates it, and
+[`TestSampleVaultIsReproducible`](../../internal/core/core_test.go) asserts
+its retrieval stays deterministic, so it can't silently drift from the
+behavior documented here. See
 [Sample Vault Reproducibility](../../docs/testing-ci.md#sample-vault-reproducibility)
 in the testing/CI doc.
 

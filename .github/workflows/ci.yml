@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # cordon's reusable gate: ruff, pytest, version alignment, and the built-wheel
-  # import smoke, folded with cordon's repo invariants. Required check: `cordon / gate`.
+  # cordon's reusable gate: the Go commands in cordon.checks.json (gofmt, vet,
+  # test, govulncheck, golden contracts) folded with cordon's repo invariants.
+  # Required check: `cordon / gate`.
   cordon:
     uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@v2

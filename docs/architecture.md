@@ -13,13 +13,14 @@ MCP client / host
   starts one local stdio process
       |
       v
-severino-vault-mcp
-  vaults.build(): one GovernanceContext per vault (labs, edu, life)
-  register_core(): 8 shared tools, each with a `vault` argument
-  each vault's own group (education, life) on its context
-      |
-      v
-local markdown vaults (+ life's registered Apple lists and calendars)
+severino-vault-mcp (one Go binary)
+  vaults.Build(): one core.Vault per vault (labs, edu, each provider's)
+  mcpserver.New(): 8 shared tools, each with a `vault` argument,
+                   plus education_dataset and each provider's tools
+      |                                   |
+      v                                   v
+local markdown vaults            provider processes over stdio
+                                 (each: its own tools and profile)
 ```
 
 The server runs under the local user account and reads only files under each
@@ -31,32 +32,56 @@ vault's root and indexed folders.
 |---|---|---|---|---|
 | `labs` | always (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml`, plus `SVMC_*` overrides | labs | none |
 | `edu` | its config file exists | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml` | education | `education_dataset` |
-| `life` | `severino_life` imports | `SVMC_LIFE_CONFIG`, else `~/.config/severino-life-mcp/config.toml` | life | `reminders`, `calendar`, `agenda`, `life_view`, `renew`, `life_ops` |
+| provider's | the provider connects | its `[[providers]]` entry's `config` | from the provider | from the provider |
 
-`vaults.build()` loads labs first with the process environment. edu loads from
+`vaults.Build()` loads labs first with the process environment. edu loads from
 its own TOML with an environment scrubbed of `SVMC_*`, so a labs override can't
-redirect it. severino-life resolves its config from `SVMC_CONFIG` at call time,
-so after labs is loaded `build()` points `SVMC_CONFIG` at life's config (or
-clears it) for the rest of the process.
+redirect it.
 
-## Engine vs. host
+## Providers
 
-The governance core is [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
-(import `vault_engine`): indexing, alias resolution and duplicate-ID exclusion,
-section chunking and ranking, the sensitivity gate and local unlock, schema
-profiles (`LABS_PROFILE`, `EDUCATION_PROFILE`), frontmatter parsing and
-serialization, atomic writes, path validation, the task ledger, daily notes,
-`doctor`, and `register_core`. Change generic behavior there.
+A provider is a stdio MCP server that owns one private vault's domain. The host
+knows a provider only by its `[[providers]]` entry in the labs config:
 
-This repo owns composition and the CLI:
+```toml
+[[providers]]
+command = "example"                         # the provider's stdio MCP server
+args    = ["mcp-provider"]
+config  = "~/.config/example/config.toml"   # the vault's [vault] path and indexed_dirs
+env     = { EXAMPLE_HOME = "~/example" }    # optional, passed to the provider
+```
 
-- `vaults.py`: the vault contexts and their domain registrars.
-- `server.py`: composition root and the instructions block.
-- `education.py`: the edu dataset, shared by the tool and `export education`.
-- `labs/hq_manifest.py`: the HQ docs manifest, until HQ owns it.
-- `cli.py` / `__main__.py`: subcommands over the labs vault. Every result goes
-  through one `_emit` (compact or `--pretty`, `ok` to exit code), and
-  `describe` projects the parser to a Cordon contract.
+For each entry the host starts `command` with the process environment minus
+`SVMC_*`, plus `SVMC_CONFIG=<config>` and `env`, then:
+
+- reads `vault-provider://profile`, the vault's schema profile as a contract
+  (`schema.FromContract`). Its `name` is the vault's name, so the `vault` enum
+  is labs, edu (when configured), then each connected provider's vault;
+- loads the vault's `[vault]` settings from `config`, so the core tools serve
+  its docs and tasks, and writes validate against the provider's profile;
+- lists the provider's tools and re-exports them unchanged (a name that
+  collides with a core tool is skipped and logged);
+- appends the instructions from the provider's initialize result.
+
+There are no compiled-in providers and no default commands. An entry missing
+`command` or `config`, a provider that fails to start, and a vault name that
+already exists are each logged and skipped; the rest of the server comes up.
+
+## Code
+
+The governance engine is `internal/`: indexing, alias resolution and
+duplicate-ID exclusion, section chunking and ranking, the sensitivity gate and
+local unlock, schema profiles, frontmatter parsing and serialization, atomic
+writes, path validation, the task ledger, daily notes and `doctor`. On top:
+
+- `internal/core`: the shared tools, transport-free.
+- `internal/vaults`, `internal/provider`: composition.
+- `internal/mcpserver`: the MCP adapter and the instructions block.
+- `internal/education`: the edu dataset, shared by the tool and `export education`.
+- `internal/hqmanifest`: the HQ docs manifest, until HQ owns it.
+- `internal/cli`: subcommands over the labs vault. Every result goes through one
+  emitter (compact or `--pretty`, `ok` to exit code), and `describe` projects
+  the command table to a Cordon contract.
 
 Site work (writeups, the technology catalog, D1, CSP, contact, headers) is
 owned by the jseverino.com repo's `site` CLI, not this server.
@@ -123,11 +148,11 @@ Details: [`ai-safety-security.md`](ai-safety-security.md).
 ## Write model
 
 - No tool takes an arbitrary path plus arbitrary text.
-- Paths validate against the named vault's root through `vault_engine.paths`.
+- Paths validate against the named vault's root (`internal/fsx`).
 - Frontmatter writes validate against the vault's profile, keep `doc_id`
   immutable, and replace atomically; a failed write leaves the original intact.
-- Life's Apple-store writes only reach registered lists and calendars and
-  preview unless `dry_run=false`.
+- Provider tools are the provider's to govern; the host forwards calls and
+  never widens them.
 
 If the server can't name the file shape, validate the fields, and report
 exactly what changed, it doesn't expose the mutation as a tool.

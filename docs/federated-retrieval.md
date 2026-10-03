@@ -49,13 +49,13 @@ shippable and testable against the fixture vault.
 
 ### 1. Section-scoped index (biggest win, no federation yet)
 
-Today `vault_engine.vault` produces one `Doc` per file with a single `body`. Add a
+Originally the loader (`internal/vault`) produced one `Doc` per file with a single `body`. Add a
 section view: parse the markdown heading tree and attach a list of `Section`
 spans to each `Doc`, each carrying its heading path
 (`"Routine operations > Backing commands"`), text span, start line, and the
 doc's inherited frontmatter (`doc_id`, `sensitivity`, provenance).
 
-- `search.py:rank` scores at section granularity and returns the best section(s),
+- `search.Rank` scores at section granularity and returns the best section(s),
   not whole docs.
 - `read_doc(doc_id, section=…)` returns one section; whole-doc read stays
   available behind an explicit flag.
@@ -77,7 +77,7 @@ selects and returns one *section* instead of a whole body.
 
 ### 3. Federation + provenance
 
-`config.py` gains `repo_sources`: a list of `{name, path, globs,
+`internal/config` gains `repo_sources`: a list of `{name, path, globs,
 sensitivity_default}`. The loader indexes those files alongside the vault,
 tagging every `Doc`/`Section` with `source` (`vault` | `repo:<name>`) and a
 `source_ref` (relative path; optionally the git commit). Repo docs lack
@@ -108,8 +108,7 @@ but can't silently rot.
 ## Non-goals
 
 - **No embeddings / vector store.** Keyword + section scoring is enough at this
-  scale; the committed eval (`scripts/eval_ranking.py`) is the trigger — revisit
-  only if it regresses on real queries.
+  scale; revisit only if ranking regresses on real queries.
 - **No indexing of code source files.** Only model-facing docs + emitted facts.
 - **No auto-copying repo docs into the vault.** That *is* the copy step we're
   deleting.
@@ -118,7 +117,7 @@ but can't silently rot.
 
 ## Sensitivity
 
-The existing gate (`sensitivity.py`) applies unchanged. Federated repo docs get
+The existing gate (`internal/gate`) applies unchanged. Federated repo docs get
 the source's `sensitivity_default` (e.g. `internal` for a private repo,
 `public` for a public one); a federated hit never bypasses the gate, and
 provenance in the response makes the source auditable.
@@ -126,17 +125,15 @@ provenance in the response makes the source auditable.
 ## Rollout
 
 - **P0** — this doc; decisions locked.
-- **P1 — done.** Section chunking (`vault_engine.sections`) + section-aware
+- **P1: done.** Section chunking (`internal/sections`) + section-aware
   `find`/`read`/`get` over the **vault only**, fully additive. Heading-slug
   addressing, H2 granularity with H3 sub-split over a token cap, two-tier
   menu→section return. Regression-tested on the fixture vault; no federation.
-  (These modules have since moved into the shared engine; see
-  `report-vault-engine-extraction`.)
-- **P1-CLI — done.** Emit-once render-many over P1: `vault_engine.vault_search_service`
+- **P1-CLI: done.** Emit-once render-many over P1: `query.FindSections`
   single-sources the section menu so the MCP and the shell render the same
   payload; `find` / `read --section` console subcommands expose it to the
   human/TUI path. The **command-surface** leg landed early (normally P4): a
-  `describe` subcommand walks the argparse parser to emit the repo's commands as
+  `describe` subcommand walks the command table to emit the repo's commands as
   structured JSON, so `--help` becomes a machine-readable, drift-proof fact. See
   the vault decision record `report-emit-once-render-many`.
 - **P2** — `repo_sources` config + federate the four default surfaces,
@@ -181,7 +178,7 @@ but only land with federation.
    **Decision: confirmed** — private-repo sources default to `internal`,
    public-repo sources to `public`; the vault keeps its per-doc frontmatter
    sensitivity. A source may override per-glob later if a repo mixes tiers. A
-   federated hit never bypasses `sensitivity.py`.
+   federated hit never bypasses the gate.
 
 6. **Backward compatibility** *(P1)* — **Decision: additive-only.**
    `read_doc(doc_id)` with no `section` returns the whole doc exactly as today
