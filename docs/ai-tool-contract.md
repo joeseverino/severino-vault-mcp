@@ -1,88 +1,58 @@
 # AI Tool Contract
 
-This is the short operating contract for AI clients using
-`severino-vault-mcp`. It is intentionally more directive than the human docs:
-the goal is fast, correct tool selection with small responses.
+The short operating contract for AI clients. More directive than the human
+docs: the goal is correct tool selection with small responses. Architecture:
+[`architecture.md`](architecture.md).
 
-For the human architecture overview, read [`architecture.md`](architecture.md).
-For the real operator workflow inventory, read
-[`operator-workflows.md`](operator-workflows.md).
+## Core rule
 
-## Core Rule
+Use tools before prose. Don't answer an operational question from model memory
+when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
+`edu`, `life` when configured).
 
-Use tools before prose. Do not answer operational questions from model memory
-when a vault doc or workflow tool exists.
-
-## Generic Vault Routing
+## Routing
 
 | User intent | First tool/resource | Then |
 |---|---|---|
-| Broad process question | `vault://quick-index` | Read the target `vault://doc/{doc_id}`. |
-| Specific runbook question | `find_runbook` or `get_runbook` | Read the top hit if needed; quote commands exactly. |
-| Known doc ID | `vault://doc/{doc_id}` or `read_doc` | Respect sensitivity policy. |
-| System context | `lookup_system` | Read the selected doc before summarizing. |
-| Body search | `search_body` | Use returned snippets only as discovery; read the doc before final instructions. |
-| Daily progress/log question | `daily_progress` | Summarize from returned `progress_items` / body. |
-| Missing metadata | `add_frontmatter` or `update_frontmatter` | Report changed fields and next sync step. |
-| Duplicate doc ID response | `doctor` | Do not choose one path; report every conflict and require repair. |
+| Broad process question | `vault://labs/quick-index` | Read the target `vault://labs/doc/{doc_id}`. |
+| Specific runbook question | `find` | `read_doc` on the top hit (with its `section` when the hit names one); quote commands exactly. |
+| Known doc ID | `read_doc` or `vault://{vault}/doc/{doc_id}` | Respect the sensitivity policy. |
+| System context | `find(by="system")` | Read the selected doc before summarizing. |
+| Docs for a project | `find(by="project")` | Read before summarizing. |
+| Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
+| Daily progress or log | `daily_progress` | Summarize from the returned note. |
+| Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
+| Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete. |
+| Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
 
-## Sensitivity Handling
+## Sensitivity
 
 | Sensitivity | AI behavior |
 |---|---|
 | `public` / `internal` | Use the body normally. |
 | `sensitive` | Use the body and mention the advisory. |
-| `restricted` | Do not ask for the body unless the user explicitly needs it. Use `read_doc(..., include_restricted=True)` only for a specific doc, never broad search. |
+| `restricted` | Don't ask for the body unless the user explicitly needs it. `read_doc(..., include_restricted=True)` only for one specific doc. |
 
-`search_body` excludes restricted bodies by design.
+`find(by="text")` never searches restricted bodies.
 
-## jseverino.com Fast Path
+## Shell / CLI
 
-| User intent | Tool |
-|---|---|
-| What is the featured/home writeup order | `list_featured_writeup_order` |
-| Which writeups exist, are published, are drafts, or are featured | `list_writeups(filter)` |
-| What is the featured order | `list_writeups("featured")` |
-| Does a technology slug exist or belong in the home cloud | `get_technology_catalog` and `find_writeups_using_tag` |
-| Is a writeup ready to publish | `prepare_writeup_publish(slug)` |
-| Need detailed blockers for one writeup | `validate_writeup(slug)` |
-| Need summaries and readiness for every writeup | `writeup_dashboard()` |
-| Flip publish state, date, cover, title, description, or review date | `update_writeup_frontmatter(slug, ...)` |
-| Insert, move, or unfeature a featured writeup | `reorder_featured(slug, position)` |
-| Apply several edits and a complete featured order | `apply_writeup_plan(plan)` |
-| Review contact form state | `list_contact_submissions` |
-| Review CSP report state | `list_csp_reports` or `count_csp_reports` |
-| Check live headers | `check_jseverino_security_headers(path)` |
-
-Do not grep writeup frontmatter, hand-parse `_technology-groups.md`, or edit
-featured order manually. The dedicated tools are faster and preserve invariants.
-
-## Shell / CLI Surface
-
-The same retrieval is available as console subcommands for the shell and TUI,
-emitting the identical JSON the MCP returns (`{ok, ...}` envelope):
+The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 
 | Need | Command |
 |---|---|
-| What commands does this repo expose | `severino-vault-mcp describe` |
-| Ranked section menu for a query | `severino-vault-mcp find <query>` |
-| One section (or whole) doc body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
+| The command surface | `severino-vault-mcp describe` |
+| Ranked section menu | `severino-vault-mcp find <query>` |
+| One section or a whole body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
+| The edu dataset | `severino-vault-mcp export education` |
 
-`describe` is generated from the argparse parser, so it is the authoritative,
-drift-proof command list — prefer it over restating commands from this doc. It
-emits a conformant [Cordon v4](https://github.com/joeseverino/cordon) contract
-(the language-agnostic command-surface standard), so the same JSON folds into the
-`tools describe --repos` federation alongside the shell toolchain.
+`describe` is generated from the argparse parser and emits a
+[Cordon v4](https://github.com/joeseverino/cordon) contract; prefer it over
+restating commands from this doc.
 
-## Response Discipline
+## Response discipline
 
-- If a runbook is short, answer short.
-- Quote commands exactly from docs.
-- If no matching doc exists, say that before offering general guidance.
-- Use `prepare_writeup_publish(slug)` by default; enable tag usage only when
-  making a tag-promotion decision.
-- Use `writeup_dashboard()` when a client needs both inventory and validation;
-  do not issue separate list and batch-validation calls.
-- Use `apply_writeup_plan(plan)` for multi-writeup interactive saves so all
-  affected files commit together or roll back together.
-- For write tools, report only the changed fields and any required follow-up.
+- A short runbook gets a short answer.
+- Quote commands exactly.
+- If no matching doc exists, say so before offering general guidance.
+- For writes, report only the changed fields and any follow-up.

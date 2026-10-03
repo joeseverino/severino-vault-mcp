@@ -4,10 +4,13 @@ This project is tested as a local stdio MCP server package. The tests exercise
 the Python functions directly and also verify FastMCP resource registration
 where that matters.
 
-The suite covers the Labs vault surface
-(`tests/test_search.py`), HQ manifest generation (`tests/test_hq_manifest.py`),
-the jseverino.com writeup surface (`tests/test_writeups.py`), CLI dispatch
-(`tests/test_cli_dispatch.py`), and the daily-note/doctor surfaces. The generic
+The suite covers vault composition and a real stdio `list_tools`
+(`tests/test_server.py`), the shared tools on a fake labs vault
+(`tests/test_search.py`), the edu dataset (`tests/test_education.py`), HQ
+manifest generation (`tests/test_hq_manifest.py`), CLI dispatch
+(`tests/test_cli_dispatch.py`), and the daily-note/doctor surfaces.
+`tests/conftest.py` keeps every test off the machine's real edu and life
+configs. The generic
 vault-governance core is tested in the [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
 repo, which this server depends on — so the core's behavior isn't re-tested here.
 
@@ -43,7 +46,7 @@ Run lint:
 uv run ruff check .
 ```
 
-The `search_body` tests require `rg` on `PATH`.
+The `find(by="text")` tests require `rg` on `PATH`.
 
 ## GitHub Actions
 
@@ -86,13 +89,13 @@ catches CVEs against the *current* pin.
 
 - Vault indexing from frontmatter-bearing markdown files.
 - `doctor` validation for missing and invalid frontmatter.
-- Search ranking for `find_runbook`.
+- Search ranking for `find`.
 - `read_doc` body release for `public`, `internal`, and `sensitive` docs.
 - Default withholding for `restricted` docs.
 - One-request local unlock behavior for `restricted` docs.
 - Audit log writing for restricted unlock attempts.
-- `vault://quick-index` resource behavior.
-- `vault://doc/{doc_id}` resource-template behavior.
+- `vault://labs/quick-index` resource behavior.
+- `vault://labs/doc/{doc_id}` resource-template behavior.
 - Real FastMCP registration for resources and resource templates.
 - Quick Index recommendations only becoming `recommended` when they agree with
   the top-ranked doc.
@@ -102,33 +105,16 @@ catches CVEs against the *current* pin.
 - Multiline frontmatter values survive generic mutations.
 - Simulated atomic replacement failure leaves the original document unchanged.
 - Full-text body search with frontmatter skipping.
-- Permanent exclusion of `restricted` bodies from `search_body`.
-- Project inventory lookup.
+- Permanent exclusion of `restricted` bodies from `find(by="text")`.
+- Project lookup with `find(by="project")`.
 - Reproducibility of `examples/sample-vault`.
 
 `tests/test_hq_manifest.py` covers shared multiline parsing and fail-closed
 duplicate-ID handling for HQ imports.
 
-`tests/test_writeups.py` covers:
-
-- Writeup loading from `05 Writeups/<slug>/index.md`.
-- Technology catalog parsing from `06 Pages/_technology-groups.md`.
-- `list_featured_writeup_order` compact home-cloud order output.
-- `list_writeups` filters, featured-order sorting, compact order fields, and
-  configured-path boundary checks.
-- `get_technology_catalog` grouped output and configured-path boundary checks.
-- `find_writeups_using_tag` usage lookup and input validation.
-- `validate_writeup` blockers, missing technology slugs, missing images, and
-  unresolved related vault references.
-- Shared-context batch validation loads writeups once per request.
-- `writeup_dashboard` combines summaries, featured order, and validation from
-  one snapshot.
-- `prepare_writeup_publish` composition, featured-position reporting, and
-  optional tag-usage expansion.
-- `update_writeup_frontmatter` scalar updates with formatting preservation.
-- `reorder_featured` insert, move, unfeature, and range validation behavior.
-- `apply_writeup_plan` complete-order updates and rollback after a simulated
-  mid-transaction replacement failure.
+`tests/test_server.py` covers labs-only, labs+edu and all-three compositions,
+the `vault` argument's schema, labs overrides never reaching edu, and a real
+stdio `list_tools` round trip.
 
 ## Sample Vault Reproducibility
 
@@ -142,10 +128,10 @@ SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
 
 Expected sample behavior:
 
-- `vault://quick-index` returns the demo navigation hub.
-- `vault://doc/rb-generate-internal-cert` returns the sample certificate runbook.
-- `find_runbook("generate internal certificate")` ranks `rb-generate-internal-cert` first.
-- `vault://doc/infra-offline-ca` withholds body content because the doc is `restricted`.
+- `vault://labs/quick-index` returns the demo navigation hub.
+- `vault://labs/doc/rb-generate-internal-cert` returns the sample certificate runbook.
+- `find("generate internal certificate")` ranks `rb-generate-internal-cert` first.
+- `vault://labs/doc/infra-offline-ca` withholds body content because the doc is `restricted`.
 - `read_doc("infra-offline-ca", include_restricted=True)` still requires local unlock.
 
 ## CI Security Signal
@@ -155,8 +141,7 @@ contracts are regression-tested:
 
 - `restricted` bodies are withheld by default.
 - `include_restricted=True` is not sufficient on its own.
-- `search_body` cannot reveal restricted snippets.
+- `find(by="text")` cannot reveal restricted snippets.
 - Path validation prevents write tools from escaping the vault root.
 - Frontmatter enum validation rejects malformed metadata writes.
-- jseverino.com writeup/catalog path validation keeps portfolio workflow files
-  inside the configured vault root.
+- A tool call only reaches the vault its `vault` argument names.

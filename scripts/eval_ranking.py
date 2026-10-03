@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Rank-quality eval for `find_runbook`, scored against real ground truth.
+"""Rank-quality eval for `find`, scored against real ground truth.
 
 The vault's Quick Index ("How do I..." / "When something's broken" tables) is a
 hand-maintained map of natural-language intent -> the canonical doc for it. That
-is exactly the retrieval task `find_runbook` performs, so it doubles as a
+is exactly the retrieval task `find` performs, so it doubles as a
 labeled eval set: every `| intent | ... | [[Doc]] |` row is one (query, expected
 doc_id) case.
 
@@ -27,14 +27,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from severino_vault_mcp.config import Config  # noqa: E402
-from severino_vault_mcp.search import rank  # noqa: E402
-from severino_vault_mcp.vault import VaultLoader  # noqa: E402
+from vault_engine.config import Config
+from vault_engine.search import rank
+from vault_engine.vault import VaultLoader
 
 QUICK_INDEX_DOC_ID = "report-playbook-mcp-index"
 _ROW = re.compile(r"^\|([^|]+)\|([^|]+)\|([^|]*\[\[[^\]]+\]\][^|]*)\|", re.M)

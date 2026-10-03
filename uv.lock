@@ -698,13 +698,18 @@ wheels = [
 ]
 
 [[package]]
-name = "severino-vault-engine"
-version = "0.3.0"
-source = { git = "https://github.com/joeseverino/vault-engine#caae65854ddb7c99bd0741cf22a7ea41e521d6aa" }
+name = "severino-life"
+version = "0.14.0"
+source = { git = "https://github.com/joeseverino/severino-life?rev=0dfc403793f7055a8222e166319f396fe4b02bd5#0dfc403793f7055a8222e166319f396fe4b02bd5" }
 dependencies = [
-    { name = "mcp" },
-    { name = "starlette" },
+    { name = "cordon-emit" },
+    { name = "severino-vault-engine" },
 ]
+
+[[package]]
+name = "severino-vault-engine"
+version = "1.0.0"
+source = { git = "https://github.com/joeseverino/vault-engine#d749407fb3c9253d75dcb6d933bc243d4fcb1477" }
 
 [[package]]
 name = "severino-vault-mcp"
@@ -722,6 +727,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+life = [
+    { name = "severino-life" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -729,10 +737,11 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "severino-vault-engine", git = "https://github.com/joeseverino/vault-engine" },
+    { name = "severino-life", marker = "extra == 'life'", git = "https://github.com/joeseverino/severino-life?rev=0dfc403793f7055a8222e166319f396fe4b02bd5" },
+    { name = "severino-vault-engine", git = "https://github.com/joeseverino/vault-engine?rev=d749407fb3c9253d75dcb6d933bc243d4fcb1477" },
     { name = "starlette", specifier = ">=1.0.1" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["life", "dev"]
 
 [[package]]
 name = "sse-starlette"

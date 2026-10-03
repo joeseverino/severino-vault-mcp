@@ -41,7 +41,7 @@ How do I expose a new internal service over HTTPS?
 MCP client action:
 
 ```text
-Read resource: vault://quick-index
+Read resource: vault://labs/quick-index
 ```
 
 Relevant Quick Index row:
@@ -53,7 +53,7 @@ Add HTTPS to an internal service -> rb-add-nginx-proxy-host
 MCP client action:
 
 ```text
-Read resource: vault://doc/rb-add-nginx-proxy-host
+Read resource: vault://labs/doc/rb-add-nginx-proxy-host
 ```
 
 Assistant answer:
@@ -79,7 +79,7 @@ What's the cert generation runbook?
 MCP client action:
 
 ```text
-Call tool: find_runbook("cert generation")
+Call tool: find("cert generation")
 ```
 
 Expected top hit:
@@ -91,7 +91,7 @@ rb-generate-internal-cert
 MCP client action:
 
 ```text
-Read resource: vault://doc/rb-generate-internal-cert
+Read resource: vault://labs/doc/rb-generate-internal-cert
 ```
 
 Assistant answer:
@@ -117,7 +117,7 @@ Show me the offline CA doc.
 MCP client action:
 
 ```text
-Read resource: vault://doc/infra-offline-ca
+Read resource: vault://labs/doc/infra-offline-ca
 ```
 
 Expected behavior:

@@ -1,15 +1,21 @@
 """Print the server's registered MCP tool names, one per line, sorted.
 
-The authoritative tool-surface contract: introspect the assembled FastMCP
-instance at runtime instead of grepping a source file, so tools can move
-between modules during the engine extraction without false drift. What must
-stay byte-stable is the externally-visible set Claude Code sees, which is
-exactly what `mcp.list_tools()` reports.
+Introspects the assembled server, composed deterministically: labs plus an
+empty edu vault, with life blocked (its tools are covered by test_server.py).
 """
 
 import asyncio
+import os
+import sys
+import tempfile
+from pathlib import Path
 
-from severino_vault_mcp.server import mcp
+sys.modules["severino_life"] = None  # type: ignore[assignment]
+with tempfile.TemporaryDirectory() as tmp:
+    config = Path(tmp) / "edu.toml"
+    config.write_text(f'[vault]\npath = "{tmp}"\n', encoding="utf-8")
+    os.environ["SVMC_EDU_CONFIG"] = str(config)
+    from severino_vault_mcp.server import mcp
 
-names = sorted(tool.name for tool in asyncio.run(mcp.list_tools()))
+    names = sorted(tool.name for tool in asyncio.run(mcp.list_tools()))
 print("\n".join(names))
