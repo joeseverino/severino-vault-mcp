@@ -22,8 +22,16 @@ def _fingerprint() -> str:
     """
     package_dir = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for source in sorted(package_dir.glob("*.py")):
-        digest.update(source.name.encode())
+    # Recursive, and keyed on the path relative to the package rather than the
+    # bare filename. A non-recursive glob saw only the top-level modules, so a
+    # change under labs/, tools/ or contracts/ produced an identical
+    # fingerprint and the installed copy was reported current while being
+    # stale -- which is the one thing this function exists to detect. The two
+    # implementations must stay identical; see `mcp_fingerprint` in tools/bin/site.
+    for source in sorted(package_dir.rglob("*.py")):
+        if "__pycache__" in source.parts:
+            continue
+        digest.update(str(source.relative_to(package_dir)).encode())
         digest.update(b"\0")
         digest.update(source.read_bytes())
         digest.update(b"\0")
