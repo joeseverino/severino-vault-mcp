@@ -1340,7 +1340,6 @@ def test_describe_parser_emits_command_surface() -> None:
     # Per-command effect: the writers declare vault_write, readers stay read.
     by_name = {c["name"]: c for c in surface["commands"]}
     assert by_name["touch-reviewed"]["effect"] == "vault_write"
-    assert by_name["infra-write"]["effect"] == "vault_write"
     assert by_name["find"]["effect"] == "read"
     assert by_name["read"]["effect"] == "read"
 
@@ -1360,30 +1359,22 @@ def test_describe_parser_emits_command_surface() -> None:
 
 
 def test_describe_conforms_to_cordon_validator() -> None:
-    # The conformance gate: pipe the emitted surface through cordon's own
-    # canonical validator (cordon-v4.json via conformance/validate.mjs), so we
-    # validate against the single source of truth — no schema copy in this repo.
-    # Skips when the cordon repo isn't a sibling checkout (set CORDON_HOME), the
-    # typical CI-for-this-repo case; the tools repo's `--repos` federation is the
-    # always-on cross-repo backstop.
+    # Pipe the emitted surface through cordon's own validator (cordon-v4.json),
+    # so there is no schema copy here. Skips without a sibling cordon checkout;
+    # the tools repo's `describe --repos` federation is the cross-repo backstop.
     import os
     import shutil
     import subprocess
     import sys
 
     repo_root = Path(__file__).resolve().parents[1]
-    candidates = []
-    if os.environ.get("CORDON_HOME"):
-        candidates.append(Path(os.environ["CORDON_HOME"]))
-    candidates.append(repo_root.parent / "cordon")
-    cordon = next(
-        (c for c in candidates if (c / "conformance" / "validate.mjs").exists()), None
-    )
-    if cordon is None:
-        pytest.skip("cordon repo not found as sibling (set CORDON_HOME to enable)")
+    cordon = repo_root.parent / "cordon"
+    validator = cordon / "conformance" / "validate.ts"
+    if not validator.exists():
+        pytest.skip("cordon repo not found as a sibling checkout")
     if shutil.which("node") is None:
         pytest.skip("node not available")
-    if not (cordon / "node_modules").exists() and not (cordon / "node_modules.nosync").exists():
+    if not (cordon / "node_modules").exists():
         pytest.skip("cordon dependencies not installed (run `npm ci` in cordon)")
 
     describe = subprocess.run(
@@ -1392,7 +1383,7 @@ def test_describe_conforms_to_cordon_validator() -> None:
         env={**os.environ, "PYTHONPATH": str(repo_root / "src")},
     )
     result = subprocess.run(
-        ["node", str(cordon / "conformance" / "validate.mjs"), "-"],
+        ["node", str(validator), "-"],
         input=describe.stdout, capture_output=True, text=True,
     )
     assert result.returncode == 0, (result.stdout + result.stderr)

@@ -9,7 +9,6 @@ delete_task
 describe_commands
 find_runbook
 find_writeups_using_tag
-get_infra_dataset
 get_runbook
 get_technology_catalog
 get_writeup_contract
@@ -17,7 +16,6 @@ inventory_for_project
 list_contact_submissions
 list_csp_reports
 list_featured_writeup_order
-list_infra_datasets
 list_writeups
 lookup_system
 prepare_writeup_publish

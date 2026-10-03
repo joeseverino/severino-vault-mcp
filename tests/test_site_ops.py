@@ -271,3 +271,19 @@ def test_site_repo_defaults_under_code_home(monkeypatch, tmp_path):
     assert ops.SiteOpsRuntime.from_env().site_repo == tmp_path / "Projects" / "jseverino.com"
     monkeypatch.setenv("SVMC_JSEVERINO_SITE_REPO", "/elsewhere")
     assert ops.SiteOpsRuntime.from_env().site_repo == Path("/elsewhere")
+
+
+def test_d1_uses_the_site_repos_wrangler(tmp_path) -> None:
+    runtime = ops.SiteOpsRuntime(
+        d1_database="jseverino-contact", site_repo=tmp_path, site_origin="https://jseverino.com"
+    )
+    assert ops._site_wrangler(runtime) is None
+    result = ops._run_d1_json(runtime, "SELECT 1")
+    assert result["ok"] is False
+    assert "npm ci" in result["error"]
+
+    wrangler = tmp_path / "node_modules" / ".bin" / "wrangler"
+    wrangler.parent.mkdir(parents=True)
+    wrangler.write_text("#!/bin/sh\n")
+    wrangler.chmod(0o755)
+    assert ops._site_wrangler(runtime) == wrangler

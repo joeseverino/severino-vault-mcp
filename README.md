@@ -184,34 +184,15 @@ structured reads, and narrow writes.
 | `validate_all_writeups(only_published=True)` | read | Batch validation using one shared writeup/catalog/vault snapshot instead of reloading state per writeup. |
 | `prepare_writeup_publish(slug, include_tag_usage=False)` | read | ONE-CALL publish prep. Composes `validate_writeup` and `list_writeups("featured")` in one response; `include_tag_usage=True` additionally composes per-tag `find_writeups_using_tag` (off by default to keep the payload small). Use before every writeup commit instead of chaining the individual tools. |
 | `writeup_dashboard()` | read | Low-latency interactive-client snapshot: all writeup summaries, featured order, and validation results loaded once. |
+| `get_writeup_contract()` | read | The versioned site-owned writeup contract used by MCP, CLI, and Tools. Use it to discover fields and capabilities instead of hardcoding them. |
 | `apply_jseverino_d1_schema(confirm=False)` | write | Runs the site repo's `npm run d1:apply` (its D1 schema, remote); requires `confirm=True`. |
 | `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, cover_alt). Featured state goes through the ordering tools. |
 | `reorder_featured(slug, position)` | write | Transactionally reorders the featured-writeups list. All files are staged before replacement and rolled back on failure. Resulting order is sequential 1..N. |
 | `apply_writeup_plan(plan)` | write | Applies multiple scalar updates plus the complete featured order in one locked, staged transaction with rollback. |
 
-### Infrastructure data layer
-
-Structured infra facts (the live-mirrored config of AdGuard / NPM / Tailscale /
-Cloudflare) are read through one catalog — the infra-dataset registry at
-`02 Infrastructure/_infra-datasets.json`. Each dataset is **reflected** (a drift
-guard mirrors live system state into a JSON cache) or **authored** (a human
-declares the JSON directly). Hosts, addresses, and containers are not here at
-all: Severino HQ owns that inventory, so ask the HQ MCP for a machine. See the
-vault's `Infra Data Store` note for the full model and how to add a dataset.
-
-| Tool | Read or write | What it answers |
-|---|---|---|
-| `get_writeup_contract()` | read | The versioned site-owned writeup contract used by MCP, CLI, and Tools. Use it to discover fields and capabilities instead of hardcoding them. |
-| `list_infra_datasets()` | read | The catalog of every infra dataset: id, kind (authored/reflected), owner, sensitivity, and whether it is machine-readable/refreshable. |
-| `get_infra_dataset(id, refresh=False)` | read | One dataset from its true owner — `dns_rewrites`, `proxy_hosts`, `tailscale_acl`, `public_dns`. Default returns the git-tracked cache instantly (`live: false`, with `fetched_at`) so it answers even when the system is down; `refresh=True` reads live via the guard and falls back to the cache flagged `stale`. Sensitivity-gated. |
-
-CLI faces for this layer (effects: reads are `read`, `infra-write` is `vault_write`):
-
-```bash
-severino-vault-mcp infra                          # list the dataset catalog
-severino-vault-mcp infra <id> [--refresh]         # read a dataset (cache, or live)
-severino-vault-mcp infra-write <id>               # write a dataset's cache + doc table (JSON on stdin) — the guards' `pull`
-```
+Infrastructure facts are not here. Severino HQ owns hosts, addresses,
+containers, certificates, DNS rewrites, proxy hosts, the Tailscale policy, and
+public DNS; ask the HQ MCP.
 
 CLI helpers:
 
@@ -230,8 +211,7 @@ Runs `prepare_writeup_publish` for one writeup slug, prints the JSON
 result to stdout (compact by default; `--pretty` indents for humans),
 exits 0 if `ok: true` (safe to publish) or 1 if there are blockers,
 missing tech slugs, missing images, or unresolved `related_projects` /
-`related_assets`. Intended to be wrapped by shell tooling (the
-operator's `site validate <slug>` command uses it for targeted reports).
+`related_assets`.
 Pass `--include-tag-usage` if you need the per-technology usage stats.
 
 ```bash
@@ -242,9 +222,8 @@ The CLI face of the `validate_writeup` MCP tool: validates a single writeup
 and prints the JSON report (blockers, missing tech slugs, missing images,
 unresolved refs, nits), exiting 0 if `ok: true`. `--draft` demotes the
 `published` / `published_at` blockers to nits so a draft can be gate-checked
-mid-authoring — the same draft tolerance `site validate --draft` exposes,
-defined once in the shared validator and reused by the CLI, the MCP tool, and
-the Obsidian plugin's publish-gate command.
+mid-authoring. The tolerance is defined once in the shared validator and reused
+by the CLI, the MCP tool, and the Obsidian plugin's publish-gate command.
 
 ```bash
 severino-vault-mcp writeup-dashboard [--pretty]
@@ -268,12 +247,8 @@ severino-vault-mcp touch-reviewed "<vault-relative-path>" [--pretty]
 ```
 
 Sets `last_reviewed` to today on one vault doc. It shares the path validation
-and frontmatter serializer used by the write tools but deliberately skips the
-vault-cache rebuild, since the drift guards only need the file on disk updated.
-Prints the JSON result and exits 0 if `ok: true` or 1 otherwise. Intended to be
-wrapped by shell tooling: the operator's drift guards (`cf-dns` / `adguard` /
-`nginx` / `ts-acl`) call it after a successful `pull` so the vault mirror's
-review date moves with the pull — a pull is a review.
+and frontmatter serializer used by the write tools but skips the vault-cache
+rebuild. Prints the JSON result and exits 0 if `ok: true` or 1 otherwise.
 
 ```bash
 severino-vault-mcp hq-manifest <vault-root> <dir-a:dir-b>
@@ -299,8 +274,10 @@ SVMC_JSEVERINO_WRITEUPS_DIR=~/Documents/Code/Severino Labs/05 Writeups
 SVMC_JSEVERINO_TECH_GROUPS=~/Documents/Code/Severino Labs/06 Pages/_technology-groups.md
 ```
 
-`list_contact_submissions`, `list_csp_reports`, and `count_csp_reports` require
-`wrangler` on `PATH` and an authenticated Cloudflare session. The schema apply
+`list_contact_submissions`, `list_csp_reports`, and `count_csp_reports` run the
+site repo's own `wrangler` (`node_modules/.bin`, after `npm ci` there;
+`SVMC_JSEVERINO_SITE_REPO` overrides the `~/Code/Projects/jseverino.com`
+default) with an authenticated Cloudflare session. The schema apply
 tool is the only jseverino.com write helper and refuses to run unless
 `confirm=True` is passed.
 
@@ -321,7 +298,7 @@ picker, a guard diffs it.
 
 The output is a conformant [**Cordon v4**](https://github.com/joeseverino/cordon)
 contract — the language-agnostic command-surface standard — with a per-command
-`effect`: the vault writers (`touch-reviewed`, `infra-write`, `update-writeup`,
+`effect`: the vault writers (`touch-reviewed`, `update-writeup`,
 `reorder-featured`, `apply-writeup-plan`, `backfill-aliases`) declare `vault_write`;
 everything else is `read`. None touch the network. Because it conforms to the
 same schema Joe's personal `tools` repo emits, `tools describe --repos` folds this
@@ -556,10 +533,8 @@ contract as a real operations vault.
 |---|---|
 | `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
 | `CONTRIBUTING.md` | Local development, issue, PR, and release guidance. |
-| `STRUCTURE.md` | File-by-file repository map. |
+| `STRUCTURE.md` | Repository map. |
 | `scripts/check.sh` | One-command local verification for lint, tests, version alignment, and sample-vault validation. |
-| `scripts/prepare-release.sh` | Version-bump and changelog prep helper. |
-| `scripts/release.sh` | One-command release wrapper for checks, tagging, pushing, and GitHub release creation. |
 | `.gitmessage` | Commit message template for descriptive, reviewable commits. |
 | `docs/demo.md` | Short transcript of the intended MCP assistant flow. |
 | `docs/architecture.md` | Runtime model, data contract, generic surface, operator-extension pattern, and adoption guidance. |

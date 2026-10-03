@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   audit:
-    uses: joeseverino/cordon/.github/workflows/pip-audit.yml@main
+    uses: joeseverino/cordon/.github/workflows/pip-audit.yml@v2
     with:
       # PYSEC-2025-183: pyjwt "weak encryption" advisory. Disputed by the
       # upstream supplier (key length is the application's choice) and has no

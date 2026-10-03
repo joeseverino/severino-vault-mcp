@@ -29,6 +29,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
+    # mcp 2 renames FastMCP to MCPServer; moving needs the engine and every
+    # consumer to migrate together.
     "mcp>=1.28.1,<2",
     "starlette>=1.0.1",
     # cordon's Python reference emitter — the single source for our command-surface
@@ -36,9 +38,8 @@ dependencies = [
     # thin binding). Resolved from cordon's main via the git source below.
     "cordon-emit",
     # The domain-agnostic engine (schema profiles, index, search, task ledger,
-    # register_core). Import package is `vault_engine`. Resolved from the sibling
-    # repo via the path source below for this personal install; it's also on PyPI
-    # (`pip install severino-vault-engine`) for outside consumers.
+    # register_core). Import package is `vault_engine`. Resolved from its git
+    # repo via the source below; also on PyPI for outside consumers.
     "severino-vault-engine>=0.3.0",
 ]
 

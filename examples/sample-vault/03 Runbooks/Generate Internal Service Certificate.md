@@ -23,7 +23,7 @@ Generate a signed TLS certificate for an internal service.
 ## Commands
 
 ```bash
-cd ~/Documents/Code/Projects/cert-generator
+cd ~/Code/Projects/cert-generator
 ./cert-gen <service>.internal.example
 ```
 

@@ -13,12 +13,12 @@ from .cli import build_parser
 
 
 def _fingerprint() -> str:
-    """Stable hash of this (installed) package's Python sources.
+    """Stable hash of this package's Python sources.
 
-    `site doctor` computes the same hash over the source repo and compares,
-    so a stale `uv tool` install is caught even when the version was never
-    bumped. Keep the hashing scheme in sync with cmd_doctor in the tools
-    repo's bin/site.
+    tools runs this same function for the installed copy and the source tree
+    (`uv run --project . severino-vault-mcp --fingerprint`), so a stale
+    `uv tool` install is caught even when the version was never bumped, and
+    there is one implementation.
     """
     package_dir = Path(__file__).resolve().parent
     digest = hashlib.sha256()
@@ -26,8 +26,7 @@ def _fingerprint() -> str:
     # bare filename. A non-recursive glob saw only the top-level modules, so a
     # change under labs/, tools/ or contracts/ produced an identical
     # fingerprint and the installed copy was reported current while being
-    # stale -- which is the one thing this function exists to detect. The two
-    # implementations must stay identical; see `mcp_fingerprint` in tools/bin/site.
+    # stale -- which is the one thing this function exists to detect.
     for source in sorted(package_dir.rglob("*.py")):
         if "__pycache__" in source.parts:
             continue
@@ -372,28 +371,6 @@ def main() -> None:
             days=args.days,
             review_after_days=args.review_after,
             recent_limit=args.limit,
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "infra":
-
-        from .labs import infra_datasets
-
-        config = ctx.config
-        if args.dataset_id:
-            result = infra_datasets.read_dataset(
-                config, args.dataset_id, refresh=args.refresh
-            )
-        else:
-            result = infra_datasets.list_datasets(config)
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "infra-write":
-
-        from .labs import infra_datasets
-
-        result = infra_datasets.write_dataset(
-            ctx.config, args.dataset_id, sys.stdin.read()
         )
         _emit(result, pretty=args.pretty)
 

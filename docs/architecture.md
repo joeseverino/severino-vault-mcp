@@ -95,13 +95,7 @@ directly. No tool logic lives in either adapter, and CLI never calls MCP.
 - `cli.py` / `__main__.py` — the argparse CLI surface (`build_parser`) and its
   dispatch, including `schema`, the CLI-only writers, and `find` / `read`.
 - `tools/` — the FastMCP registration groups, one `register(mcp, ctx)` per
-  domain (`site_ops`, `writeups`, `infra_datasets`), thin wiring over the
-  `labs/` services.
-- `labs/infra_datasets.py` — the infra-dataset registry: reading any dataset
-  (`get_infra_dataset`, cache or live `--refresh`) and the drift guards'
-  canonical write `infra-write` (JSON cache + generated doc table +
-  `last_reviewed`, CLI-only — never an MCP tool, so AI sessions can't write
-  arbitrary JSON into the vault).
+  domain (`site_ops`, `writeups`), thin wiring over the `labs/` services.
 - `contracts/site_content.v1.json` — the site-owned public content contract
   projection. MCP validates its fingerprint and derives writeup fields, CLI
   flags, tool signatures, and dashboard metadata from it instead of carrying a
@@ -117,15 +111,15 @@ directly. No tool logic lives in either adapter, and CLI never calls MCP.
 Every service module — engine or Labs — is FastMCP-free. Standalone CLI commands
 call them directly and never import FastMCP registration just to perform file,
 manifest, or D1 work. All of them report failures with one envelope:
-`{"ok": false, "error": "<message>"}` — the shape the `site` CLI and
-`site manage` already parse.
+`{"ok": false, "error": "<message>"}`, the shape the site repo's `site` CLI
+parses.
 
 The CLI surface mirrors the tools one-for-one: each writeup tool has a console
 subcommand that calls the same service function. `validate-writeup <slug>
 [--draft]` is the CLI face of the `validate_writeup` tool — draft tolerance
 (demoting the `published` / `published_at` blockers to nits) is defined once in
-the shared validator, so the CLI, the tool, the Obsidian plugin's publish gate,
-and `site validate --draft` cannot disagree. Every subcommand renders its result
+the shared validator, so the CLI, the tool, and the Obsidian plugin's publish
+gate cannot disagree. Every subcommand renders its result
 through a single `_emit` helper: one definition of the compact-vs-`--pretty`
 contract and the `ok`→exit-code mapping, so handlers can't drift on it.
 
@@ -323,9 +317,9 @@ To adapt the extension pattern for another operator workflow:
 
 ## Verification
 
-This repo's suite has 163 tests covering the Labs domain and CLI surface: HQ
+This repo's suite covers the Labs domain and CLI surface: HQ
 manifest generation, writeup loading/validation/transactions and rollback,
-taxonomy parsing, the pulled infra writer (`infra_datasets`), CLI dispatch, the daily-note and doctor surfaces, D1/PII
+taxonomy parsing, CLI dispatch, the daily-note and doctor surfaces, D1/PII
 redaction, configured-path boundary checks, publish-readiness validation, the
 one-snapshot dashboard, composite publish prep, and frontmatter/featured-order
 mutations. The generic-core behavior — indexing, runbook ranking, body release

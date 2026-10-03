@@ -99,7 +99,7 @@ Assistant answer:
 ```text
 Run:
 
-cd ~/Documents/Code/Projects/cert-generator
+cd ~/Code/Projects/cert-generator
 ./cert-gen <service>.internal.example
 
 Then enter the CA key passphrase when prompted and confirm the certificate

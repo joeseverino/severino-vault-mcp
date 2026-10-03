@@ -1,112 +1,46 @@
 # Repository Structure
 
-This file maps every tracked file in `severino-vault-mcp` and explains
-what each one is responsible for. Generated caches, local virtualenvs, and
-`__pycache__` files are intentionally excluded.
+What each part of `severino-vault-mcp` is responsible for. The generic vault
+core (config, index, search, sensitivity, task ledger, the 18 core tools) lives
+in [`vault-engine`](https://github.com/joeseverino/vault-engine); this repo is
+the Labs domain layer on top of it.
 
-## Root Files
-
-| Path | Purpose |
-|---|---|
-| `.editorconfig` | Cross-editor formatting defaults. |
-| `.gitignore` | Local/generated files excluded from Git. |
-| `CHANGELOG.md` | Release history and feature notes. |
-| `config.example.toml` | Copyable local configuration template for vault paths, cache, optional integrations, and unlock settings. |
-| `CONTRIBUTING.md` | Local development, PR, testing, and security-report guidance. |
-| `LICENSE` | MIT license. |
-| `QUICKSTART.md` | Command-first setup guide for sample-vault and real-vault adoption. |
-| `README.md` | Main project overview, install instructions, MCP surface, configuration, and sensitivity policy. |
-| `STRUCTURE.md` | This repository map. |
-| `pyproject.toml` | Package metadata, dependencies, console script, pytest config, and Ruff config. |
-| `uv.lock` | Locked dependency graph for reproducible `uv` installs. |
-
-## GitHub Metadata
+## Package: `src/severino_vault_mcp/`
 
 | Path | Purpose |
 |---|---|
-| `.github/SECURITY.md` | GitHub security policy and vulnerability reporting guidance. |
-| `.github/dependabot.yml` | Dependabot configuration for Python and GitHub Actions updates. |
-| `.github/workflows/ci.yml` | CI workflow running Ruff and pytest on Python 3.11, 3.12, and 3.13. |
+| `server.py` | Composition root: one `GovernanceContext`, `register_core` for the engine tools, then the Labs tool groups. |
+| `cli.py` | `build_parser()`, the argparse CLI surface. Each subparser declares its effect for the cordon contract. |
+| `__main__.py` | Console-script entry point and CLI dispatch; `--fingerprint` hashes the package sources. |
+| `tools/` | FastMCP registration groups, one `register(mcp, ctx)` per domain: `site_ops.py`, `writeups.py`. |
+| `labs/` | FastMCP-free domain logic shared by the MCP and the CLI. |
+| `labs/writeup_service.py`, `labs/writeups.py` | Writeup loading, validation, and staged transactions with rollback. |
+| `labs/site_ops_service.py` | jseverino.com D1 readers (through the site repo's wrangler), the confirmed schema apply, and the security-header check. |
+| `labs/hq_manifest.py` | Severino HQ manifest synthesis on the shared frontmatter parser. |
+| `labs/tech_groups.py` | Parser for the technology catalog at `06 Pages/_technology-groups.md`. |
+| `contracts/` | The bundled projection of the site-owned content contract (`site_content.v1.json`) and its loader. |
 
-## Documentation
-
-| Path | Purpose |
-|---|---|
-| `docs/demo.md` | Short transcript showing the intended MCP assistant flow with the sample vault. |
-| `docs/architecture.md` | End-to-end architecture guide covering the runtime model, data contract, generic MCP surface, jseverino.com extension surface, write boundaries, and adoption guidance. |
-| `docs/operator-workflows.md` | Portfolio-facing workflow-pack guide showing the concrete systems behind the jseverino.com tools and how to adapt the pattern. |
-| `docs/ai-tool-contract.md` | Compact AI-facing tool-selection contract for fast, low-token MCP use. |
-| `docs/assets/local-model-vps-ssh.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a VPS SSH runbook question. |
-| `docs/assets/local-model-container-restart.png` | Screenshot showing a Mac-hosted local model using this MCP server to answer a homelab container restart question. |
-| `docs/migration-guide.md` | Messy-vault migration guide with doctor usage and frontmatter examples. |
-| `docs/release-checklist.md` | Public release checklist for repository hygiene, verification, packaging, and release notes. |
-| `docs/testing-ci.md` | Local test commands, CI behavior, and what the tests cover. |
-| `docs/ai-safety-security.md` | AI-facing safety model, sensitivity gates, unlock behavior, and audit posture. |
-
-## Sample Vault
-
-The sample vault is safe demo data. It mirrors the expected folder and
-frontmatter contract so reviewers can run the MCP without access to a private
-vault.
+## Tests: `tests/`
 
 | Path | Purpose |
 |---|---|
-| `examples/sample-vault/01 Projects/Client Edge DNS.md` | Example project index with frontmatter and related doc references. |
-| `examples/sample-vault/02 Infrastructure/AdGuard Home.md` | Example infrastructure note for DNS and client edge name resolution. |
-| `examples/sample-vault/02 Infrastructure/Offline CA.md` | Example `restricted` doc used to prove body withholding behavior. |
-| `examples/sample-vault/03 Runbooks/Add Nginx Proxy Host.md` | Example runbook for adding an HTTPS proxy host. |
-| `examples/sample-vault/03 Runbooks/Generate Internal Service Certificate.md` | Example runbook for generating an `internal.example` certificate. |
-| `examples/sample-vault/03 Runbooks/Quick Index.md` | Example Quick Index backing `vault://quick-index`. |
+| `test_search.py` | Vault indexing, search, resources, sensitivity, unlock, write tools, CLI describe. |
+| `test_writeups.py` | Writeup loader, technology catalog, writeup tools and transactions. |
+| `test_site_ops.py` | D1 readers, PII redaction, CSP reports, wrangler resolution. |
+| `test_hq_manifest.py` | HQ manifest generation. |
+| `test_cli_dispatch.py` | CLI wiring. |
+| `test_daily_write.py`, `test_doctor.py` | Daily-note writer and doctor surfaces. |
+| `test_schema_contract.py` | The Labs schema contract HQ validates against. |
+| `golden/` | Frozen public surfaces (`schema --json`, `describe`, MCP tool names) and `verify.sh`, which diffs against them. |
 
-## Python Package
-
-| Path | Purpose |
-|---|---|
-| `src/severino_vault_mcp/__init__.py` | Package marker and exported version surface. |
-| `src/severino_vault_mcp/__main__.py` | Console-script entry point wrapper. |
-| `src/severino_vault_mcp/config.py` | TOML and environment-driven configuration: vault path, cache, optional integrations, unlock settings, and audit paths. Includes `infra_datasets_path`. |
-| `src/severino_vault_mcp/doctor.py` | Frontmatter validator and proposal helper for onboarding messy vaults. |
-| `src/severino_vault_mcp/jsonio.py` | The package's single home for JSON serialization (`dumps` compact/pretty, `canonical` sorted-stable) and parsing (`loads`/`load_file` with one labelled error). |
-| `src/severino_vault_mcp/infra_datasets.py` | The infra-dataset registry (`_infra-datasets.json`): the one catalog of authored + reflected datasets, the read model (cache + `refresh` read-through with fallback, sensitivity-gated), and the canonical write (`infra-write`: JSON cache + generated doc table + last_reviewed stamp). |
-| `src/severino_vault_mcp/tabular.py` | Generic records → markdown-table renderer driven by per-dataset column specs in the registry; serves every tabular reflected dataset's doc view. |
-| `src/severino_vault_mcp/search.py` | Lightweight lexical ranking for `find_runbook`. |
-| `src/severino_vault_mcp/secret_unlock.py` | Local one-request unlock gate for `restricted` doc bodies. |
-| `src/severino_vault_mcp/sensitivity.py` | Sensitivity enum, body-release policy helper, and advisory text. |
-| `src/severino_vault_mcp/server.py` | FastMCP server registration: resources, tools, read/write operations, and body search. |
-| `src/severino_vault_mcp/tech_groups.py` | Parser for the jseverino.com technology-groups catalog at `06 Pages/_technology-groups.md`. |
-| `src/severino_vault_mcp/vault.py` | Obsidian vault loader, frontmatter parser, indexed document model, and cache. |
-| `src/severino_vault_mcp/writeups.py` | Writeup loader for `05 Writeups/<slug>/index.md`, using the portfolio frontmatter shape (no `doc_id`, but `published`/`featured`/`technologies`). |
-
-## Tests
+## Everything else
 
 | Path | Purpose |
 |---|---|
-| `tests/__init__.py` | Test package marker. |
-| `tests/test_search.py` | End-to-end unit tests for vault indexing, search, resources, sensitivity, local unlock, write tools, and sample-vault reproducibility. |
-| `tests/test_writeups.py` | Tests for the writeup loader, technology catalog parser, and the four writeup-specific MCP tools. |
-| `tests/test_jsonio.py` | Serialization (compact/pretty/canonical) and labelled-error parsing. |
-| `tests/test_infra_datasets.py` | Registry catalog, read model (cache/refresh/fallback), sensitivity gating, and the `infra-write` cache+doc write. |
-| `tests/test_tabular.py` | The generic table renderer (key/template columns, list join, bool, escaping). |
-
-> Note: this table currently lists the infra-data and core modules; several
-> service modules (`cli`, `frontmatter`, `atomic_write`, `paths`, `schema`,
-> `sections`, `vault_*_service`, `writeup_service`, …) and their tests predate a
-> full regeneration of this map. Treat the package source as authoritative.
-
-## Runtime Shape
-
-The runtime dependency direction is intentionally small:
-
-```text
-MCP host
-  -> severino_vault_mcp.server
-       -> Config
-       -> VaultLoader
-       -> search.rank
-       -> sensitivity policy
-       -> secret_unlock gate
-       -> FastMCP resources/tools
-```
-
-The private vault remains outside this repository. The repo only needs a vault
-path, a stable frontmatter schema, and local filesystem access.
+| `docs/` | Architecture, safety model, AI tool contract, testing and CI, migration, release checklist, and release notes. |
+| `examples/sample-vault/` | Safe demo vault that mirrors the frontmatter contract, so the MCP runs without a private vault. |
+| `scripts/check.sh` | The CI gate, run locally (cordon's checks engine). |
+| `scripts/eval_ranking.py` | Rank-quality eval for `find_runbook` against the vault's Quick Index. |
+| `.github/workflows/` | `ci.yml` (cordon gate), `release.yml` (release-please), `codeql.yml`, `pip-audit.yml`, `scorecard.yml`. |
+| `config.example.toml` | Local configuration template. |
+| `README.md`, `QUICKSTART.md`, `CONTRIBUTING.md`, `AGENTS.md` | Overview, setup, contribution, and agent guidance. |

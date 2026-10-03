@@ -28,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--fingerprint",
         action="store_true",
         help=(
-            "Print a hash of the installed package's Python sources and exit. "
-            "Compared against the source repo by `site doctor` to detect a "
+            "Print a hash of the package's Python sources and exit. tools "
+            "compares the installed copy with the source tree to detect a "
             "stale install."
         ),
     )
@@ -49,8 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare-writeup-publish",
         help=(
             "Run prepare_writeup_publish for a writeup slug and print JSON. "
-            "Exits 0 if ok, 1 if blockers / missing slugs / unresolved refs. "
-            "Wrapped by `site publish-writeup` in the operator's shell tooling."
+            "Exits 0 if ok, 1 if blockers / missing slugs / unresolved refs."
         ),
     )
     prepare_publish.add_argument(
@@ -73,8 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Run validate_writeup for a single slug and print JSON. Exits 0 if "
             "ok, 1 if blockers / missing slugs / missing images / unresolved "
-            "refs. The CLI face of the validate_writeup MCP tool; wrapped by "
-            "`site validate`."
+            "refs. The CLI face of the validate_writeup MCP tool."
         ),
     )
     validate_one.add_argument(
@@ -100,8 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Run list_writeups for a filter and print JSON. The featured "
             "filter sorts by featured_order ascending — the order the home "
-            "cloud renders. Wrapped by `site featured` in the operator's "
-            "shell tooling."
+            "cloud renders. Read by the site repo's `site featured`."
         ),
     )
     list_writeups.add_argument(
@@ -120,8 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         "technology-catalog",
         help=(
             "Run get_technology_catalog and print JSON: every slug, label, "
-            "and featured flag grouped by section. Wrapped by `site tech` "
-            "in the operator's shell tooling."
+            "and featured flag grouped by section."
         ),
     )
     technology_catalog.add_argument(
@@ -134,8 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
         "validate-all-writeups",
         help=(
             "Run validate_all_writeups and print JSON. Exits 0 only when "
-            "every (published, by default) writeup passes the gate. Wrapped "
-            "by `site publish` as the slug-free pre-flight."
+            "every (published, by default) writeup passes the gate."
         ),
     )
     validate_all.add_argument(
@@ -213,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Update scalar writeup frontmatter fields via "
             "update_writeup_frontmatter and print JSON. Omitted flags leave "
-            "fields unchanged. Wrapped by `site manage`."
+            "fields unchanged."
         ),
     )
     update_writeup.add_argument("slug", help="Writeup slug to update.")
@@ -253,16 +248,14 @@ def build_parser() -> argparse.ArgumentParser:
         "touch-reviewed",
         help=(
             "Set last_reviewed to today on a vault doc via update_frontmatter "
-            "and print JSON. Exits 0 if ok, 1 otherwise. Wrapped by the drift "
-            "guards (cf-dns / adguard / nginx / ts-acl) after a successful "
-            "pull — a pull is a review, so the date moves."
+            "and print JSON. Exits 0 if ok, 1 otherwise."
         ),
     )
     touch_reviewed.add_argument(
         "relative_path",
         help=(
             "Vault-relative path, e.g. "
-            "'02 Infrastructure/AdGuard/DNS Rewrites — homelab.md'."
+            "'03 Runbooks/Generate Internal Service Certificate.md'."
         ),
     )
     touch_reviewed.add_argument(
@@ -532,54 +525,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    infra = subparsers.add_parser(
-        "infra",
-        help=(
-            "Read structured infra datasets through the one registry "
-            "(02 Infrastructure/_infra-datasets.json). With no id, list the "
-            "catalog; with an id, read that dataset from its declared source "
-            "(a JSON cache file, or a doc reference). The CLI face of "
-            "list_infra_datasets / get_infra_dataset."
-        ),
-    )
-    infra.add_argument(
-        "dataset_id",
-        nargs="?",
-        default=None,
-        help="Dataset id (e.g. dns_rewrites, proxy_hosts, tailscale_acl). Omit to list.",
-    )
-    infra.add_argument(
-        "--refresh",
-        action="store_true",
-        help=(
-            "Read live via the dataset's drift guard, falling back to the cache "
-            "(flagged stale) if the system is unreachable. Default: cache only."
-        ),
-    )
-    infra.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    infra_write = subparsers.add_parser(
-        "infra-write",
-        help=(
-            "Write a reflected dataset's live state (normalized JSON on stdin) "
-            "to its cache file, regenerate the doc's generated table region, and "
-            "stamp last_reviewed — one atomic-per-file write. The canonical write "
-            "behind a drift guard's `pull`."
-        ),
-    )
-    infra_write.add_argument(
-        "dataset_id", help="Dataset id, e.g. dns_rewrites, proxy_hosts."
-    )
-    infra_write.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
     daily_write = subparsers.add_parser(
         "daily-write",
         help=(
@@ -626,7 +571,6 @@ def build_parser() -> argparse.ArgumentParser:
         "update-doc-link": "vault_write",
         "touch-reviewed": "vault_write",
         "backfill-aliases": "vault_write",
-        "infra-write": "vault_write",
         "daily-write": "vault_write",
     }
     for name, sub in subparsers.choices.items():
