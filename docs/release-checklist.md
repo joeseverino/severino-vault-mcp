@@ -24,11 +24,11 @@ scripts/check.sh
 
 In an MCP client, verify:
 
-- `vault://quick-index` is visible.
-- `vault://doc/rb-generate-internal-cert` returns the sample certificate runbook.
-- `find_runbook("generate internal certificate")` ranks
+- `vault://labs/quick-index` is visible.
+- `vault://labs/doc/rb-generate-internal-cert` returns the sample certificate runbook.
+- `find("generate internal certificate")` ranks
   `rb-generate-internal-cert` first.
-- `vault://doc/infra-offline-ca` withholds the body by default.
+- `vault://labs/doc/infra-offline-ca` withholds the body by default.
 - `read_doc("infra-offline-ca", include_restricted=True)` still requires
   local unlock.
 

@@ -33,7 +33,7 @@ vaults:
 - MCP traffic stays on stdio between local processes.
 - Runbook context can be used without sending markdown bodies to a hosted model
   provider.
-- Smaller local models can rely on `get_runbook` and Quick Index hints to
+- Smaller local models can rely on `find` and its Quick Index hints to
   reduce hallucinated operational steps.
 
 The local-model path is still not a hard sandbox. A trusted local MCP host is
@@ -98,21 +98,6 @@ out of:
 If the prompt is unavailable, cancelled, or fails verification, the body stays
 withheld and the response includes metadata plus an unlock failure reason.
 
-## Operator Data (Cloudflare D1)
-
-The jseverino.com contact and CSP readers query the operator's own D1 tables.
-Contact submissions are PII (names, emails, message bodies, IP addresses), so
-they get a release posture that mirrors the restricted-doc gate:
-
-- `list_contact_submissions` returns a **redacted** projection by default —
-  abbreviated name (`Jane D.`), masked email (`j***@domain`), and the message
-  as a preview plus a character count. Full rows are fetched locally through
-  Wrangler but the PII does not enter the model context.
-- Passing `include_pii=True` releases full names, emails, message bodies, IPs,
-  and user agents, and appends one audit line. Use it only on explicit request.
-- `list_csp_reports` omits the client identifier fields (`ip_address`,
-  `user_agent`, `raw_report`) unless `include_pii=True`, also audited.
-
 ## Audit Logging
 
 Unlock attempts and PII releases append one local audit line:
@@ -138,9 +123,8 @@ The default audit path is:
 
 ## Search Safety
 
-`search_body` never searches restricted bodies, even if its deprecated
-compatibility flag is set. This is intentional: broad full-text search can leak
-too much context from credential-adjacent docs.
+`find(by="text")` never searches restricted bodies. Broad full-text search can
+leak too much context from credential-adjacent docs.
 
 Use `read_doc(..., include_restricted=True)` for a specific per-doc unlock
 request instead.
@@ -152,39 +136,25 @@ file" or "run this command" capability.
 
 | Tool | Mutation boundary |
 |---|---|
-| `add_frontmatter` | Prepends a validated frontmatter block to an existing markdown file under the configured vault root and indexed folders when that file does not already have frontmatter. |
-| `update_frontmatter` | Updates allowed fields inside an existing frontmatter block for one indexed vault doc. `doc_id` is immutable. |
-| `update_writeup_frontmatter` | Updates scalar frontmatter fields in one `05 Writeups/<slug>/index.md` file: `title`, `description`, `published`, `published_at`, `last_reviewed`, `cover_image`, and `cover_alt`. |
-| `reorder_featured` | Transactionally updates only `featured` and `featured_order` across `05 Writeups/<slug>/index.md` files so the featured list stays sequential after insert, move, or unfeature operations. |
-| `apply_writeup_plan` | Applies named scalar updates plus one complete featured-order list. Every target must be an existing writeup under the configured vault; files are staged, locked, checked for concurrent changes, and rolled back on failure. |
-| `apply_jseverino_d1_schema` | Runs the configured jseverino.com site repo's `npm run d1:apply`, which applies its D1 schema to the remote database; requires `confirm=True`. |
+| `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block when none exists (doc_id, title, doc_type, system required) or updates allowed fields in place. `doc_id` is immutable. |
+| `update_link` | One exact Markdown link in one indexed doc. |
+| `task_write` | Task files in the named vault: add, status, promote an inbox note, delete. |
+| life `reminders`, `calendar`, `renew`, `life_ops` | Only Reminders lists and calendars the life config registers; anything else fails closed. Writes preview unless `dry_run=false`. |
 
 Common constraints:
 
-- Vault-file writes reject paths that escape the configured vault root. Path
-  validation (`vault_engine.paths`), scalar escaping
-  (`vault_engine.frontmatter.yaml_escape`, used by both the generic serializer
-  and the writeup line-replacement path), and durable replacement
-  (`vault_engine.atomic_write`) each have one implementation — now in the shared
-  engine — used by every writer in both servers, so the trust boundary, escaping
-  rules, and write-atomicity cannot drift between tools.
-- Every write tool reports failure with the same `{"ok": false, "error": "…"}`
+- Every call acts on the vault named by its `vault` argument, through that
+  vault's context. One vault's files are never reachable through another's.
+- Writes reject paths that escape the vault root. Path validation
+  (`vault_engine.paths`), scalar escaping (`vault_engine.frontmatter.yaml_escape`)
+  and durable replacement (`vault_engine.atomic_write`) each have one
+  implementation in the engine.
+- Every write reports failure with the same `{"ok": false, "error": "..."}`
   envelope.
-- Generic frontmatter writes validate enum fields before touching disk.
-- Generic frontmatter writes use sibling temporary files plus atomic
-  replacement. A failed replacement does not truncate the original.
-- Duplicate `doc_id` values are excluded from runtime reads and searches until
-  the ambiguity is fixed.
-- jseverino.com writeup paths and technology-catalog paths must resolve inside
-  the configured vault root.
-- Writeup frontmatter writes preserve unrelated lines and only change the
-  requested scalar keys.
-- `reorder_featured` reports every writeup it changed and the resulting
-  featured order.
-- `apply_writeup_plan` rejects unknown fields, duplicate or unknown featured
-  slugs, and reports the changed fields per writeup.
-- `apply_jseverino_d1_schema` is not an arbitrary SQL runner; it applies one
-  known schema file to one configured database.
+- Frontmatter writes validate against the vault's schema profile before
+  touching disk, and replace atomically: a failed write never truncates the
+  original.
+- Duplicate `doc_id` values are excluded from reads and searches until fixed.
 
 Markdown body edits are not exposed as a broad MCP write tool.
 

@@ -22,11 +22,8 @@ def _fingerprint() -> str:
     """
     package_dir = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    # Recursive, and keyed on the path relative to the package rather than the
-    # bare filename. A non-recursive glob saw only the top-level modules, so a
-    # change under labs/, tools/ or contracts/ produced an identical
-    # fingerprint and the installed copy was reported current while being
-    # stale -- which is the one thing this function exists to detect.
+    # Recursive and keyed on the package-relative path, so a change in any
+    # subpackage changes the fingerprint.
     for source in sorted(package_dir.rglob("*.py")):
         if "__pycache__" in source.parts:
             continue
@@ -54,9 +51,8 @@ def main() -> None:
         print(_fingerprint())
         raise SystemExit(0)
 
-    # One governed runtime per invocation. Every CLI branch uses the same
-    # config/profile/loader composition as the MCP adapter; neither face calls
-    # the other transport or reconstructs vault policy ad hoc.
+    # Subcommands act on the labs vault through the same governed context the
+    # server uses.
     ctx = GovernanceContext.load()
 
     if args.command == "doctor":
@@ -64,114 +60,12 @@ def main() -> None:
 
         raise SystemExit(run_doctor(ctx.config, propose=args.propose))
 
-    if args.command == "prepare-writeup-publish":
-        from .labs.writeup_service import WriteupRuntime, prepare_writeup_publish
+    if args.command == "export":
+        from . import education
+        from .vaults import edu_context
 
-        result = prepare_writeup_publish(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
-            args.slug,
-            include_tag_usage=args.include_tag_usage,
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "validate-writeup":
-        from .labs.writeup_service import WriteupRuntime, validate_writeup
-
-        result = validate_writeup(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader), args.slug, draft=args.draft
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "list-writeups":
-        from .labs.writeup_service import WriteupRuntime, list_writeups
-
-        result = list_writeups(WriteupRuntime.from_config(ctx.config, loader=ctx.loader), args.filter)
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "technology-catalog":
-        from .labs.writeup_service import WriteupRuntime, get_technology_catalog
-
-        result = get_technology_catalog(WriteupRuntime.from_config(ctx.config, loader=ctx.loader))
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "validate-all-writeups":
-        from .labs.writeup_service import WriteupRuntime, validate_all_writeups
-
-        result = validate_all_writeups(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
-            only_published=not args.include_drafts,
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "writeup-dashboard":
-        from .labs.writeup_service import WriteupRuntime, writeup_dashboard
-
-        result = writeup_dashboard(WriteupRuntime.from_config(ctx.config, loader=ctx.loader))
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "writeup-contract":
-        from .contracts.site_content import public_contract
-
-        _emit(public_contract(), pretty=args.pretty)
-
-    if args.command == "apply-writeup-plan":
-        from .labs.writeup_service import WriteupRuntime, apply_writeup_plan
-
-        try:
-            plan = jsonio.loads(sys.stdin.read(), source="writeup plan")
-        except jsonio.JsonError as exc:
-            result = {"ok": False, "error": str(exc)}
-        else:
-            result = apply_writeup_plan(
-                WriteupRuntime.from_config(ctx.config, loader=ctx.loader), plan
-            )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "reorder-featured":
-        from .labs.writeup_service import WriteupRuntime, reorder_featured
-
-        result = reorder_featured(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
-            args.slug,
-            args.position,
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "update-writeup":
-        from .contracts.site_content import cli_fields
-        from .labs.writeup_service import (
-            WriteupRuntime,
-            update_writeup_frontmatter,
-        )
-
-        updates = {
-            name: (
-                getattr(args, name) == "true"
-                if spec.get("type") == "boolean"
-                else getattr(args, name)
-            )
-            for name, spec in cli_fields()
-            if getattr(args, name) is not None
-        }
-        result = update_writeup_frontmatter(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
-            args.slug,
-            **updates,
-            touch_last_reviewed=args.touch_last_reviewed,
-        )
-        _emit(result, pretty=args.pretty)
-
-    if args.command == "update-writeup-link":
-        from .labs.writeup_service import WriteupRuntime, update_writeup_link
-
-        result = update_writeup_link(
-            WriteupRuntime.from_config(ctx.config, loader=ctx.loader),
-            args.slug,
-            args.label,
-            args.expected_href,
-            args.replacement_href,
-        )
-        _emit(result, pretty=args.pretty)
+        edu = edu_context()
+        _emit(education.education_dataset(edu.loader, edu.profile.statuses), pretty=args.pretty)
 
     if args.command == "update-doc-link":
         from vault_engine.vault_write_service import update_document_link

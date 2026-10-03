@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# Frozen-contract drift guard for the vault-engine extraction.
-#
-# Re-emits each public surface and diffs it against the committed golden
-# snapshot. While the engine is being extracted from severino-vault-mcp, the
-# Labs server's surfaces MUST stay byte-identical — these are what HQ, the
-# severino-obsidian plugin, the tools CLIs, and Claude Code all bind to.
+# Contract drift guard: re-emits each public surface and diffs it against the
+# committed snapshot. HQ, the severino-obsidian plugin, the tools CLIs and
+# Claude Code bind to these, so a change here is a deliberate contract change.
 #
 # Run from the repo root after every refactor step:  bash tests/golden/verify.sh
 # Exit 0 = all surfaces unchanged. Exit 1 = drift (printed as a diff).
@@ -36,8 +33,7 @@ check "schema --json" "$GOLDEN/schema.json" "${CLI[@]}" schema --json
 # 2. Cordon CLI command surface (help/completions/effect ladder).
 check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe
 
-# 3. Registered MCP tool names (what Claude Code calls) — introspected at runtime
-#    from the assembled server, so tools may move between modules without drift.
+# 3. Registered MCP tool names (what Claude Code calls), from the assembled server.
 check "mcp tool names" "$GOLDEN/mcp-tools.txt" "$PYBIN" "$GOLDEN/list_tools.py"
 
 exit "$fail"

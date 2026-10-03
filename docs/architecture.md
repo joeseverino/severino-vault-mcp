@@ -1,140 +1,71 @@
 # Architecture
 
-`severino-vault-mcp` is a local stdio MCP server for turning an
-Obsidian-style operations vault into structured AI context. It is designed for
-operators who already keep procedures, infrastructure notes, and project
-records in markdown and want an assistant to use those docs before answering.
+`severino-vault-mcp` is one local stdio MCP server for every Obsidian vault I
+keep. It indexes each vault's configured folders, answers from the docs instead
+of model memory, withholds `restricted` bodies unless they're unlocked locally,
+and validates writes against each vault's schema. No HTTP listener, no database,
+no shell bridge.
 
-The project is deliberately small: no HTTP listener, no hosted control plane,
-no database requirement for the reusable vault surface, and no arbitrary shell
-bridge. The MCP host starts the server as a local process, the server indexes
-configured vault folders, and tools/resources return structured slices of that
-vault.
-
-## Design Goals
-
-- Ground operational answers in real local documentation.
-- Keep private vault content on the operator's machine.
-- Make the reusable surface work for any similarly structured vault.
-- Keep sensitive and restricted material out of chat by default.
-- Expose writes only where the file shape is known and validation is possible.
-- Make operator-specific workflows possible without turning the server into a
-  generic automation agent.
-
-## Runtime Shape
+## Runtime shape
 
 ```text
 MCP client / host
-  starts local stdio process
+  starts one local stdio process
       |
       v
 severino-vault-mcp
-  reads config.toml + SVMC_* overrides
-  indexes configured vault folders
-  registers FastMCP resources and tools
+  vaults.build(): one GovernanceContext per vault (labs, edu, life)
+  register_core(): 8 shared tools, each with a `vault` argument
+  each vault's own group (education, life) on its context
       |
       v
-local markdown vault and optional fixed integrations
+local markdown vaults (+ life's registered Apple lists and calendars)
 ```
 
-The server runs under the local user account. It can read files that account
-can read, but only files under the configured vault root and indexed folders
-are part of the generic vault index. There is no inbound network surface.
+The server runs under the local user account and reads only files under each
+vault's root and indexed folders.
 
-### Engine vs. server
+## Vaults
 
-The generic vault-governance core lives in a separate library,
-[`severino-vault-engine`](https://github.com/joeseverino/vault-engine) (PyPI
-distribution `severino-vault-engine`, import package `vault_engine`), pinned in
-this repo's `pyproject.toml`. `severino-vault-mcp` is a **thin domain server**
-that composes the engine and adds the Severino Labs profile binding plus the
-jseverino.com operator tools. A second server, `severino-edu-mcp`, composes the
-same engine against an education profile — proof the core carries no Labs domain
-knowledge.
+| Vault | When present | Config | Profile | Own tools |
+|---|---|---|---|---|
+| `labs` | always (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml`, plus `SVMC_*` overrides | labs | none |
+| `edu` | its config file exists | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml` | education | `education_dataset` |
+| `life` | `severino_life` imports | `SVMC_LIFE_CONFIG`, else `~/.config/severino-life-mcp/config.toml` | life | `reminders`, `calendar`, `agenda`, `life_view`, `renew`, `life_ops` |
 
-`server.py` is the MCP composition root: it builds one `GovernanceContext`
-(`vault_engine.context`) with `GovernanceContext.load()`, calls `register_core` for the
-engine's generic tools, then registers the Labs tool groups. `__main__.py` builds
-the same context once for the CLI and calls the same application services
-directly. No tool logic lives in either adapter, and CLI never calls MCP.
+`vaults.build()` loads labs first with the process environment. edu loads from
+its own TOML with an environment scrubbed of `SVMC_*`, so a labs override can't
+redirect it. severino-life resolves its config from `SVMC_CONFIG` at call time,
+so after labs is loaded `build()` points `SVMC_CONFIG` at life's config (or
+clears it) for the rest of the process.
 
-**The engine owns (don't edit these here):**
+## Engine vs. host
 
-- `frontmatter` — the single constrained-YAML toolkit: parsing
-  (`split_frontmatter`) and serialization (`serialize_frontmatter`,
-  `yaml_escape`). Generic vault writers and the writeup line-replacement path
-  quote scalars through the one `yaml_escape`, so escaping rules cannot fork.
-- `atomic_write` — durable creation/replacement. `atomic_create_text` (new file),
-  `atomic_write_text` (one replacement), and `transactional_replace` (many files,
-  locked, rollback) share one
-  staged-tempfile + `fsync` + `os.replace` primitive.
-- `paths` — vault path validation: `validate_indexed_path` (writes land under an
-  indexed dir) and `path_within_root` (operator tools stay inside the vault
-  root), defined once.
-- `vault` — indexing, alias resolution, duplicate-ID exclusion; attaches
-  `sections` to every `Doc` at index time.
-- `sections` + `search` — section chunking (P1 of
-  `docs/federated-retrieval.md`) and span scoring; `parse_sections` splits a
-  body into addressable H2 spans with doc-unique slugs, `search` scores them.
-- `vault_write_service` — generic frontmatter mutation (`add_frontmatter`,
-  `update_frontmatter`) plus the index-skipping `touch_reviewed` fast path.
-- `vault_query_service` — the shell-backed reads (`recent_changes` over
-  `git log`, `search_body` over ripgrep) and the shared `doc_to_hit` projection.
-- `vault_search_service` — the section-menu single source (`find_sections` /
-  `read_section`) both the MCP and the `find`/`read` CLI render.
-- `schema` — the `SchemaProfile` framework **and** `LABS_PROFILE`, the canonical
-  Labs enum contract. Edit Labs doc-types/statuses/prefixes here in the engine.
-- plus `config`, `context`, `core_tools`, `sensitivity`, `jsonio`, `mirror`,
-  `tabular`, `daily_notes`, `daily_write`, `task_service`, `brief_service`,
-  `secret_unlock`, `doctor`, and `cli_introspect` (the cordon `describe`
-  binding).
+The governance core is [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
+(import `vault_engine`): indexing, alias resolution and duplicate-ID exclusion,
+section chunking and ranking, the sensitivity gate and local unlock, schema
+profiles (`LABS_PROFILE`, `EDUCATION_PROFILE`), frontmatter parsing and
+serialization, atomic writes, path validation, the task ledger, daily notes,
+`doctor`, and `register_core`. Change generic behavior there.
 
-**This server owns (the Labs domain + composition):**
+This repo owns composition and the CLI:
 
-- `server.py` — composition root (above).
-- `cli.py` / `__main__.py` — the argparse CLI surface (`build_parser`) and its
-  dispatch, including `schema`, the CLI-only writers, and `find` / `read`.
-- `tools/` — the FastMCP registration groups, one `register(mcp, ctx)` per
-  domain (`site_ops`, `writeups`), thin wiring over the `labs/` services.
-- `contracts/site_content.v1.json` — the site-owned public content contract
-  projection. MCP validates its fingerprint and derives writeup fields, CLI
-  flags, tool signatures, and dashboard metadata from it instead of carrying a
-  second schema.
-- `labs/writeup_service.py`, `labs/writeups.py` — writeup reads, validation, and
-  transactions.
-- `labs/site_ops_service.py` — the jseverino.com integrations (Cloudflare D1
-  readers, the confirmed schema apply, the live security-header check) behind a
-  `SiteOpsRuntime`.
-- `labs/hq_manifest.py` — HQ manifest synthesis on the shared frontmatter parser.
-- `labs/tech_groups.py` — the technology-taxonomy checks.
+- `vaults.py`: the vault contexts and their domain registrars.
+- `server.py`: composition root and the instructions block.
+- `education.py`: the edu dataset, shared by the tool and `export education`.
+- `labs/hq_manifest.py`: the HQ docs manifest, until HQ owns it.
+- `cli.py` / `__main__.py`: subcommands over the labs vault. Every result goes
+  through one `_emit` (compact or `--pretty`, `ok` to exit code), and
+  `describe` projects the parser to a Cordon contract.
 
-Every service module — engine or Labs — is FastMCP-free. Standalone CLI commands
-call them directly and never import FastMCP registration just to perform file,
-manifest, or D1 work. All of them report failures with one envelope:
-`{"ok": false, "error": "<message>"}`, the shape the site repo's `site` CLI
-parses.
+Site work (writeups, the technology catalog, D1, CSP, contact, headers) is
+owned by the jseverino.com repo's `site` CLI, not this server.
 
-The CLI surface mirrors the tools one-for-one: each writeup tool has a console
-subcommand that calls the same service function. `validate-writeup <slug>
-[--draft]` is the CLI face of the `validate_writeup` tool — draft tolerance
-(demoting the `published` / `published_at` blockers to nits) is defined once in
-the shared validator, so the CLI, the tool, and the Obsidian plugin's publish
-gate cannot disagree. Every subcommand renders its result
-through a single `_emit` helper: one definition of the compact-vs-`--pretty`
-contract and the `ok`→exit-code mapping, so handlers can't drift on it.
+## Data contract
 
-## Data Contract
-
-The reusable vault surface expects markdown files with YAML frontmatter under
-operator-selected folders. The default folders are:
-
-```text
-01 Projects/
-02 Infrastructure/
-03 Runbooks/
-```
-
-A minimal indexed document looks like this:
+Each vault's docs are markdown with YAML frontmatter under its indexed
+folders (labs default: `01 Projects`, `02 Infrastructure`, `03 Runbooks`,
+`07 Backlog`). Minimal labs doc:
 
 ```yaml
 ---
@@ -145,186 +76,62 @@ system: Example System
 environment: other
 status: active
 sensitivity: internal
-tags:
-  - example
 ---
 ```
-
-The important fields are:
 
 | Field | Purpose |
 |---|---|
-| `doc_id` | Stable identifier used by `read_doc`, `vault://doc/{doc_id}`, aliases, related refs, and assistant instructions. |
-| `title` | Human-readable label returned in search and read responses. |
-| `doc_type` | Classifies docs such as runbooks, infrastructure notes, project records, and decision records. |
-| `system` | Names the system or service the doc operates. |
-| `environment` | Groups docs by operational context. |
-| `status` | Keeps stale or deprecated docs visible as state, not tribal knowledge. |
-| `sensitivity` | Controls body release behavior. |
-| `tags` | Supports discovery and filtering. |
+| `doc_id` | Stable identifier for `read_doc`, `vault://{vault}/doc/{doc_id}`, aliases and related refs. Immutable. |
+| `title` | Label in search and read responses. |
+| `doc_type` | Validated against the vault's profile. |
+| `system` | The system or service the doc covers (`find(by="system")`). |
+| `environment`, `status`, `tags` | Context, lifecycle and discovery. |
+| `sensitivity` | Body release behavior. |
 
-### Reference-shape slim frontmatter
+Reference docs with `type: reference` and no `doc_id` get a synthesized
+`ref-<stem>` ID, `doc_type: reference` and `sensitivity: public`.
 
-Concept-level reference docs (under `04 Reference/` in the operator's vault) can use a slim three-field frontmatter shape:
+`doc_id` is a uniqueness boundary: duplicates are excluded from lookup and
+search, direct reads return every conflicting path, and `doctor` reports them.
 
-```yaml
----
-type: reference
-tags: [topic, area]
-created: YYYY-MM-DD
----
-```
-
-When the loader encounters a doc with `type: reference` and no `doc_id`, it synthesizes one from the file path (`ref-<kebab-case-stem>`), defaults `doc_type: reference` and `sensitivity: public`, and indexes the doc. This keeps primers and explainers searchable via `search_body` and `find_runbook` without forcing them to adopt the heavyweight HQ shape.
-
-`doctor` validates this contract and can propose starter frontmatter for messy
-vaults:
-
-```bash
-SVMC_VAULT_PATH=/absolute/path/to/vault severino-vault-mcp doctor --propose
-```
-
-For first-time adoption, start with
-[`QUICKSTART.md`](../QUICKSTART.md), then use
-[`docs/migration-guide.md`](migration-guide.md) to migrate a real vault in
-small slices.
-
-`doc_id` is a uniqueness boundary, not a last-write-wins key. If the index
-finds the same ID in multiple files, it excludes every conflicting document
-from runtime lookup and search. Direct reads return an explicit ambiguous
-response with all paths, and `doctor` reports the files to fix.
-
-## Generic MCP Surface
-
-The generic surface is the part intended for other operators to run as-is:
+## Tools
 
 | Surface | Purpose |
 |---|---|
-| `vault://quick-index` | Returns the navigation hub with `doc_id: report-playbook-mcp-index`. |
-| `vault://doc/{doc_id}` | Returns one document body when the sensitivity policy allows it. |
-| `find_runbook` | Ranks runbooks for a natural-language operational question. |
-| `get_runbook` | Combines runbook search and selected body return for smaller local models. |
-| `lookup_system` | Finds infrastructure/system notes by name. |
-| `read_doc` | Reads one doc by `doc_id` or local alias with sensitivity enforcement. |
-| `inventory_for_project` | Returns docs related to a project slug. |
-| `recent_changes` | Summarizes recent vault commits inside indexed folders. |
-| `daily_progress` | Reads `00 Inbox/Daily Note/YYYY-MM-DD.md` for progress/log questions. |
-| `search_body` | Searches non-restricted bodies with frontmatter skipped. |
-| `add_frontmatter` | Adds validated frontmatter to one vault markdown file. |
-| `update_frontmatter` | Updates validated frontmatter fields on one indexed doc. |
+| `vault://{vault}/quick-index` | The vault's navigation hub (`doc_id: report-playbook-mcp-index`). |
+| `vault://{vault}/doc/{doc_id}` | One doc body, subject to sensitivity. |
+| `find` | `by`: `relevance` (ranked sections plus Quick Index hints), `system`, `project`, `text` (ripgrep; restricted never searched). |
+| `read_doc` | One doc or one section, by `doc_id` or alias, with sensitivity enforced. |
+| `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
+| `update_link` | Replace one exact Markdown link. |
+| `task_board`, `task_write` | The task ledger. |
+| `recent_changes`, `daily_progress` | Recent commits; daily notes. |
 
-The intended assistant behavior is also part of the architecture: broad
-questions should start at the Quick Index, specific runbook questions should
-use `find_runbook` or `get_runbook`, and exact operational answers should come
-from the target document rather than model memory. See
-[`docs/demo.md`](demo.md) for a reproducible transcript.
+Broad questions start at the Quick Index; specific ones use `find`, then
+`read_doc`; answers come from the doc. See [`demo.md`](demo.md).
 
-Daily notes are not part of the durable runbook index. They are a separate
-capture/log surface under configurable `daily_notes_dir` (default
-`00 Inbox/Daily Note`) and are exposed through `daily_progress` for questions
-like "what progress did I make on Friday?".
-
-## Sensitivity Model
+## Sensitivity
 
 | Sensitivity | Body behavior |
 |---|---|
-| `public` | Body is released. |
-| `internal` | Body is released. |
-| `sensitive` | Body is released with advisory text. |
-| `restricted` | Body is withheld by default. `read_doc(..., include_restricted=True)` can request one local unlock. |
+| `public`, `internal` | Released. |
+| `sensitive` | Released with an advisory. |
+| `restricted` | Withheld. `read_doc(..., include_restricted=True)` can request one local unlock. |
 
-`search_body` always excludes restricted bodies, even when compatibility flags
-are provided. Restricted body release is per-document and only through
-`read_doc` after local policy allows it.
+Details: [`ai-safety-security.md`](ai-safety-security.md).
 
-The full release policy, local unlock flow, audit-log behavior, and write
-boundaries are documented in
-[`docs/ai-safety-security.md`](ai-safety-security.md).
+## Write model
 
-## Write Model
+- No tool takes an arbitrary path plus arbitrary text.
+- Paths validate against the named vault's root through `vault_engine.paths`.
+- Frontmatter writes validate against the vault's profile, keep `doc_id`
+  immutable, and replace atomically; a failed write leaves the original intact.
+- Life's Apple-store writes only reach registered lists and calendars and
+  preview unless `dry_run=false`.
 
-The write model is intentionally schema-specific:
-
-- No tool accepts an arbitrary file path and arbitrary replacement text.
-- Vault writes validate paths against the configured vault root through the
-  engine's shared `vault_engine.paths` helpers — one implementation, not one per
-  writer.
-- Generic frontmatter writes validate enum fields and keep `doc_id` immutable.
-- Generic frontmatter writes stage a sibling file, flush it, and replace the
-  target atomically; failed replacement leaves the original unchanged.
-- Writeup writes know the exact `05 Writeups/<slug>/index.md` shape and mutate
-  only named scalar fields.
-- Featured-list reordering is centralized in `reorder_featured` so assistants
-  do not hand-edit slot values across multiple files.
-- Multi-writeup changes are planned in memory, staged to sibling temporary
-  files, checked for concurrent modification, and replaced under a lock.
-  Replacement failures trigger rollback of files already changed.
-- Interactive callers bind a plan to the dashboard's deterministic
-  `source_fingerprint`; a changed writeup makes the plan stale and is rejected
-  before staging, so a long-lived TUI session cannot overwrite newer edits.
-
-This is the core pattern for safe MCP writes: if the server cannot name the
-file shape, validate the fields, and report exactly what changed, it should not
-expose that mutation as a tool.
-
-## Operator Extension Surface
-
-The jseverino.com tools demonstrate a second, operator-specific surface:
-
-| Surface | Purpose |
-|---|---|
-| Contact and CSP D1 readers | Query fixed Cloudflare D1 tables through Wrangler. |
-| `apply_jseverino_d1_schema` | Apply one known schema file to one configured database after `confirm=True`. |
-| Security-header checker | Run a focused HEAD check against the configured site origin. |
-| Writeup readers | Inspect portfolio writeups, published state, featured order, technology slugs, and tag usage. |
-| Writeup validators | Reuse one writeup/catalog/vault snapshot for single, batch, and dashboard validation. |
-| Writeup dashboard | Return summaries, featured order, and validation in one low-latency response for interactive clients. |
-| Writeup writers | Update scalar frontmatter or apply a complete multi-writeup plan without manual YAML edits. |
-
-These tools are not a generic shell bridge. They are narrow wrappers around
-known local paths, known file schemas, and known service bindings. The D1 and
-header tools live in `labs/site_ops_service.py` behind a `SiteOpsRuntime`,
-mirroring the writeup service and the engine's vault-write service. That makes them useful portfolio
-evidence: the project shows both a reusable MCP product surface and a concrete
-production workflow built with the same safety rules.
-
-Standalone console commands import these services directly rather than
-importing `server.py`. FastMCP registration remains isolated to the MCP server
-path, reducing startup cost for short-lived shell and TUI calls.
-
-## Running It Yourself
-
-To run the reusable surface:
-
-1. Clone the repo and install dependencies with `uv sync --extra dev`.
-2. Run `scripts/check.sh` or `uv run pytest`.
-3. Point `SVMC_VAULT_PATH` at `examples/sample-vault` and connect an MCP
-   client.
-4. Copy `config.example.toml` to
-   `~/.config/severino-vault-mcp/config.toml`.
-5. Set your real vault path and indexed folders.
-6. Run `doctor --propose` and add frontmatter until the indexed docs validate.
-7. Add a Quick Index with `doc_id: report-playbook-mcp-index`.
-
-To adapt the extension pattern for another operator workflow:
-
-1. Start with read tools that return structured state from known paths.
-2. Add validation tests with fake fixtures.
-3. Add write tools only for narrow, well-known schemas.
-4. Reject path traversal and ambiguous targets.
-5. Document every mutation boundary in `docs/ai-safety-security.md`.
-6. Keep operator-specific paths configurable through `SVMC_*` variables.
+If the server can't name the file shape, validate the fields, and report
+exactly what changed, it doesn't expose the mutation as a tool.
 
 ## Verification
 
-This repo's suite covers the Labs domain and CLI surface: HQ
-manifest generation, writeup loading/validation/transactions and rollback,
-taxonomy parsing, CLI dispatch, the daily-note and doctor surfaces, D1/PII
-redaction, configured-path boundary checks, publish-readiness validation, the
-one-snapshot dashboard, composite publish prep, and frontmatter/featured-order
-mutations. The generic-core behavior — indexing, runbook ranking, body release
-policy, restricted local unlock, sections/search, atomic-write failure, and
-shared frontmatter parsing — is tested in the **engine** repo.
-
-See [`docs/testing-ci.md`](testing-ci.md) for local commands, CI behavior, and
-coverage notes.
+See [`testing-ci.md`](testing-ci.md).

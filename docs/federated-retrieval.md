@@ -72,7 +72,7 @@ tokens, **before** federation enters the picture.
   provenance, score. **No body.**
 - **Read** returns exactly one section.
 
-`get_runbook` (search+read in one call) stays the small-model path; it just
+`find` then `read_doc` stays the small-model path; it just
 selects and returns one *section* instead of a whole body.
 
 ### 3. Federation + provenance
@@ -185,8 +185,8 @@ but only land with federation.
 
 6. **Backward compatibility** *(P1)* — **Decision: additive-only.**
    `read_doc(doc_id)` with no `section` returns the whole doc exactly as today
-   (same keys); section return is opt-in via `section=`. `find_runbook` /
-   `get_runbook` keep their current top-level keys and *add* section fields
+   (same keys); section return is opt-in via `section=`. `find` keeps its
+   top-level keys and *adds* section fields
    (`heading`, `section`, `source`, `source_ref`). Preserves the cross-repo
    contract (one dict, singular `error`, existing keys) so `manage-tui.mjs`,
    `site`, and `hq` don't break.

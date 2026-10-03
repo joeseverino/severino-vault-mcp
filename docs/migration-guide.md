@@ -54,9 +54,9 @@ Create or clean these docs first:
 Then verify:
 
 ```text
-vault://quick-index
-vault://doc/<your-runbook-id>
-find_runbook("your operational question")
+vault://labs/quick-index
+vault://labs/doc/<your-runbook-id>
+find("your operational question")
 ```
 
 ## Bad Doc To Fixed Doc

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "severino-vault-mcp"
 version = "2.5.0"
-description = "Local-first MCP server for safely querying Git-backed Obsidian runbooks and operations inventories with AI tools."
+description = "One local MCP server for every Obsidian vault: governed search, reads, frontmatter writes, and tasks, routed by vault."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -40,10 +40,13 @@ dependencies = [
     # The domain-agnostic engine (schema profiles, index, search, task ledger,
     # register_core). Import package is `vault_engine`. Resolved from its git
     # repo via the source below; also on PyPI for outside consumers.
-    "severino-vault-engine>=0.3.0",
+    "severino-vault-engine>=1.0.0",
 ]
 
 [project.optional-dependencies]
+# The Life vault and its Apple-store tools. Without it the host serves labs
+# and edu only.
+life = ["severino-life"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -62,10 +65,9 @@ Issues = "https://github.com/joeseverino/severino-vault-mcp/issues"
 # it during `uv sync`). Tracks cordon's main; uv.lock pins the exact commit, so
 # pull a newer emitter deliberately with `uv lock --upgrade-package cordon-emit`.
 cordon-emit = { git = "https://github.com/joeseverino/cordon", subdirectory = "emitters/python" }
-# severino-vault-engine resolves from its public repo (auth-free, like
-# cordon-emit), so this works in CI and on any machine, not just where the repos
-# are siblings. uv.lock pins the commit. Also on PyPI for outside consumers.
-severino-vault-engine = { git = "https://github.com/joeseverino/vault-engine" }
+# The engine and Life resolve from their public repos; uv.lock pins the commits.
+severino-vault-engine = { git = "https://github.com/joeseverino/vault-engine", rev = "d749407fb3c9253d75dcb6d933bc243d4fcb1477" }
+severino-life = { git = "https://github.com/joeseverino/severino-life", rev = "0dfc403793f7055a8222e166319f396fe4b02bd5" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/severino_vault_mcp"]
@@ -82,3 +84,4 @@ ignore = ["E501"]  # line length is enforced softly
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 pythonpath = ["src"]
+

@@ -88,11 +88,10 @@ Reports are most useful when they show one of these impacts:
 
 - `restricted` bodies released without explicit request and successful
   local unlock.
-- `search_body` exposing `restricted` snippets.
+- `find(by="text")` exposing `restricted` snippets.
 - Path traversal or write-tool behavior that writes outside the configured
   vault root.
-- jseverino.com writeup tools reading or mutating writeup/catalog files outside
-  the configured vault root.
+- A tool reading or writing one vault's files through another vault's context.
 - Frontmatter validation bypass that lets invalid enum values or mutable
   `doc_id` changes through write tools.
 - Document body content, unlock phrases, or unlock hashes written to logs,
@@ -136,16 +135,12 @@ The write tools are intentionally schema-specific:
 
 | Tool | Boundary |
 |---|---|
-| `add_frontmatter` | Existing markdown file under the configured vault root and indexed folders; refuses existing frontmatter. |
-| `update_frontmatter` | Existing frontmatter block under the configured vault root and indexed folders; `doc_id` is immutable. |
-| `update_writeup_frontmatter` | Scalar fields in one `05 Writeups/<slug>/index.md` file under the configured vault root. |
-| `reorder_featured` | `featured` and `featured_order` fields across writeup `index.md` files under the configured vault root. |
-| `apply_jseverino_d1_schema` | Fixed `db/schema.sql` applied to the configured Cloudflare D1 database; requires `confirm=True`. |
+| `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block or updates one in place; `doc_id` is immutable; fields validate against that vault's schema. |
+| `update_link` | One exact Markdown link in one indexed doc. |
+| `task_write` | Task files under the named vault's task folders. |
+| life `reminders` / `calendar` / `life_ops` | Only lists and calendars the life config registers; writes preview unless `dry_run=false`. |
 
-The jseverino.com writeup directory and technology catalog are configurable,
-but they must resolve inside the configured vault root. This keeps portfolio
-frontmatter writes inside the same filesystem trust boundary as the generic
-vault tools.
+Every call resolves paths inside the vault named by its `vault` argument.
 
 ## Security Tooling
 

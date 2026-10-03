@@ -60,16 +60,16 @@ claude mcp add \
 Then ask your MCP client to verify:
 
 ```text
-Use the severino-vault-mcp MCP. Read vault://quick-index and tell me the first demo workflow.
+Use the severino-vault-mcp MCP. Read vault://labs/quick-index and tell me the first demo workflow.
 ```
 
 Expected behavior:
 
-- The client can see `vault://quick-index`.
-- The client can read `vault://doc/rb-generate-internal-cert`.
-- `find_runbook("generate internal certificate")` returns
+- The client can see `vault://labs/quick-index`.
+- The client can read `vault://labs/doc/rb-generate-internal-cert`.
+- `find("generate internal certificate")` returns
   `rb-generate-internal-cert`.
-- `vault://doc/infra-offline-ca` withholds the body because it is
+- `vault://labs/doc/infra-offline-ca` withholds the body because it is
   `restricted`.
 
 Validate the sample vault from another terminal:
@@ -182,13 +182,13 @@ For best results, create:
 The Quick Index backs:
 
 ```text
-vault://quick-index
+vault://labs/quick-index
 ```
 
 Known docs can be read through:
 
 ```text
-vault://doc/{doc_id}
+vault://labs/doc/{doc_id}
 ```
 
 ## 7. Optional: Install As A uv Tool
@@ -241,18 +241,7 @@ Never type the unlock phrase into AI chat. The prompt is local-only.
 Older `secret_adjacent` labels and `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` still
 work as compatibility aliases, but new vaults should use `restricted`.
 
-## 9. Optional: Study Or Adapt The Operator Workflow Pack
-
-The jseverino.com tools are a concrete workflow pack built on the generic
-vault pattern. They show how this MCP handles real portfolio publishing,
-technology taxonomy checks, contact/CSP review, D1 schema application, and live
-security-header verification without becoming a generic shell bridge.
-
-Read [`docs/operator-workflows.md`](docs/operator-workflows.md) for the systems
-in use and the workflow-pack pattern for building a similar pack around your
-own local workflow.
-
-## 10. Common Adoption Checks
+## 9. Common Adoption Checks
 
 Run these locally before opening a PR or publishing your own fork:
 
@@ -268,7 +257,6 @@ Read:
 - `STRUCTURE.md` for the repository map.
 - `docs/demo.md` for a sample assistant transcript.
 - `docs/architecture.md` for runtime shape and extension pattern.
-- `docs/operator-workflows.md` for the real jseverino.com workflow pack.
 - `docs/ai-tool-contract.md` for model-facing tool-selection rules.
 - `docs/migration-guide.md` for messy vault migration.
 - `docs/testing-ci.md` for test and CI details.

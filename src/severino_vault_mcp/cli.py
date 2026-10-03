@@ -1,8 +1,7 @@
 """CLI argument parser construction.
 
-Split out of `__main__` so `server.describe_commands` can introspect the
-same parser that backs `--help` without importing the entry-point module
-(which would form an import cycle: server -> __main__ -> server).
+Split out of `__main__` so `describe` introspects the same parser that backs
+`--help`.
 """
 
 from __future__ import annotations
@@ -18,11 +17,13 @@ def build_parser() -> argparse.ArgumentParser:
     Extracted from `main` so `describe` can introspect the same parser that
     backs `--help` — the command surface is declared exactly once.
     """
-    from .contracts.site_content import cli_fields
-
     parser = argparse.ArgumentParser(
         prog="severino-vault-mcp",
-        description="Local stdio MCP server for Obsidian-style operations vaults.",
+        description=(
+            "Local stdio MCP server for Joe's Obsidian vaults. With no subcommand "
+            "it serves MCP; subcommands run one governed call against the labs "
+            "vault (or the named dataset) and print JSON."
+        ),
     )
     parser.add_argument(
         "--fingerprint",
@@ -45,195 +46,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print starter frontmatter for markdown files that are missing it.",
     )
 
-    prepare_publish = subparsers.add_parser(
-        "prepare-writeup-publish",
-        help=(
-            "Run prepare_writeup_publish for a writeup slug and print JSON. "
-            "Exits 0 if ok, 1 if blockers / missing slugs / unresolved refs."
-        ),
-    )
-    prepare_publish.add_argument(
-        "slug",
-        help="Writeup slug, e.g. building-a-custom-mcp-layer.",
-    )
-    prepare_publish.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-    prepare_publish.add_argument(
-        "--include-tag-usage",
-        action="store_true",
-        help="Include per-technology usage stats in the response.",
-    )
-
-    validate_one = subparsers.add_parser(
-        "validate-writeup",
-        help=(
-            "Run validate_writeup for a single slug and print JSON. Exits 0 if "
-            "ok, 1 if blockers / missing slugs / missing images / unresolved "
-            "refs. The CLI face of the validate_writeup MCP tool."
-        ),
-    )
-    validate_one.add_argument(
-        "slug",
-        help="Writeup slug, e.g. building-a-custom-mcp-layer.",
-    )
-    validate_one.add_argument(
-        "--draft",
-        action="store_true",
-        help=(
-            "Tolerate the published / published_at blockers so a draft can be "
-            "gate-checked mid-authoring (they become nits)."
-        ),
-    )
-    validate_one.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    list_writeups = subparsers.add_parser(
-        "list-writeups",
-        help=(
-            "Run list_writeups for a filter and print JSON. The featured "
-            "filter sorts by featured_order ascending — the order the home "
-            "cloud renders. Read by the site repo's `site featured`."
-        ),
-    )
-    list_writeups.add_argument(
-        "--filter",
-        default="all",
-        choices=["all", "published", "draft", "featured"],
-        help="Which writeups to list (default: all).",
-    )
-    list_writeups.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    technology_catalog = subparsers.add_parser(
-        "technology-catalog",
-        help=(
-            "Run get_technology_catalog and print JSON: every slug, label, "
-            "and featured flag grouped by section."
-        ),
-    )
-    technology_catalog.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    validate_all = subparsers.add_parser(
-        "validate-all-writeups",
-        help=(
-            "Run validate_all_writeups and print JSON. Exits 0 only when "
-            "every (published, by default) writeup passes the gate."
-        ),
-    )
-    validate_all.add_argument(
-        "--include-drafts",
-        action="store_true",
-        help="Validate published: false writeups too (default: published only).",
-    )
-    validate_all.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    dashboard = subparsers.add_parser(
-        "writeup-dashboard",
-        help=(
-            "Return every writeup summary and validation result from one "
-            "shared vault snapshot. Used by `site manage` for fast startup."
-        ),
-    )
-    dashboard.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    writeup_contract = subparsers.add_parser(
-        "writeup-contract",
-        help=(
-            "Emit the versioned jseverino.com content contract projection "
-            "and its canonical source fingerprint."
-        ),
-    )
-    writeup_contract.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    apply_plan = subparsers.add_parser(
-        "apply-writeup-plan",
-        help=(
-            "Read a JSON writeup mutation plan from stdin and apply all "
-            "scalar updates plus the complete featured order transactionally."
-        ),
-    )
-    apply_plan.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    reorder = subparsers.add_parser(
-        "reorder-featured",
-        help=(
-            "Run reorder_featured: move a writeup to a 1-indexed featured "
-            "slot (0 unfeatures it) and renumber the list sequential 1..N. "
-            "Wrapped by `site featured <slug> <slot>`."
-        ),
-    )
-    reorder.add_argument("slug", help="Writeup slug to move.")
-    reorder.add_argument(
-        "position",
-        type=int,
-        help="Target slot (1-indexed), or 0 to unfeature.",
-    )
-    reorder.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    update_writeup = subparsers.add_parser(
-        "update-writeup",
-        help=(
-            "Update scalar writeup frontmatter fields via "
-            "update_writeup_frontmatter and print JSON. Omitted flags leave "
-            "fields unchanged."
-        ),
-    )
-    update_writeup.add_argument("slug", help="Writeup slug to update.")
-    for field_name, spec in cli_fields():
-        kwargs = {"default": None, "dest": field_name}
-        if spec.get("type") == "boolean":
-            kwargs["choices"] = ["true", "false"]
-        update_writeup.add_argument(str(spec["cli_flag"]), **kwargs)
-    update_writeup.add_argument("--touch-last-reviewed", action="store_true")
-    update_writeup.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Pretty-print JSON with indentation (default: compact).",
-    )
-
-    update_writeup_link = subparsers.add_parser(
-        "update-writeup-link",
-        help="Replace one exact Markdown link in a named writeup body.",
-    )
-    update_writeup_link.add_argument("slug")
-    update_writeup_link.add_argument("label")
-    update_writeup_link.add_argument("expected_href")
-    update_writeup_link.add_argument("replacement_href")
-    update_writeup_link.add_argument("--pretty", action="store_true")
-
     update_doc_link = subparsers.add_parser(
         "update-doc-link",
         help="Replace one exact Markdown link in an indexed document body.",
@@ -247,8 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     touch_reviewed = subparsers.add_parser(
         "touch-reviewed",
         help=(
-            "Set last_reviewed to today on a vault doc via update_frontmatter "
-            "and print JSON. Exits 0 if ok, 1 otherwise."
+            "Set last_reviewed to today on a vault doc and print JSON. Exits 0 "
+            "if ok, 1 otherwise."
         ),
     )
     touch_reviewed.add_argument(
@@ -282,10 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     find = subparsers.add_parser(
         "find",
         help=(
-            "Run the section-scoped vault search and print the same menu JSON "
-            "the MCP's find_runbook returns: ranked hits, each with its "
-            "best-matching section (heading, slug, one-line summary) — never a "
-            "body. The human/CLI renderer of the emit-once menu."
+            "Section-scoped vault search: ranked hits, each with its "
+            "best-matching section (heading, slug, one-line summary), never a "
+            "body."
         ),
     )
     find.add_argument("query", help="Natural-language query, e.g. 'renew the TLS cert'.")
@@ -469,7 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Doc-side vault state in one payload: recent changes, docs overdue "
             "for review, and inbox backlog. The vault leg of the `brief` shell "
-            "tool, which composes it with repo and writeup state."
+            "tool."
         ),
     )
     brief.add_argument(
@@ -543,6 +354,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
+    export = subparsers.add_parser(
+        "export",
+        help=(
+            "Emit a vault's publishable dataset as JSON. `education`: institutions "
+            "and courses with their `## Site` bullets, read by jseverino.com and "
+            "resume-engine."
+        ),
+    )
+    export.add_argument("dataset", choices=["education"], help="Dataset to emit.")
+    export.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON with indentation (default: compact).",
+    )
+
     describe = subparsers.add_parser(
         "describe",
         help=(
@@ -558,16 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON with indentation (default: compact).",
     )
 
-    # Blast-radius (effect) per command, on cordon's escalating ladder
-    # (schema_version 4). Every MCP CLI fast-path is a local-filesystem op: the
-    # nine writers mutate the vault, the rest only read — none touch the network
-    # or block on a TTY, so only the effect class is recorded. set_effect()
-    # annotates each subparser; cordon's emitter reads it back at describe time.
+    # Effect per command on cordon's ladder. Every command is a local
+    # filesystem op: these mutate the vault, the rest only read.
     _effects = {
-        "apply-writeup-plan": "vault_write",
-        "reorder-featured": "vault_write",
-        "update-writeup": "vault_write",
-        "update-writeup-link": "vault_write",
         "update-doc-link": "vault_write",
         "touch-reviewed": "vault_write",
         "backfill-aliases": "vault_write",
