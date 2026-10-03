@@ -233,7 +233,7 @@ func Load(path string, env Env) Config {
 		RestrictedUnlockHash:  hash,
 		RestrictedUnlockHashFile: envPath(env, "SVMC_RESTRICTED_UNLOCK_HASH_FILE",
 			legacy("SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE",
-				strValue(unlock, "hash_file", "~/.config/severino-vault-mcp/restricted-unlock.sha256"))),
+				strValue(unlock, "hash_file", "~/.config/severino-vault-mcp/restricted-unlock.phc"))),
 		RestrictedKeychainService: legacy("SVMC_RESTRICTED_UNLOCK_KEYCHAIN_SERVICE",
 			legacy("SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
 				strValue(unlock, "keychain_service", "severino-vault-mcp"))),

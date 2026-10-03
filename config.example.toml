@@ -24,7 +24,7 @@ url = ""
 
 [restricted]
 allow_unlock = false
-hash_file = "~/.config/severino-vault-mcp/restricted-unlock.sha256"
+hash_file = "~/.config/severino-vault-mcp/restricted-unlock.phc"
 keychain_service = "severino-vault-mcp"
 keychain_account = "restricted-unlock"
 audit_log = "~/.local/state/severino-vault-mcp/audit.log"

@@ -215,6 +215,10 @@ func init() {
 				"the command table itself so it can't drift from --help. AI reads it; a TUI renders a command picker.",
 			Args: []Arg{pretty(prettyHelp)},
 			Run:  runDescribe},
+		{Name: "unlock-hash", Effect: "read",
+			Summary: "Read an unlock phrase twice from the terminal without echo and print its argon2id PHC string, " +
+				"for the Keychain item or SVMC_RESTRICTED_UNLOCK_HASH_FILE. Refuses when stdin isn't a terminal.",
+			Run: runUnlockHash},
 		{Name: "serve", Effect: "read",
 			Summary: "Serve MCP over stdio. The default with no subcommand.",
 			Run:     runServe},

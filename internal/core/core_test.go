@@ -1,8 +1,6 @@
 package core_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -278,9 +276,11 @@ func TestTaskBoardListsTheProjectsTasksCanGoIn(t *testing.T) {
 // ----- the fake_vault cases from test_search ------------------------------------
 
 func encodedUnlockHash(phrase string) string {
-	salt := []byte("test-salt")
-	sum := sha256.Sum256(append(append([]byte{}, salt...), []byte(phrase)...))
-	return "sha256:" + hex.EncodeToString(salt) + ":" + hex.EncodeToString(sum[:])
+	encoded, err := gate.HashPhrase(phrase, gate.Params{Memory: 64, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32})
+	if err != nil {
+		panic(err)
+	}
+	return encoded
 }
 
 func TestDailyProgressResolvesFridayFromAnchor(t *testing.T) {

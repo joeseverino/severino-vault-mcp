@@ -48,8 +48,8 @@ var unlockMessages = map[string]string{
 		"the local MCP will still require an interactive unlock on the Mac.",
 	"disabled": "Interactive unlock is disabled. Set SVMC_ALLOW_RESTRICTED_UNLOCK=1 " +
 		"in the local MCP environment to allow local unlock prompts.",
-	"no_unlock_hash": "No local unlock hash is configured. Store a salted sha256 unlock hash " +
-		"in Keychain, SVMC_RESTRICTED_UNLOCK_HASH_FILE, or SVMC_RESTRICTED_UNLOCK_HASH.",
+	"no_unlock_hash": "No local unlock hash is configured. Store the output of " +
+		"`severino-vault-mcp unlock-hash` in Keychain, SVMC_RESTRICTED_UNLOCK_HASH_FILE, or SVMC_RESTRICTED_UNLOCK_HASH.",
 	"prompt_unavailable": "Local hidden-input prompt was unavailable or cancelled.",
 	"failed":             "Local unlock phrase verification failed.",
 }

@@ -123,8 +123,9 @@ The following are generally out of scope unless they enable an in-scope impact:
 - Run `severino-vault-mcp doctor --propose` before onboarding a messy vault.
 - Review proposed frontmatter manually; do not blindly accept sensitivity
   labels.
-- Store the restricted unlock hash in macOS Keychain or a local file with
-  restrictive permissions. Do not store the unlock phrase itself.
+- Generate the restricted unlock hash with `severino-vault-mcp unlock-hash`
+  (argon2id, m=64 MiB, t=3, p=4) and store it in macOS Keychain or a local
+  file with restrictive permissions. Do not store the unlock phrase itself.
 - Do not type the unlock phrase into AI chat. The prompt is local-only.
 - Treat MCP hosts as trusted local software. Do not connect this server to an
   untrusted host.

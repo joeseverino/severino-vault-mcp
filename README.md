@@ -99,7 +99,8 @@ With no subcommand (or `serve`) the binary serves MCP. Subcommands run one
 governed call against the labs vault and print JSON: `doctor`, `find`, `read`,
 `brief`, `task-*`, `promote-note`, `update-frontmatter`, `update-doc-link`,
 `touch-reviewed`, `backfill-aliases`, `daily-write`, `schema`, `hq-manifest`,
-`describe`, and `export education` (the dataset jseverino.com and
+`describe`, `unlock-hash` (the argon2id hash for the restricted unlock), and
+`export education` (the dataset jseverino.com and
 resume-engine read). `describe` emits the surface as a
 [Cordon](https://github.com/joeseverino/cordon) contract, generated from the
 same command table that parses arguments.
@@ -121,7 +122,7 @@ override the labs config:
 | `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Phrase to `doc_id` aliases |
 | `SVMC_CACHE_SECONDS` | `30` | How long the index stays warm |
 | `SVMC_ALLOW_RESTRICTED_UNLOCK` | `false` | Allows the local unlock prompt for restricted reads |
-| `SVMC_RESTRICTED_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/restricted-unlock.sha256` | Salted unlock hash (Keychain is preferred) |
+| `SVMC_RESTRICTED_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/restricted-unlock.phc` | argon2id unlock hash from `unlock-hash` (Keychain is preferred) |
 | `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Unlock attempts; never bodies |
 
 edu and providers read only their own TOML; labs overrides never leak into them.
@@ -132,7 +133,7 @@ edu and providers read only their own TOML; labs overrides never leak into them.
 |---|---|
 | `public`, `internal` | The body. |
 | `sensitive` | The body plus an advisory. |
-| `restricted` | Metadata only. The body needs `include_restricted=True`, `SVMC_ALLOW_RESTRICTED_UNLOCK=1`, a configured salted hash, and a successful local hidden-input prompt, for one read. |
+| `restricted` | Metadata only. The body needs `include_restricted=True`, `SVMC_ALLOW_RESTRICTED_UNLOCK=1`, an argon2id hash from `unlock-hash`, and a successful local hidden-input prompt, for one read. |
 
 When in doubt, mark a doc `restricted`. The gate limits what reaches AI context
 through this server; it is not a sandbox, and a client with direct file access

@@ -198,18 +198,22 @@ Rerun `go install ./cmd/severino-vault-mcp` after pulling new repo changes.
 
 By default, `restricted` docs return metadata only.
 
-To allow one-request local unlocks on macOS, first store a salted unlock hash
-in Keychain:
+To allow one-request local unlocks on macOS, first store an unlock hash in
+Keychain. `unlock-hash` reads the phrase twice from the terminal without echo
+and prints an argon2id PHC string
+(`$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`):
 
 ```bash
-read -rs -p "MCP unlock phrase: " PHRASE; echo
-SALT="$(openssl rand -hex 16)"
-DIGEST="$({ printf %s "$SALT" | xxd -r -p; printf %s "$PHRASE"; } | shasum -a 256 | cut -d' ' -f1)"
-HASH="sha256:$SALT:$DIGEST"; unset PHRASE
 security add-generic-password -U \
   -s severino-vault-mcp \
   -a restricted-unlock \
-  -w "$HASH"
+  -w "$(severino-vault-mcp unlock-hash)"
+```
+
+Or to a file instead of Keychain:
+
+```bash
+(umask 077; severino-vault-mcp unlock-hash > ~/.config/severino-vault-mcp/restricted-unlock.phc)
 ```
 
 Then add this env var to the MCP client config:

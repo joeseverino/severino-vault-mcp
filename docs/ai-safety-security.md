@@ -79,8 +79,10 @@ All conditions must pass:
 
 - The caller explicitly sets `include_restricted=True`.
 - The local MCP environment has `SVMC_ALLOW_RESTRICTED_UNLOCK=1`.
-- A salted unlock hash is configured through Keychain, a local hash file, or
-  `SVMC_RESTRICTED_UNLOCK_HASH`.
+- An argon2id unlock hash (`severino-vault-mcp unlock-hash`) is configured
+  through Keychain, a local hash file, or `SVMC_RESTRICTED_UNLOCK_HASH`.
+  Parameters are read from the PHC string, bounded, and compared in constant
+  time; anything malformed fails closed.
 - The local hidden-input prompt succeeds.
 
 The unlock phrase must never be typed into AI chat.

@@ -4,9 +4,6 @@
 package gate
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -66,25 +63,7 @@ func Advisory(s Sensitivity, overrideUsed bool) string {
 	return ""
 }
 
-// VerifyPhrase checks a phrase against "sha256:<salt_hex>:<digest_hex>".
-func VerifyPhrase(phrase, encoded string) bool {
-	parts := strings.SplitN(strings.TrimSpace(encoded), ":", 3)
-	if len(parts) != 3 || parts[0] != "sha256" {
-		return false
-	}
-	salt, err := hex.DecodeString(parts[1])
-	if err != nil {
-		return false
-	}
-	expected, err := hex.DecodeString(parts[2])
-	if err != nil {
-		return false
-	}
-	sum := sha256.Sum256(append(salt, []byte(phrase)...))
-	return hmac.Equal(sum[:], expected)
-}
-
-// LoadHash reads the salted unlock hash from the environment value, a local
+// LoadHash reads the unlock hash from the environment value, a local
 // file, or the macOS Keychain, in that order.
 func LoadHash(envHash, hashFile, service, account string) string {
 	if envHash != "" {

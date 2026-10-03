@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
@@ -181,5 +183,53 @@ func TestHQManifestPrintsEntries(t *testing.T) {
 	code, out, errOut := run(t, root, "", "hq-manifest", root, "03 Runbooks")
 	if code != 0 || !strings.Contains(out, "rb-add-nginx-proxy-host") || !strings.Contains(errOut, "ok: 2 entries") {
 		t.Fatal(out, errOut)
+	}
+}
+
+func unlockHash(t *testing.T, tty bool, phrases ...string) (int, string, string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close(); w.Close() })
+	origTTY, origRead := isTerminal, readPassword
+	t.Cleanup(func() { isTerminal, readPassword = origTTY, origRead })
+	isTerminal = func(int) bool { return tty }
+	readPassword = func(int) ([]byte, error) {
+		if len(phrases) == 0 {
+			return nil, io.EOF
+		}
+		p := phrases[0]
+		phrases = phrases[1:]
+		return []byte(p), nil
+	}
+	var out, errb bytes.Buffer
+	code := Main([]string{"unlock-hash"}, &Ctx{Env: tk.Env(tk.Dir(t)), Stdin: r, Stdout: &out, Stderr: &errb})
+	return code, out.String(), errb.String()
+}
+
+func TestUnlockHashPrintsAVerifiablePHCString(t *testing.T) {
+	code, out, errOut := unlockHash(t, true, "open sesame", "open sesame")
+	hash := strings.TrimSpace(out)
+	if code != 0 || !strings.HasPrefix(hash, "$argon2id$v=19$m=65536,t=3,p=4$") || !gate.VerifyPhrase("open sesame", hash) ||
+		strings.Contains(out+errOut, "open sesame") {
+		t.Fatal(code, out, errOut)
+	}
+}
+
+func TestUnlockHashRefusesMismatchEmptyAndNonTTY(t *testing.T) {
+	if code, out, errOut := unlockHash(t, true, "one", "two"); code != 1 || out != "" || !strings.Contains(errOut, "don't match") {
+		t.Fatal(code, out, errOut)
+	}
+	if code, out, errOut := unlockHash(t, true, ""); code != 1 || out != "" || !strings.Contains(errOut, "empty phrase") {
+		t.Fatal(code, out, errOut)
+	}
+	if code, out, errOut := unlockHash(t, false, "x", "x"); code != 2 || out != "" || !strings.Contains(errOut, "not a terminal") {
+		t.Fatal(code, out, errOut)
+	}
+	// A reader that isn't a file is never a terminal.
+	if code, _, errOut := run(t, tk.Dir(t), "x\nx\n", "unlock-hash"); code != 2 || !strings.Contains(errOut, "not a terminal") {
+		t.Fatal(code, errOut)
 	}
 }
