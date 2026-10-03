@@ -184,7 +184,7 @@ structured reads, and narrow writes.
 | `validate_all_writeups(only_published=True)` | read | Batch validation using one shared writeup/catalog/vault snapshot instead of reloading state per writeup. |
 | `prepare_writeup_publish(slug, include_tag_usage=False)` | read | ONE-CALL publish prep. Composes `validate_writeup` and `list_writeups("featured")` in one response; `include_tag_usage=True` additionally composes per-tag `find_writeups_using_tag` (off by default to keep the payload small). Use before every writeup commit instead of chaining the individual tools. |
 | `writeup_dashboard()` | read | Low-latency interactive-client snapshot: all writeup summaries, featured order, and validation results loaded once. |
-| `apply_jseverino_d1_schema(confirm=False)` | write | Applies `db/schema.sql` to the fixed remote D1 database; requires `confirm=True`. |
+| `apply_jseverino_d1_schema(confirm=False)` | write | Runs the site repo's `npm run d1:apply` (its D1 schema, remote); requires `confirm=True`. |
 | `update_writeup_frontmatter(slug, ...)` | write | Single-writeup scalar updates (title, description, published, published_at, last_reviewed, cover_image, cover_alt). Featured state goes through the ordering tools. |
 | `reorder_featured(slug, position)` | write | Transactionally reorders the featured-writeups list. All files are staged before replacement and rolled back on failure. Resulting order is sequential 1..N. |
 | `apply_writeup_plan(plan)` | write | Applies multiple scalar updates plus the complete featured order in one locked, staged transaction with rollback. |

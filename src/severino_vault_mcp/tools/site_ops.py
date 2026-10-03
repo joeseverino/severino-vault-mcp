@@ -102,7 +102,7 @@ def register(mcp, ctx: GovernanceContext) -> None:
 
     @mcp.tool()
     def apply_jseverino_d1_schema(confirm: bool = False) -> dict[str, Any]:
-        """Apply `db/schema.sql` to the remote jseverino.com D1 database.
+        """Apply the jseverino.com D1 schema to the remote database (`npm run d1:apply`).
 
         This is a fixed write operation for the operator's own site. It refuses to
         run unless `confirm=True` is passed. The schema uses `CREATE ... IF NOT
