@@ -6,15 +6,14 @@ vault.
 
 ## Prerequisites
 
-- Python 3.11+
-- `uv`
+- Go 1.27+ (the `toolchain` line in `go.mod` fetches it if yours is older)
 - `ripgrep` (`rg`) for body search
 - An MCP client such as Claude Code, Claude Desktop, Cline, or another MCP host
 
 macOS toolchain:
 
 ```bash
-brew install uv ripgrep
+brew install go ripgrep
 ```
 
 ## 1. Clone And Test
@@ -22,17 +21,10 @@ brew install uv ripgrep
 ```bash
 git clone git@github.com:joeseverino/severino-vault-mcp.git
 cd severino-vault-mcp
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
+go test ./...
 ```
 
-Expected result:
-
-```text
-pytest passes
-ruff reports All checks passed
-```
+Expected result: every package reports `ok`.
 
 ## 2. Run The Sample Vault
 
@@ -40,7 +32,7 @@ The sample vault is safe network/security operations demo data. It does not
 require access to a private vault.
 
 ```bash
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```
 
 This starts the MCP server on stdio. It waits for an MCP client to talk to it,
@@ -48,13 +40,14 @@ so it will not print a web URL.
 
 ## 3. Wire Claude Code
 
-From the repo directory:
+From the repo directory, build the binary and register it:
 
 ```bash
+go build -o bin/severino-vault-mcp ./cmd/severino-vault-mcp
 claude mcp add \
   -e SVMC_VAULT_PATH="$PWD/examples/sample-vault" \
   severino-vault-mcp \
-  -- uv run --no-editable --directory "$PWD" severino-vault-mcp
+  -- "$PWD/bin/severino-vault-mcp"
 ```
 
 Then ask your MCP client to verify:
@@ -75,7 +68,7 @@ Expected behavior:
 Validate the sample vault from another terminal:
 
 ```bash
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp doctor
+SVMC_VAULT_PATH=examples/sample-vault bin/severino-vault-mcp doctor
 ```
 
 ## 4. Wire Claude Desktop
@@ -92,13 +85,7 @@ Example using the sample vault:
 {
   "mcpServers": {
     "severino-vault-mcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/absolute/path/to/severino-vault-mcp",
-        "severino-vault-mcp"
-      ],
+      "command": "/absolute/path/to/severino-vault-mcp/bin/severino-vault-mcp",
       "env": {
         "SVMC_VAULT_PATH": "/absolute/path/to/severino-vault-mcp/examples/sample-vault"
       }
@@ -156,14 +143,14 @@ For one-off runs, environment variables are enough:
 ```bash
 SVMC_VAULT_PATH="/absolute/path/to/your/vault" \
 SVMC_INDEXED_DIRS="Projects:Infrastructure:Runbooks" \
-uv run --no-editable severino-vault-mcp
+bin/severino-vault-mcp
 ```
 
 Before connecting a messy vault to an MCP client, run:
 
 ```bash
 SVMC_VAULT_PATH="/absolute/path/to/your/vault" \
-uv run --no-editable severino-vault-mcp doctor --propose
+bin/severino-vault-mcp doctor --propose
 ```
 
 Fix missing or invalid frontmatter until `doctor` reports no errors.
@@ -191,12 +178,12 @@ Known docs can be read through:
 vault://labs/doc/{doc_id}
 ```
 
-## 7. Optional: Install As A uv Tool
+## 7. Optional: Install On PATH
 
 For daily use:
 
 ```bash
-uv tool install --from . severino-vault-mcp
+go install ./cmd/severino-vault-mcp
 ```
 
 Then configure your MCP client with:
@@ -205,11 +192,7 @@ Then configure your MCP client with:
 command: severino-vault-mcp
 ```
 
-Upgrade after pulling new repo changes:
-
-```bash
-uv tool upgrade severino-vault-mcp
-```
+Rerun `go install ./cmd/severino-vault-mcp` after pulling new repo changes.
 
 ## 8. Optional: Enable Restricted Local Unlock
 
@@ -219,7 +202,10 @@ To allow one-request local unlocks on macOS, first store a salted unlock hash
 in Keychain:
 
 ```bash
-HASH="$(python3 -c 'import getpass,hashlib,os; p=getpass.getpass("MCP unlock phrase: "); s=os.urandom(16); print(f"sha256:{s.hex()}:{hashlib.sha256(s + p.encode()).hexdigest()}")')"
+read -rs -p "MCP unlock phrase: " PHRASE; echo
+SALT="$(openssl rand -hex 16)"
+DIGEST="$({ printf %s "$SALT" | xxd -r -p; printf %s "$PHRASE"; } | shasum -a 256 | cut -d' ' -f1)"
+HASH="sha256:$SALT:$DIGEST"; unset PHRASE
 security add-generic-password -U \
   -s severino-vault-mcp \
   -a restricted-unlock \
@@ -246,8 +232,7 @@ work as compatibility aliases, but new vaults should use `restricted`.
 Run these locally before opening a PR or publishing your own fork:
 
 ```bash
-uv run pytest
-uv run ruff check .
+scripts/check.sh
 ```
 
 Read:

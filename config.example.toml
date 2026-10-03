@@ -28,3 +28,11 @@ hash_file = "~/.config/severino-vault-mcp/restricted-unlock.sha256"
 keychain_service = "severino-vault-mcp"
 keychain_account = "restricted-unlock"
 audit_log = "~/.local/state/severino-vault-mcp/audit.log"
+
+# Vault providers: separate stdio MCP servers that each add one vault with its
+# own tools and schema profile. None by default. Repeat the table per provider.
+# [[providers]]
+# command = "example"
+# args = ["mcp-provider"]
+# config = "~/.config/example/config.toml"
+# env = { EXAMPLE_HOME = "~/example" }

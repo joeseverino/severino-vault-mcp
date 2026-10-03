@@ -139,16 +139,15 @@ file" or "run this command" capability.
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block when none exists (doc_id, title, doc_type, system required) or updates allowed fields in place. `doc_id` is immutable. |
 | `update_link` | One exact Markdown link in one indexed doc. |
 | `task_write` | Task files in the named vault: add, status, promote an inbox note, delete. |
-| life `reminders`, `calendar`, `renew`, `life_ops` | Only Reminders lists and calendars the life config registers; anything else fails closed. Writes preview unless `dry_run=false`. |
+| Provider tools | Governed by the provider process; the host forwards calls unchanged and never widens them. |
 
 Common constraints:
 
 - Every call acts on the vault named by its `vault` argument, through that
   vault's context. One vault's files are never reachable through another's.
 - Writes reject paths that escape the vault root. Path validation
-  (`vault_engine.paths`), scalar escaping (`vault_engine.frontmatter.yaml_escape`)
-  and durable replacement (`vault_engine.atomic_write`) each have one
-  implementation in the engine.
+  (`internal/fsx`), scalar escaping (`frontmatter.Escape`) and durable
+  replacement (`fsx.AtomicWrite`) each have one implementation.
 - Every write reports failure with the same `{"ok": false, "error": "..."}`
   envelope.
 - Frontmatter writes validate against the vault's schema profile before

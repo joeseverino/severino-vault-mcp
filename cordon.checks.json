@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/joeseverino/cordon/main/checks/config.schema.json",
+  "commands": [
+    { "id": "gofmt", "name": "gofmt", "effect": "read", "requires": ["gofmt"],
+      "exec": { "cmd": "sh", "args": ["-c", "out=$(gofmt -l .) && test -z \"$out\" || { echo \"$out\"; exit 1; }"] },
+      "fix": "gofmt -w ." },
+    { "id": "go-vet", "name": "go vet", "effect": "read", "network": true, "requires": ["go"],
+      "exec": { "cmd": "go", "args": ["vet", "./..."] } },
+    { "id": "go-test", "name": "go test", "effect": "read", "network": true, "requires": ["go", "rg"],
+      "exec": { "cmd": "go", "args": ["test", "./..."] }, "timeout": 600000 },
+    { "id": "govulncheck", "name": "govulncheck", "effect": "read", "network": true, "requires": ["go"],
+      "exec": { "cmd": "go", "args": ["run", "golang.org/x/vuln/cmd/govulncheck@v1.8.0", "./..."] }, "timeout": 600000 },
+    { "id": "golden", "name": "Golden contracts", "effect": "read", "network": true, "requires": ["go", "bash"],
+      "exec": { "cmd": "bash", "args": ["tests/golden/verify.sh"] },
+      "fix": "a deliberate contract change: regenerate the snapshot in tests/golden/" }
+  ]
+}

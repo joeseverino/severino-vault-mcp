@@ -21,7 +21,7 @@ Email: github@jseverino.com
 Do not open a public GitHub issue for security reports. Include:
 
 - Affected version or commit SHA.
-- Operating system and Python version.
+- Operating system, and the output of `severino-vault-mcp --fingerprint`.
 - MCP host or client used.
 - Relevant `SVMC_*` configuration with secrets removed.
 - Minimal reproduction steps.
@@ -138,7 +138,7 @@ The write tools are intentionally schema-specific:
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block or updates one in place; `doc_id` is immutable; fields validate against that vault's schema. |
 | `update_link` | One exact Markdown link in one indexed doc. |
 | `task_write` | Task files under the named vault's task folders. |
-| life `reminders` / `calendar` / `life_ops` | Only lists and calendars the life config registers; writes preview unless `dry_run=false`. |
+| Provider tools | Governed by the provider process; the host forwards calls unchanged and never widens them. |
 
 Every call resolves paths inside the vault named by its `vault` argument.
 
@@ -151,13 +151,13 @@ signal across code, dependencies, and project governance.
 | Layer | Tool | Workflow |
 |---|---|---|
 | Static analysis (SAST) | CodeQL with the `security-and-quality` query suite | `.github/workflows/codeql.yml` |
-| Dependency CVEs (SCA) | `pip-audit` over the exported `uv` lock | `.github/workflows/pip-audit.yml` |
+| Dependency CVEs (SCA) | `govulncheck` over the module and its reachable call graph | `cordon.checks.json` (run by `ci.yml`) |
 | Dependency updates | Dependabot | `.github/dependabot.yml` |
 | Project governance | OSSF Scorecard, results published to scorecard.dev | `.github/workflows/scorecard.yml` |
-| Tests + lint | pytest + ruff across Python 3.11, 3.12, 3.13 | `.github/workflows/ci.yml` |
+| Tests + lint | `gofmt`, `go vet`, `go test`, golden contracts | `.github/workflows/ci.yml` |
 
 Findings from CodeQL and Scorecard appear in the repository's Security tab.
-`pip-audit` failures appear as a failed check on the PR or scheduled run.
+`govulncheck` failures fail the `cordon / gate` check on the PR.
 
 ## Supply Chain Hardening
 
@@ -185,9 +185,8 @@ upstream tag being executed against this repository:
 - Branch deletion is blocked.
 - Linear history is required (no merge commits in `main`).
 - Conversation resolution is required before merging a pull request.
-- Five required status checks must pass before any pull request can merge:
-  `pytest + ruff (3.11)`, `pytest + ruff (3.12)`, `pytest + ruff (3.13)`,
-  `Analyze (python)` (CodeQL), and `Audit pinned dependencies` (pip-audit).
+- Required status checks must pass before any pull request can merge:
+  `cordon / gate` and `Analyze (go)` (CodeQL).
 
 Administrators are not currently included in the branch protection
 enforcement. This is a deliberate solo-maintainer trade-off: PR merges are

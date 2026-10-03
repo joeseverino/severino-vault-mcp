@@ -5,22 +5,20 @@ Thanks for taking the time to improve `severino-vault-mcp`.
 This project is a local stdio MCP server for operational runbooks and
 Obsidian-style vaults. Contributions should preserve the core safety model:
 local-first operation, predictable vault reads, narrow validated writes, and no
-default release of `secret_adjacent` bodies.
+default release of `restricted` bodies.
 
 ## Local Setup
 
 ```bash
 git clone git@github.com:joeseverino/severino-vault-mcp.git
 cd severino-vault-mcp
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
+go test ./...
 ```
 
 Run the sample vault:
 
 ```bash
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```
 
 The server speaks stdio, so it waits for an MCP client and does not print a
@@ -32,10 +30,10 @@ web URL.
   explicitly optional and documented with a clear security model.
 - Keep write tools narrow and schema-validated.
 - Do not log markdown body content, unlock phrases, or secrets.
-- Do not broaden `secret_adjacent` release paths. `include_secret_adjacent=True`
-  must remain insufficient without local unlock approval.
-- Prefer standard-library code for lightweight parsing unless a dependency
-  clearly improves correctness.
+- Do not broaden `restricted` release paths. `include_restricted=True` must
+  remain insufficient without local unlock approval.
+- Prefer the standard library; add a dependency only when it clearly improves
+  correctness.
 - Update `README.md`, `QUICKSTART.md`, and `docs/testing-ci.md` when behavior
   or setup changes.
 
@@ -44,18 +42,14 @@ web URL.
 Run before opening a pull request:
 
 ```bash
-uv run pytest
-uv run ruff check .
+scripts/check.sh
+bash tests/golden/verify.sh
 ```
 
-The test suite covers:
-
-- Vault indexing and frontmatter parsing.
-- MCP resource registration.
-- Search and body search behavior.
-- Sensitivity gates and local unlock flow.
-- Validated frontmatter writes.
-- Sample-vault reproducibility.
+The suite covers indexing and frontmatter parsing, search and body search,
+the sensitivity gate and local unlock, validated writes, the task ledger, the
+CLI and its golden contracts, the MCP server through a real client, the
+provider seam, and sample-vault reproducibility.
 
 ## Pull Requests
 

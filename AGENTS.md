@@ -2,74 +2,72 @@
 
 `CLAUDE.md` is a symlink to this file.
 
-One local stdio MCP server (FastMCP) for every vault: labs, edu, life. The
-governance core lives in [`severino-vault-engine`](https://github.com/joeseverino/vault-engine)
-(import `vault_engine`); change generic behavior there, release, bump the pin
-here. Don't re-implement it locally.
+One Go binary: a stdio MCP server for every vault (labs, edu, and any vault a
+provider adds) plus a CLI over the labs vault. Go 1.27, the official MCP SDK, and one
+TOML parser; nothing else.
 
 ## Shape
 
-```python
-registry = vaults.build()                       # one GovernanceContext per vault
-register_core(mcp, registry.contexts, default="labs")   # engine: 8 shared tools, `vault` arg
-for name, register in registry.domains.items():         # each vault's own group
-    register(mcp, registry.contexts[name])
+```
+cmd/severino-vault-mcp   main: cli.Main
+internal/cli             command table -> parsing, --help, describe; one runner per subcommand
+internal/mcpserver       the server: core tools, resources, education_dataset, provider passthrough
+internal/vaults          composes vaults: labs, edu (config present), providers
+internal/provider        connects a provider: profile resource, tools, instructions
+internal/core            the 8 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,daily,brief,doctor,education,hqmanifest}
+                         the governance engine
+internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 ```
 
-- `vaults.py`: composes the vaults. labs always; edu when its config exists;
-  life when `severino_life` imports. Per-vault config: `SVMC_CONFIG`,
-  `SVMC_EDU_CONFIG`, `SVMC_LIFE_CONFIG`. edu gets an env scrubbed of `SVMC_*`
-  so labs overrides can't leak. Life reads `SVMC_CONFIG` at call time, so
-  `build()` points it at life's config after labs is loaded.
-- `server.py`: composition root and the one instructions block.
-- `education.py`: the edu dataset (`education_dataset` tool, `export education` CLI).
-- `labs/hq_manifest.py`: the HQ docs manifest. HQ will own this; nothing else
-  labs-specific lives here (site work belongs to the jseverino.com repo).
-- `cli.py` / `__main__.py`: the CLI over the labs vault. Each subparser declares
-  its effect with `cordon_emit.set_effect`; `describe` projects the parser to a
-  Cordon contract.
-
-The labs schema (`LABS_PROFILE`) is defined in the engine. `schema --json` is the
-frozen shape HQ commits (`docs_index/schema.json`); after a profile change:
-release the engine, bump the pin, `tools reinstall severino-vault-mcp`, then
-`hq schema` and deploy HQ.
+- Output is byte-compatible with the Python implementation this replaced, and
+  that is a contract: `jsonx` reproduces `json.dumps` (key order,
+  `ensure_ascii`), `pystr` reproduces `repr()` in error messages, and the
+  frontmatter parser is the same constrained YAML subset (numbers and dates
+  stay strings). Don't swap in a YAML library or `encoding/json` for these.
+- Every service returns one `*jsonx.Obj`; failures are `{"ok": false, "error": "..."}`.
+  CLI subcommands exit 0/1 on `ok`, 2 on argument errors.
+- The labs profile is `schema.Labs`. `schema --json` is the frozen shape HQ
+  commits (`docs_index/schema.json`); `tests/golden/schema.json` pins it.
+- No private domain lives here, not even by name. Providers are declared only
+  in the operator's config (`[[providers]]`); the vault name, profile, tools
+  and instructions arrive at runtime. Tests use a fake provider fixture.
 
 ## Contracts
 
-- Every service returns one dict; failures are `{"ok": false, "error": "..."}`.
-  CLI subcommands exit 0/1 on `ok`.
-- Consumers run the installed console script; `--fingerprint` (checked by
-  `tools doctor`) catches a stale install.
+- Consumers run the installed binary. `--fingerprint` (checked by `tools doctor`)
+  hashes the embedded Go sources; `go run ./cmd/severino-vault-mcp --fingerprint`
+  is the source side.
 - `export education` JSON is read by jseverino.com (`bin/content-sync`) and
   resume-engine (`lib/reconcile-coursework`). Changing its shape is a contract
   change for both.
+- `tests/golden/`: `schema.json`, `cli-describe.json`, `mcp-tools.txt`. A diff
+  there is a deliberate contract change; regenerate with the binary.
 
 ## Safety
 
 - `public`/`internal`/`sensitive` bodies are released; `restricted` is withheld
   unless the caller asks and the local unlock succeeds. Text search never reads
   restricted bodies.
-- Writes are schema-specific: validate against the vault's `SchemaProfile`,
-  keep `doc_id` immutable, serialize with the engine's `serialize_frontmatter`,
-  replace atomically. Never hand-roll YAML or `open(path, "w")`.
+- Writes are schema-specific: validate against the vault's profile, keep
+  `doc_id` immutable, serialize with `frontmatter.Serialize`, replace through
+  `fsx.WriteFile` (atomic). Never write vault files any other way.
 
 ## Verify
 
 ```bash
-uv run --extra dev --extra life pytest -q
-uv run --extra dev ruff check .
+scripts/check.sh            # the CI gate: gofmt, vet, test, govulncheck, repo invariants
 bash tests/golden/verify.sh
-scripts/check.sh
 ```
 
 ## Test idioms
 
-- Hermetic: fixtures build a fake vault on disk; `tests/conftest.py` points
-  `SVMC_EDU_CONFIG` and `SVMC_LIFE_CONFIG` at missing files so no test reads
-  this machine's real vaults.
-- `_fresh_module(name)` re-imports `severino_vault_mcp.*` after
-  `monkeypatch.setenv`; set env first. `_tool(server, name)` reaches the
-  registered callable through the tool manager.
-- `test_search.py`: shared tools on the labs vault. `test_server.py`: vault
-  composition and a real stdio `list_tools`. `test_education.py`: the dataset.
-  Engine behavior is tested in the engine repo.
+- Hermetic: `internal/testkit` builds throwaway vaults (`FakeVault`,
+  `MultisectionDoc`) and an env (`Env`) that points edu at a missing config
+  and declares no providers, so no test reads this machine's real vaults.
+- `mcpserver` tests drive the real server through an in-memory client; the
+  provider seam is tested against the test binary re-executed as a provider.
+- Seams: `gate.PromptPhrase` (unlock prompt), `fsx.WriteFile` (atomic write),
+  `clock.Now`.
+- `internal/parity` diffs this binary against a Python reference CLI. It skips
+  unless `SVMC_PARITY_PY` names one.

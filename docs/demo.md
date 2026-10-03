@@ -10,7 +10,7 @@ This page has two separate demo surfaces:
 ## Sample Vault Setup
 
 ```bash
-SVMC_VAULT_PATH=examples/sample-vault uv run --no-editable severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```
 
 The sample transcript below shows the intended MCP flow: broad questions start

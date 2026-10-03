@@ -2,33 +2,50 @@
 
 [![CI](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/codeql.yml)
-[![pip-audit](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/pip-audit.yml/badge.svg)](https://github.com/joeseverino/severino-vault-mcp/actions/workflows/pip-audit.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/joeseverino/severino-vault-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/joeseverino/severino-vault-mcp)
-![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![Go](https://img.shields.io/badge/go-1.27-blue)
 ![MCP](https://img.shields.io/badge/MCP-stdio%20server-green)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 One local MCP server for every Obsidian vault I keep: labs (homelab
-infrastructure and runbooks), edu (coursework), and life (renewals, goals,
-personal tasks). It answers from the vault instead of model memory, withholds
+infrastructure and runbooks), edu (coursework), and any private vault a
+provider adds. It answers from the vault instead of model memory, withholds
 `restricted` docs unless they're unlocked locally, and validates every write
-against that vault's schema. It runs over stdio, reads local files only, and
-has no HTTP listener.
+against that vault's schema. It is one static Go binary that runs over stdio,
+reads local files only, and has no HTTP listener.
 
 ## How it fits together
 
-The governance core (indexing, ranked section search, the sensitivity gate,
-schema profiles, atomic writes, the task ledger) is the
-[`severino-vault-engine`](https://github.com/joeseverino/vault-engine) library.
-This repo is the host: it builds one governed context per vault and registers
-each shared tool once, with a `vault` argument that routes the call to that
-vault's context. Search, the gate and validation never cross vaults.
+The binary indexes each vault, ranks sections for search, gates bodies by
+sensitivity, validates writes against a schema profile, and keeps the task
+ledger. Each shared tool registers once with a `vault` argument that routes the
+call to that vault; search, the gate and validation never cross vaults.
 
 | Vault | Config | Profile | Own tools |
 |---|---|---|---|
-| `labs` (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml` | labs | none |
-| `edu` | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml`; off when the file is missing | education | `education_dataset` |
-| `life` | `SVMC_LIFE_CONFIG`, else `~/.config/severino-life-mcp/config.toml`; off when `severino-life` isn't installed | life | from [`severino-life`](https://github.com/joeseverino/severino-life) |
+| `labs` (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml` | labs (built in) | none |
+| `edu` | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml`; off when the file is missing | education (built in) | `education_dataset` |
+| each provider | its `[[providers]]` entry's `config` | from the provider | from the provider |
+
+A private vault brings its own domain through a **provider**: a separate stdio
+MCP server that owns that vault's tools and schema profile. This repo knows
+nothing about any provider. The operator declares them in the labs config, and
+the host starts each one, reads the vault's name and profile from
+`vault-provider://profile`, re-exports its tools, and appends its
+instructions:
+
+```toml
+[[providers]]
+command = "example"                         # the provider's stdio MCP server
+args    = ["mcp-provider"]
+config  = "~/.config/example/config.toml"   # the vault's [vault] path and indexed_dirs
+env     = { EXAMPLE_HOME = "~/example" }    # optional, passed to the provider
+```
+
+`command` and `config` are required. The provider gets the process
+environment minus `SVMC_*`, plus `SVMC_CONFIG=<config>` and its `env`. A
+provider that fails to start, or names a vault that already exists, is logged
+and skipped. There are no default providers.
 
 Site work (writeups, D1, CSP, contact, headers) lives in the jseverino.com
 repo's `site` CLI. The HQ docs manifest stays here until HQ owns it.
@@ -48,23 +65,22 @@ Shared, each taking `vault`:
 | `recent_changes` | Recent vault commits in the indexed folders. |
 | `daily_progress` | A daily note, for "what did I do Friday?". |
 
-Vault-specific: `education_dataset` (edu); `reminders`, `calendar`,
-`agenda`, `life_view`, `renew`, `life_ops` (life).
+Vault-specific: `education_dataset` (edu), plus each provider's tools.
 
 Resources: `vault://{vault}/quick-index` and `vault://{vault}/doc/{doc_id}`.
 
 ## Run it
 
 ```bash
-uv sync --extra dev
+go test ./...
 scripts/check.sh
-SVMC_VAULT_PATH=examples/sample-vault uv run severino-vault-mcp
+SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```
 
-Install for Claude Code, with life:
+Install for Claude Code:
 
 ```bash
-uv tool install . --with ~/Code/Assets/severino-life
+go install ./cmd/severino-vault-mcp
 claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
@@ -74,20 +90,24 @@ Validate a vault before wiring it:
 SVMC_VAULT_PATH=/path/to/vault severino-vault-mcp doctor --propose
 ```
 
-`ripgrep` is required for `find(by="text")`; `fd` speeds up indexing when present.
+`ripgrep` is required for `find(by="text")`. `fd` walks the vault when it's on
+`PATH` (hidden and ignored files skipped); otherwise a built-in walk does.
 
 ## CLI
 
-With no subcommand the binary serves MCP. Subcommands run one governed call
-against the labs vault and print JSON: `doctor`, `find`, `read`, `brief`,
-`task-*`, `update-frontmatter`, `update-doc-link`, `touch-reviewed`,
-`backfill-aliases`, `daily-write`, `schema`, `hq-manifest`, `describe`, and
-`export education` (the dataset jseverino.com and resume-engine read).
-`describe` emits the surface as a [Cordon](https://github.com/joeseverino/cordon)
-contract.
+With no subcommand (or `serve`) the binary serves MCP. Subcommands run one
+governed call against the labs vault and print JSON: `doctor`, `find`, `read`,
+`brief`, `task-*`, `promote-note`, `update-frontmatter`, `update-doc-link`,
+`touch-reviewed`, `backfill-aliases`, `daily-write`, `schema`, `hq-manifest`,
+`describe`, and `export education` (the dataset jseverino.com and
+resume-engine read). `describe` emits the surface as a
+[Cordon](https://github.com/joeseverino/cordon) contract, generated from the
+same command table that parses arguments.
 
 `schema --json` is the frozen enum contract HQ commits; `schema --contract` and
 `schema --fingerprint` give the full versioned profile and its hash.
+`--fingerprint` hashes the binary's own Go sources, so `tools doctor` can tell
+a stale install from the source tree.
 
 ## Configuration
 
@@ -104,7 +124,7 @@ override the labs config:
 | `SVMC_RESTRICTED_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/restricted-unlock.sha256` | Salted unlock hash (Keychain is preferred) |
 | `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Unlock attempts; never bodies |
 
-edu and life read only their own TOML; labs overrides never leak into them.
+edu and providers read only their own TOML; labs overrides never leak into them.
 
 ## Sensitivity
 
