@@ -1,6 +1,6 @@
 {
   "source": "jseverino.com/contracts/content.v1.json",
-  "fingerprint": "181ea2533a258f890b436793b0ca07ab243243239c7269865e32a02656490684",
+  "fingerprint": "116ef39e4d05f844c79e74e3fa04e7022c56313d0d297523abfe29f29b148640",
   "contract": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "contract": "com.jseverino.site.content",
@@ -73,7 +73,7 @@
             "cli_flag": "--last-reviewed"
           },
           "cover_image": {
-            "type": "string",
+            "type": "image",
             "editable": true,
             "public": true,
             "cli_flag": "--cover-image"
