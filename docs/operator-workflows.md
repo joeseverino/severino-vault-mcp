@@ -123,7 +123,7 @@ or to fixed local project paths:
 
 ```bash
 SVMC_JSEVERINO_D1_DATABASE=jseverino-contact
-SVMC_JSEVERINO_SITE_REPO=~/Documents/Code/Projects/jseverino.com
+SVMC_JSEVERINO_SITE_REPO=~/Code/Projects/jseverino.com
 SVMC_JSEVERINO_SITE_ORIGIN=https://jseverino.com
 SVMC_JSEVERINO_WRITEUPS_DIR=<vault>/05 Writeups
 SVMC_JSEVERINO_TECH_GROUPS=<vault>/06 Pages/_technology-groups.md

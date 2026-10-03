@@ -44,9 +44,11 @@ class SiteOpsRuntime:
             ),
             site_repo=Path(
                 os.path.expanduser(
-                    os.environ.get(
-                        "SVMC_JSEVERINO_SITE_REPO",
-                        "~/Documents/Code/Projects/jseverino.com",
+                    os.environ.get("SVMC_JSEVERINO_SITE_REPO")
+                    or os.path.join(
+                        os.environ.get("CODE_HOME", "~/Code"),
+                        "Projects",
+                        "jseverino.com",
                     )
                 )
             ),

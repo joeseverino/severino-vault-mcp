@@ -263,3 +263,11 @@ def test_cloudflare_env_failure_degrades_and_caches(monkeypatch) -> None:
 
     ops._cloudflare_env()  # denied/failed resolution must not re-prompt
     assert len(calls) == first
+
+
+def test_site_repo_defaults_under_code_home(monkeypatch, tmp_path):
+    monkeypatch.delenv("SVMC_JSEVERINO_SITE_REPO", raising=False)
+    monkeypatch.setenv("CODE_HOME", str(tmp_path))
+    assert ops.SiteOpsRuntime.from_env().site_repo == tmp_path / "Projects" / "jseverino.com"
+    monkeypatch.setenv("SVMC_JSEVERINO_SITE_REPO", "/elsewhere")
+    assert ops.SiteOpsRuntime.from_env().site_repo == Path("/elsewhere")
