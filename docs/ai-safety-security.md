@@ -157,7 +157,7 @@ file" or "run this command" capability.
 | `update_writeup_frontmatter` | Updates scalar frontmatter fields in one `05 Writeups/<slug>/index.md` file: `title`, `description`, `published`, `published_at`, `last_reviewed`, `cover_image`, and `cover_alt`. |
 | `reorder_featured` | Transactionally updates only `featured` and `featured_order` across `05 Writeups/<slug>/index.md` files so the featured list stays sequential after insert, move, or unfeature operations. |
 | `apply_writeup_plan` | Applies named scalar updates plus one complete featured-order list. Every target must be an existing writeup under the configured vault; files are staged, locked, checked for concurrent changes, and rolled back on failure. |
-| `apply_jseverino_d1_schema` | Applies the fixed `db/schema.sql` from the configured jseverino.com site repo to the configured remote Cloudflare D1 database; requires `confirm=True`. |
+| `apply_jseverino_d1_schema` | Runs the configured jseverino.com site repo's `npm run d1:apply`, which applies its D1 schema to the remote database; requires `confirm=True`. |
 
 Common constraints:
 

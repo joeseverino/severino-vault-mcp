@@ -374,46 +374,34 @@ def apply_d1_schema(
     runtime: SiteOpsRuntime,
     confirm: bool = False,
 ) -> dict[str, Any]:
+    """Run the site repo's `npm run d1:apply`, which owns the schema path."""
     if not confirm:
         return {
             "ok": False,
             "refused": True,
-            "message": "Pass confirm=True to apply db/schema.sql to the remote D1 database.",
+            "message": "Pass confirm=True to apply the D1 schema (npm run d1:apply).",
         }
 
-    wrangler = shutil.which("wrangler")
-    if not wrangler:
-        return {"ok": False, "error": "wrangler not found on PATH"}
-
-    schema = runtime.site_repo / "db" / "schema.sql"
-    if not schema.is_file():
-        return {"ok": False, "error": f"schema file not found: {schema}"}
+    npm = shutil.which("npm")
+    if not npm:
+        return {"ok": False, "error": "npm not found on PATH"}
 
     try:
         proc = subprocess.run(
-            [
-                wrangler,
-                "d1",
-                "execute",
-                runtime.d1_database,
-                "--remote",
-                "--file",
-                str(schema),
-            ],
+            [npm, "run", "--silent", "d1:apply"],
             cwd=str(runtime.site_repo),
             env=_cloudflare_env(),
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "error": f"wrangler d1 schema apply failed: {exc}"}
+        return {"ok": False, "error": f"npm run d1:apply failed: {exc}"}
 
     return {
         "ok": proc.returncode == 0,
-        "database": runtime.d1_database,
-        "schema": str(schema),
+        "command": "npm run d1:apply",
         "returncode": proc.returncode,
         "stdout": proc.stdout.strip(),
         "stderr": proc.stderr.strip(),
