@@ -43,6 +43,34 @@
   body-free mutation receipts for audit and projection invalidation. Dashboard
   snapshots carry deterministic source fingerprints.
 
+## [3.0.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.5.0...v3.0.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* install with `go install ./cmd/severino-vault-mcp`. The Python package, uv lock and in-process domain tools are gone; declare providers in config.toml instead.
+* the server registers the engine's 8 shared tools once with a vault argument (labs, edu, life) and adds each vault's own tools; writeup and site-ops tools and their CLI subcommands are removed (the jseverino.com site CLI owns them); severino-edu-mcp's dataset and export move here as `export education`.
+* the infra-dataset MCP tools and CLI commands no longer exist.
+
+### Features
+
+* add safe vault link updates ([#46](https://github.com/joeseverino/severino-vault-mcp/issues/46)) ([50d25c0](https://github.com/joeseverino/severino-vault-mcp/commit/50d25c0e87e32c0bf7305d86b645fc2e0b4cf9c9))
+* expose topology and site content contracts ([#51](https://github.com/joeseverino/severino-vault-mcp/issues/51)) ([e44b915](https://github.com/joeseverino/severino-vault-mcp/commit/e44b9158c5f789d0da7d9a3b333cf2f97f3db050))
+* one server for every vault ([#64](https://github.com/joeseverino/severino-vault-mcp/issues/64)) ([63a616a](https://github.com/joeseverino/severino-vault-mcp/commit/63a616a0ad434a6df0627bf2c44e187853f534ef))
+* port the vault MCP server to Go ([#65](https://github.com/joeseverino/severino-vault-mcp/issues/65)) ([2f074d7](https://github.com/joeseverino/severino-vault-mcp/commit/2f074d730b8042d75c97de4038b4d29f8b9af786))
+* retire infra datasets; site-repo wrangler, release-please only, cordon v2 ([#63](https://github.com/joeseverino/severino-vault-mcp/issues/63)) ([913f8fe](https://github.com/joeseverino/severino-vault-mcp/commit/913f8fe1bd82570ff82682d3444d5207c0c12470))
+* **site-ops:** resolve Cloudflare credentials lazily from 1Password for wrangler subprocesses ([#48](https://github.com/joeseverino/severino-vault-mcp/issues/48)) ([f001375](https://github.com/joeseverino/severino-vault-mcp/commit/f00137569a0fcbfd97d765392fd81dd5b2b507ac))
+* **topology:** add printer to the inventory host kinds ([#50](https://github.com/joeseverino/severino-vault-mcp/issues/50)) ([4b97aad](https://github.com/joeseverino/severino-vault-mcp/commit/4b97aad840541c88ba81fee4e409462cef95fe00))
+
+
+### Bug Fixes
+
+* **deps:** bump cryptography to 50.0.1 and anyio to 4.15.1 ([#52](https://github.com/joeseverino/severino-vault-mcp/issues/52)) ([937087e](https://github.com/joeseverino/severino-vault-mcp/commit/937087e88e2eed2c442f4c742fc7b64b1d0918e7))
+* **labs:** reject stale writeup plans ([#44](https://github.com/joeseverino/severino-vault-mcp/issues/44)) ([b616620](https://github.com/joeseverino/severino-vault-mcp/commit/b616620547ab6d0aec0abe7665330f9336a1561e))
+* **site-ops:** D1 schema through npm run d1:apply; cover_image as an image field ([#62](https://github.com/joeseverino/severino-vault-mcp/issues/62)) ([fdf0d7b](https://github.com/joeseverino/severino-vault-mcp/commit/fdf0d7bc423d54ae536db2a85b37e9950af4ee1b))
+* **site-ops:** default the site repo under CODE_HOME ([#61](https://github.com/joeseverino/severino-vault-mcp/issues/61)) ([3cb4c62](https://github.com/joeseverino/severino-vault-mcp/commit/3cb4c6221c951de5245578d04c76f13e12482f46))
+* **writeups:** compare against file text in update_writeup_frontmatter no-op detection ([#49](https://github.com/joeseverino/severino-vault-mcp/issues/49)) ([ce6a230](https://github.com/joeseverino/severino-vault-mcp/commit/ce6a230021543bb79842aa15e06a8e82eb95f201))
+
 ## [2.5.0](https://github.com/joeseverino/severino-vault-mcp/compare/v2.4.0...v2.5.0) (2026-07-10)
 
 
