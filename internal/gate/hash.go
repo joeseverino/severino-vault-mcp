@@ -35,6 +35,11 @@ const (
 
 var b64 = base64.RawStdEncoding
 
+// keyLen is KeyLen as argon2 takes it; ParseHash bounds it to maxKeyLen.
+func (p Params) keyLen() uint32 {
+	return uint32(min(max(p.KeyLen, 0), maxKeyLen)) //nolint:gosec // clamped to [0, maxKeyLen]
+}
+
 // HashPhrase returns the PHC string for phrase:
 // $argon2id$v=19$m=<KiB>,t=<passes>,p=<threads>$<salt>$<hash>.
 func HashPhrase(phrase string, p Params) (string, error) {
@@ -42,7 +47,7 @@ func HashPhrase(phrase string, p Params) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(phrase), salt, p.Time, p.Memory, p.Threads, uint32(p.KeyLen))
+	key := argon2.IDKey([]byte(phrase), salt, p.Time, p.Memory, p.Threads, p.keyLen())
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, p.Memory, p.Time, p.Threads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
 }
@@ -58,7 +63,7 @@ func ParseHash(encoded string) (Params, []byte, []byte, error) {
 		return p, nil, nil, fmt.Errorf("unsupported argon2 version %q", parts[2])
 	}
 	seen := map[string]bool{}
-	for _, kv := range strings.Split(parts[3], ",") {
+	for kv := range strings.SplitSeq(parts[3], ",") {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || seen[k] {
 			return p, nil, nil, fmt.Errorf("bad parameter %q", kv)
@@ -107,6 +112,6 @@ func VerifyPhrase(phrase, encoded string) bool {
 	if err != nil {
 		return false
 	}
-	got := argon2.IDKey([]byte(phrase), salt, p.Time, p.Memory, p.Threads, uint32(p.KeyLen))
+	got := argon2.IDKey([]byte(phrase), salt, p.Time, p.Memory, p.Threads, p.keyLen())
 	return subtle.ConstantTimeCompare(got, key) == 1
 }

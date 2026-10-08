@@ -7,6 +7,7 @@ package jsonx
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -122,9 +123,7 @@ func (o *Obj) Clone() *Obj {
 		return c
 	}
 	c.keys = slices.Clone(o.keys)
-	for k, v := range o.vals {
-		c.vals[k] = v
-	}
+	maps.Copy(c.vals, o.vals)
 	return c
 }
 
@@ -271,6 +270,7 @@ func encode(sb *strings.Builder, v any, opts Options, depth int) error {
 				sb.WriteString("null")
 				return nil
 			}
+		default:
 		}
 		// Anything else goes through encoding/json and back, so its key
 		// order follows its own MarshalJSON or struct field order.

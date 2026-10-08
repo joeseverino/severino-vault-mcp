@@ -41,7 +41,7 @@ func TestUpdateLinkPreservesTheFrontmatterByteForByte(t *testing.T) {
 	before := tk.Read(t, p)
 	write.UpdateLink(tk.Loader(root), "report-link-test", "Dashboard", "https://old.example", "https://new.example")
 	after := tk.Read(t, p)
-	head := before[:strings.Index(before, "Open [")]
+	head, _, _ := strings.Cut(before, "Open [")
 	if !strings.HasPrefix(after, head) {
 		t.Fatalf("frontmatter changed:\n%s", after)
 	}
@@ -162,5 +162,31 @@ func TestTouchReviewedIsANoOpWhenAlreadyToday(t *testing.T) {
 	}
 	if info, _ := os.Stat(p); info.Size() == 0 {
 		t.Fatal("file emptied")
+	}
+}
+
+func TestFrontmatterWritersRefuseTraversalAndEscapingSymlinks(t *testing.T) {
+	root, _ := linkDoc(t, "internal")
+	outside := filepath.Join(filepath.Dir(root), "outside-doc.md")
+	tk.Write(t, outside, "# outside\n")
+	t.Cleanup(func() { _ = os.Remove(outside) })
+	if err := os.Symlink(outside, filepath.Join(root, "02 Infrastructure", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	l := tk.Loader(root)
+	title := "Changed"
+	for _, rel := range []string{"../outside-doc.md", "02 Infrastructure/../../outside-doc.md", "02 Infrastructure/link.md"} {
+		for name, r := range map[string]*jsonx.Obj{
+			"update": write.UpdateFrontmatter(l, rel, write.Update{Title: &title}, schema.Labs),
+			"touch":  write.TouchReviewed(l, rel),
+			"set":    write.SetFrontmatter(l, rel, write.Set{Title: &title}, schema.Labs),
+		} {
+			if r.Bool("ok") {
+				t.Fatalf("%s(%q) accepted: %s", name, rel, jsonx.Compact(r))
+			}
+		}
+	}
+	if got := tk.Read(t, outside); got != "# outside\n" {
+		t.Fatalf("outside file changed: %q", got)
 	}
 }

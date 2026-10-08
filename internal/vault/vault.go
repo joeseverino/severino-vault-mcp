@@ -29,7 +29,22 @@ var skipDirParts = map[string]bool{"00 Templates": true, "Templates": true, ".gi
 
 // ComparePaths orders paths by component, as Python's sorted(Path) does.
 func ComparePaths(a, b string) int {
-	return slices.Compare(strings.Split(a, "/"), strings.Split(b, "/"))
+	for {
+		ca, restA, moreA := strings.Cut(a, "/")
+		cb, restB, moreB := strings.Cut(b, "/")
+		if c := strings.Compare(ca, cb); c != 0 {
+			return c
+		}
+		switch {
+		case !moreA && !moreB:
+			return 0
+		case !moreA:
+			return -1
+		case !moreB:
+			return 1
+		}
+		a, b = restA, restB
+	}
 }
 
 func sortPaths(paths []string) {
@@ -42,10 +57,12 @@ func walkMD(root string) []string {
 	if fd, err := exec.LookPath("fd"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, fd, "--type", "f", "--extension", "md", ".", root).Output()
+		cmd := exec.CommandContext(ctx, fd, "--type", "f", "--extension", "md", ".", root) //nolint:gosec // fd resolved by LookPath; root is the configured vault
+		cmd.WaitDelay = time.Second
+		out, err := cmd.Output()
 		if err == nil {
 			var paths []string
-			for _, line := range strings.Split(string(out), "\n") {
+			for line := range strings.SplitSeq(string(out), "\n") {
 				if line != "" {
 					paths = append(paths, filepath.Clean(line))
 				}
@@ -69,7 +86,7 @@ func walkMD(root string) []string {
 }
 
 func hasSkipPart(p string) bool {
-	for _, part := range strings.Split(p, "/") {
+	for part := range strings.SplitSeq(p, "/") {
 		if skipDirParts[part] {
 			return true
 		}

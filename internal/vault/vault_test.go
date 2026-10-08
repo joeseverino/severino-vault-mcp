@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -116,5 +117,45 @@ func TestBestSectionPicksTheQueryMatchingSpan(t *testing.T) {
 	sec, score := search.BestSection(d, "resolver latency")
 	if sec.Slug != "troubleshooting" || score <= 0 {
 		t.Fatal(sec.Slug, score)
+	}
+}
+
+func TestComparePathsOrdersByComponent(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"a/b", "a/b", 0},
+		{"a", "a/b", -1},
+		{"a/b", "a", 1},
+		{"a-b/c", "a/b", 1},
+		{"a/b", "a-b/c", -1},
+		{"", "a", -1},
+		{"a//b", "a/b", -1},
+	} {
+		if got := vault.ComparePaths(c.a, c.b); got != c.want {
+			t.Errorf("ComparePaths(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func FuzzComparePaths(f *testing.F) {
+	for _, seed := range [][2]string{{"a/b", "a"}, {"a-b/c", "a/b"}, {"", "/"}, {"x//y", "x/y"}} {
+		f.Add(seed[0], seed[1])
+	}
+	f.Fuzz(func(t *testing.T, a, b string) {
+		want := slices.Compare(strings.Split(a, "/"), strings.Split(b, "/"))
+		if got := vault.ComparePaths(a, b); got != want {
+			t.Fatalf("ComparePaths(%q, %q) = %d, want %d", a, b, got, want)
+		}
+	})
+}
+
+func BenchmarkIndexBuild(b *testing.B) {
+	root := tk.FakeVault(b)
+	tk.MultisectionDoc(b, root)
+	loader := tk.Loader(root)
+	for b.Loop() {
+		loader.Index(true)
 	}
 }

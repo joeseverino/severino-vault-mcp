@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,6 +31,10 @@ import (
 const ProfileURI = "vault-provider://profile"
 
 const handshakeVersion = "2025-11-25"
+
+// terminateGrace is how long a provider gets to exit after SIGTERM before it
+// is killed.
+const terminateGrace = time.Second
 
 // Spec is one [[providers]] entry.
 type Spec struct {
@@ -64,7 +69,9 @@ func Connect(ctx context.Context, spec Spec, env config.Env, timeout time.Durati
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %s not found", label, spec.Command)
 	}
-	cmd := exec.Command(bin, spec.Args...)
+	cmd := exec.CommandContext(ctx, bin, spec.Args...) //nolint:gosec // the provider command is operator config
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = terminateGrace
 	cmd.Env = providerEnv(env, spec)
 	cmd.Stderr = os.Stderr
 
@@ -73,7 +80,7 @@ func Connect(ctx context.Context, spec Spec, env config.Env, timeout time.Durati
 	client := mcp.NewClient(&mcp.Implementation{Name: "severino-vault-mcp", Version: "host"}, nil)
 	// The initialize handshake, not the stateless server/discover probe:
 	// providers on older SDKs reject the probe.
-	session, err := client.Connect(connectCtx, &mcp.CommandTransport{Command: cmd}, &mcp.ClientSessionOptions{ProtocolVersion: handshakeVersion})
+	session, err := client.Connect(connectCtx, &mcp.CommandTransport{Command: cmd, TerminateDuration: terminateGrace}, &mcp.ClientSessionOptions{ProtocolVersion: handshakeVersion})
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", label, err)
 	}
@@ -83,34 +90,34 @@ func Connect(ctx context.Context, spec Spec, env config.Env, timeout time.Durati
 	}
 	res, err := session.ReadResource(connectCtx, &mcp.ReadResourceParams{URI: ProfileURI})
 	if err != nil {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: reading %s: %w", label, ProfileURI, err)
 	}
 	if len(res.Contents) == 0 {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: empty profile", label)
 	}
 	decoded, err := jsonx.Decode([]byte(res.Contents[0].Text))
 	if err != nil {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: profile is not JSON: %w", label, err)
 	}
 	obj, ok := decoded.(*jsonx.Obj)
 	if !ok {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: profile is not an object", label)
 	}
 	if p.Profile, err = schema.FromContract(obj); err != nil {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: %w", label, err)
 	}
 	if p.Profile.Name == "" {
-		session.Close()
+		_ = session.Close()
 		return nil, fmt.Errorf("provider %s: profile has no name", label)
 	}
 	for tool, err := range session.Tools(connectCtx, nil) {
 		if err != nil {
-			session.Close()
+			_ = session.Close()
 			return nil, fmt.Errorf("provider %s: listing tools: %w", label, err)
 		}
 		p.Tools = append(p.Tools, tool)

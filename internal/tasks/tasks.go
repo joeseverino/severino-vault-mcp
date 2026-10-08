@@ -355,15 +355,20 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 	}
 	docID := "task-" + slug
 	vaultPath := l.Config.VaultPath
+	v, verr := fsx.OpenVault(vaultPath)
+	if verr != nil {
+		return fail("write failed: " + verr.Error())
+	}
+	defer v.Close()
 	project := n.Project
-	if project == "" && len(n.RelatedProjects) == 1 && isDir(filepath.Join(vaultPath, ProjectsDir, n.RelatedProjects[0])) {
+	if project == "" && len(n.RelatedProjects) == 1 && v.IsDir(filepath.Join(vaultPath, ProjectsDir, n.RelatedProjects[0])) {
 		project = n.RelatedProjects[0]
 	}
 	var targetDir string
 	var related []string
 	if project != "" {
 		projectDir := filepath.Join(vaultPath, ProjectsDir, project)
-		if !isDir(projectDir) {
+		if !v.IsDir(projectDir) {
 			return fail(fmt.Sprintf("no such project: %s (expected %s/%s/)", pystr.Repr(project), ProjectsDir, project))
 		}
 		targetDir = filepath.Join(projectDir, "tasks")
@@ -386,7 +391,7 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		return fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
 	}
 	filePath := filepath.Join(targetDir, docID+".md")
-	if _, err := os.Stat(filePath); err == nil {
+	if _, err := v.Stat(filePath); err == nil {
 		return fail("file already exists: " + filepath.Base(filePath))
 	}
 	tags := n.Tags
@@ -404,10 +409,10 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		"created", write.Today(),
 		"tags", anyList(tags),
 	)
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	if err := v.MkdirAll(targetDir); err != nil {
 		return fail("write failed: " + err.Error())
 	}
-	if err := fsx.AtomicCreate(filePath, frontmatter.Serialize(fm)+"# "+title+"\n\n"+n.Body); err != nil {
+	if err := v.AtomicCreate(filePath, frontmatter.Serialize(fm)+"# "+title+"\n\n"+n.Body); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	l.Index(true)
@@ -455,11 +460,16 @@ func Add(l *vault.Loader, n New, s Sections) *jsonx.Obj {
 // Promote turns a captured note into a task, keeping its body, then deletes
 // the note.
 func Promote(l *vault.Loader, source string, n New) *jsonx.Obj {
+	v, verr := fsx.OpenVault(l.Config.VaultPath)
+	if verr != nil {
+		return fail("read failed: " + verr.Error())
+	}
+	defer v.Close()
 	src := filepath.Join(l.Config.VaultPath, source)
-	if info, err := os.Stat(src); err != nil || !info.Mode().IsRegular() {
+	if info, err := v.Stat(src); err != nil || !info.Mode().IsRegular() {
 		return fail("no such note: " + source)
 	}
-	text, err := pystr.ReadText(src)
+	text, err := v.ReadText(src)
 	if err != nil {
 		return fail("read failed: " + err.Error())
 	}
@@ -480,7 +490,7 @@ func Promote(l *vault.Loader, source string, n New) *jsonx.Obj {
 	if !result.Bool("ok") {
 		return result
 	}
-	if err := os.Remove(src); err != nil {
+	if err := v.Remove(src); err != nil {
 		return fail("task created but source delete failed: " + err.Error())
 	}
 	l.Index(true)
@@ -513,7 +523,12 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	if err != nil {
 		return err
 	}
-	text, rerr := pystr.ReadText(d.Path)
+	v, verr := fsx.OpenVault(l.Config.VaultPath)
+	if verr != nil {
+		return fail("write failed: " + verr.Error())
+	}
+	defer v.Close()
+	text, rerr := v.ReadText(d.Path)
 	if rerr != nil {
 		return fail("write failed: " + rerr.Error())
 	}
@@ -534,14 +549,14 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	}
 	target := filedDir(filepath.Dir(d.Path), status)
 	final := filepath.Join(target, filepath.Base(d.Path))
-	if err := os.MkdirAll(target, 0o755); err != nil {
+	if err := v.MkdirAll(target); err != nil {
 		return fail("write failed: " + err.Error())
 	}
-	if err := fsx.WriteFile(final, frontmatter.Serialize(fm)+body); err != nil {
+	if err := v.AtomicWrite(final, frontmatter.Serialize(fm)+body); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	if final != d.Path {
-		if err := os.Remove(d.Path); err != nil {
+		if err := v.Remove(d.Path); err != nil {
 			return fail("write failed: " + err.Error())
 		}
 	}
@@ -554,6 +569,11 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 func Reconcile(l *vault.Loader) *jsonx.Obj {
 	idx := l.Index(false)
 	moved := 0
+	v, err := fsx.OpenVault(l.Config.VaultPath)
+	if err != nil {
+		return fail("reconcile failed: " + err.Error())
+	}
+	defer v.Close()
 	for _, d := range taskDocs(idx) {
 		status := d.Status
 		if status == "" {
@@ -563,10 +583,10 @@ func Reconcile(l *vault.Loader) *jsonx.Obj {
 		if filepath.Dir(d.Path) == target {
 			continue
 		}
-		if os.MkdirAll(target, 0o755) != nil {
+		if v.MkdirAll(target) != nil {
 			continue
 		}
-		if os.Rename(d.Path, filepath.Join(target, filepath.Base(d.Path))) == nil {
+		if v.Rename(d.Path, filepath.Join(target, filepath.Base(d.Path))) == nil {
 			moved++
 		}
 	}
@@ -582,7 +602,12 @@ func Delete(l *vault.Loader, docID string) *jsonx.Obj {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(d.Path); err != nil {
+	v, verr := fsx.OpenVault(l.Config.VaultPath)
+	if verr != nil {
+		return fail("delete failed: " + verr.Error())
+	}
+	defer v.Close()
+	if err := v.Remove(d.Path); err != nil {
 		return fail("delete failed: " + err.Error())
 	}
 	l.Index(true)

@@ -1,0 +1,26 @@
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errorlint
+    - exhaustive
+    - gocritic
+    - gosec
+    - modernize
+    - staticcheck
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    rules:
+      - path: (_test\.go|internal/testkit/)
+        linters: [gosec]
+        text: "G(104|122|204|301|302|304|306|703)"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,12 +1,14 @@
 package daily_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/daily"
+	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
@@ -75,4 +77,38 @@ func TestResolveDate(t *testing.T) {
 			t.Errorf("%q: %s %s %v", q, d.Format("2006-01-02"), how, err)
 		}
 	}
+}
+
+func TestWriteRefusesADailyDirSymlinkedOutside(t *testing.T) {
+	c := cfg(t)
+	outside := t.TempDir()
+	dir := filepath.Join(c.VaultPath, c.DailyNotesDir)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Fatal(err)
+	}
+	r := daily.Write(c, "content", "2026-06-25")
+	if r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("note landed outside the vault: %v", entries)
+	}
+}
+
+func FuzzUpsertRegion(f *testing.F) {
+	begin, end := daily.Markers(daily.RegionID)
+	for _, text := range fuzzseed.Markdown(f) {
+		f.Add(text, "> [!info] brief")
+	}
+	f.Add(begin+"\nold\n"+end+"\n", "new")
+	f.Add("---\ndoc_id: daily-20260625\n---\n\n- did a thing\n", "")
+	f.Fuzz(func(t *testing.T, text, content string) {
+		out, _ := daily.UpsertRegion(text, daily.RegionID, content)
+		if !strings.Contains(out, begin) || !strings.Contains(out, end) {
+			t.Fatalf("region markers missing from %q", out)
+		}
+	})
 }

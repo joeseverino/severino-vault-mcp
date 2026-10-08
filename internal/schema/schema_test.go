@@ -61,12 +61,10 @@ func TestCheckDocEnums(t *testing.T) {
 	}
 }
 
-func intp(n int) *int { return &n }
-
 var domain = DocumentSchema{Fields: map[string]Field{
 	"category": {Required: true, Kind: "string", Choices: []string{"a", "b"}},
 	"renews":   {Required: true, Kind: "date"},
-	"notice":   {Kind: "integer", Minimum: intp(0), Maximum: intp(365)},
+	"notice":   {Kind: "integer", Minimum: new(0), Maximum: new(365)},
 	"horizon":  {Kind: "string", Pattern: `\d{4}(-Q[1-4])?`},
 }}
 
@@ -93,7 +91,8 @@ func TestContractFingerprintIsDeterministic(t *testing.T) {
 	if c.Str("name") != "labs" || jsonx.Compact(func() any { v, _ := c.Get("contract_version"); return v }()) != "1" {
 		t.Fatal(jsonx.Compact(c))
 	}
-	if p.Fingerprint() != p.Fingerprint() || len(p.Fingerprint()) != 64 || p.Fingerprint() == Labs.Fingerprint() {
+	first, second := p.Fingerprint(), p.Fingerprint()
+	if first != second || len(first) != 64 || first == Labs.Fingerprint() {
 		t.Fatal("fingerprint")
 	}
 	if jsonx.Compact(p.AsDict()) != jsonx.Compact(Labs.AsDict()) {

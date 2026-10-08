@@ -155,7 +155,7 @@ signal across code, dependencies, and project governance.
 | Dependency CVEs (SCA) | `govulncheck` over the module and its reachable call graph | `cordon.checks.json` (run by `ci.yml`) |
 | Dependency updates | Dependabot | `.github/dependabot.yml` |
 | Project governance | OSSF Scorecard, results published to scorecard.dev | `.github/workflows/scorecard.yml` |
-| Tests + lint | `gofmt`, `go vet`, `go test`, golden contracts | `.github/workflows/ci.yml` |
+| Tests + lint | `gofmt`, `go vet`, `go test -race`, `golangci-lint`, golden contracts | `.github/workflows/ci.yml` |
 
 Findings from CodeQL and Scorecard appear in the repository's Security tab.
 `govulncheck` failures fail the `cordon / gate` check on the PR.

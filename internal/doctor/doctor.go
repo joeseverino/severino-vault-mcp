@@ -177,7 +177,14 @@ Path: %s
 `, prefixFor(path), slug, title, docTypeFor(path), title, relative(path, root))
 }
 
-func hasPart(path, part string) bool { return slices.Contains(strings.Split(path, "/"), part) }
+func hasPart(path, part string) bool {
+	for p := range strings.SplitSeq(path, "/") {
+		if p == part {
+			return true
+		}
+	}
+	return false
+}
 
 func prefixFor(path string) string {
 	switch {

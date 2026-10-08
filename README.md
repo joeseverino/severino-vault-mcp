@@ -72,7 +72,7 @@ Resources: `vault://{vault}/quick-index` and `vault://{vault}/doc/{doc_id}`.
 ## Run it
 
 ```bash
-go test ./...
+go test -race ./...
 scripts/check.sh
 SVMC_VAULT_PATH=examples/sample-vault go run ./cmd/severino-vault-mcp
 ```

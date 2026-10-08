@@ -93,8 +93,7 @@ func progressLines(body string) []string {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "---") {
 			continue
 		}
-		if strings.HasPrefix(line, "- [x]") || strings.HasPrefix(line, "- [X]") || strings.HasPrefix(line, "-") ||
-			strings.HasPrefix(line, "*") || pystr.Len(line) > 3 {
+		if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "*") || pystr.Len(line) > 3 {
 			out = append(out, line)
 		}
 	}
@@ -219,7 +218,12 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 	if errObj := fsx.PathWithinRoot(cfg.VaultPath, path, "daily note", "any"); errObj != nil {
 		return errObj
 	}
-	info, err := os.Stat(path)
+	v, err := fsx.OpenVault(cfg.VaultPath)
+	if err != nil {
+		return fsx.Fail("daily note write failed: " + err.Error())
+	}
+	defer v.Close()
+	info, err := v.Stat(path)
 	created := err != nil || !info.Mode().IsRegular()
 	var text string
 	if created {
@@ -229,16 +233,16 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 			"date", day.Format("2006-01-02"),
 		))
 	} else {
-		text, _ = pystr.ReadText(path)
+		text, _ = v.ReadText(path)
 	}
 	newText, inserted := UpsertRegion(text, RegionID, content)
 	if newText == text {
 		return jsonx.New("ok", true, "wrote", relative, "changed", false, "created", false, "inserted", false)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := v.MkdirAll(filepath.Dir(path)); err != nil {
 		return fsx.Fail("daily note write failed: " + err.Error())
 	}
-	if err := fsx.WriteFile(path, newText); err != nil {
+	if err := v.AtomicWrite(path, newText); err != nil {
 		return fsx.Fail("daily note write failed: " + err.Error())
 	}
 	return jsonx.New("ok", true, "wrote", relative, "changed", true, "created", created, "inserted", inserted)

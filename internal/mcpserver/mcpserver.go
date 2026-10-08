@@ -607,7 +607,8 @@ func (h *handlers) addResources(s *mcp.Server) {
 		Description: "A vault's navigation hub for broad 'how do I' or 'where do I look' questions.", MIMEType: "text/markdown",
 	}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		uri := req.Params.URI
-		name := strings.TrimSuffix(strings.TrimPrefix(uri, "vault://"), "/quick-index")
+		rest, _ := strings.CutPrefix(uri, "vault://")
+		name, _ := strings.CutSuffix(rest, "/quick-index")
 		return read(uri, core.QuickIndexDocID, name)
 	})
 	s.AddResourceTemplate(&mcp.ResourceTemplate{
@@ -615,7 +616,7 @@ func (h *handlers) addResources(s *mcp.Server) {
 		Description: "One indexed doc's markdown body, or an advisory plus metadata when restricted.", MIMEType: "text/markdown",
 	}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		uri := req.Params.URI
-		rest := strings.TrimPrefix(uri, "vault://")
+		rest, _ := strings.CutPrefix(uri, "vault://")
 		name, docID, ok := strings.Cut(rest, "/doc/")
 		if !ok {
 			return nil, mcp.ResourceNotFoundError(uri)

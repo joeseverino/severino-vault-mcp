@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Vault file access is confined to the vault root with `os.Root`: reads, atomic
+  writes, creates, moves and deletes reject `..` traversal and symlinks that
+  leave the vault, including for `promote-note` sources and task project names.
+- Child processes use `exec.CommandContext` with `WaitDelay`. A provider is
+  terminated when its handshake times out or its context is cancelled.
+- Go 1.27 idioms (`new(expr)`, `strings.Cut`, `SplitSeq`, `errors.AsType`) and
+  component-wise path ordering without allocation.
+- The gate runs `go test -race`, `govulncheck` as a `go.mod` tool, and
+  `golangci-lint` (`.golangci.yml`). `deadcode` is available as a tool.
+- Fuzz targets for the frontmatter parser, section chunking, the argon2 hash
+  string parser, the daily brief region and path ordering; a benchmark for the
+  vault index build.
+- An empty block-list item (`- ` with no value) parses as null.
+- Indirect dependencies updated.
+- `go build -trimpath` is documented in QUICKSTART.
+
 - Retired the topology feature: `get_topology`, the `topology` /
   `topology-write` subcommands, and the authored inventory reader are gone.
   Severino HQ owns the host and container inventory now, so the vault's copy had

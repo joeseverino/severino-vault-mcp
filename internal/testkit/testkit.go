@@ -83,7 +83,7 @@ func Vault(root string, extra ...string) *core.Vault {
 // Get walks a dotted path through Objs and lists ("hits.0.doc_id").
 func Get(o *jsonx.Obj, path string) any {
 	var cur any = o
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		switch x := cur.(type) {
 		case *jsonx.Obj:
 			cur, _ = x.Get(part)

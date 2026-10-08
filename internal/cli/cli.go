@@ -115,6 +115,13 @@ dispatch:
 	return cmd.Run(c, parsed)
 }
 
+func peek(args []string, i int) (string, bool) {
+	if i+1 < len(args) {
+		return args[i+1], true
+	}
+	return "", false
+}
+
 // matchesLong reports whether token is long option opt or a prefix of it.
 func matchesLong(token, opt string) bool {
 	name, _, _ := strings.Cut(token, "=")
@@ -199,11 +206,12 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 			out[arg.dest()] = vals
 		case arg.TakesValue:
 			if marker != "=" {
-				if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && args[i+1] != "-") {
+				next, ok := peek(args, i)
+				if !ok || (strings.HasPrefix(next, "-") && next != "-") {
 					return nil, false, "argument " + arg.Name + ": expected one argument"
 				}
 				i++
-				value = args[i]
+				value = next
 			}
 			if arg.Int {
 				n, err := strconv.Atoi(strings.TrimSpace(value))
@@ -352,8 +360,8 @@ func mainHelp() string {
 }
 
 func firstSentence(s string) string {
-	if i := strings.Index(s, ". "); i >= 0 {
-		return s[:i+1]
+	if head, _, ok := strings.Cut(s, ". "); ok {
+		return head + "."
 	}
 	return s
 }

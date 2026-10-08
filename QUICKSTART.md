@@ -43,7 +43,7 @@ so it will not print a web URL.
 From the repo directory, build the binary and register it:
 
 ```bash
-go build -o bin/severino-vault-mcp ./cmd/severino-vault-mcp
+go build -trimpath -o bin/severino-vault-mcp ./cmd/severino-vault-mcp
 claude mcp add \
   -e SVMC_VAULT_PATH="$PWD/examples/sample-vault" \
   severino-vault-mcp \
@@ -183,8 +183,11 @@ vault://labs/doc/{doc_id}
 For daily use:
 
 ```bash
-go install ./cmd/severino-vault-mcp
+go install -trimpath ./cmd/severino-vault-mcp
 ```
+
+`-trimpath` strips the local checkout path from the binary, so builds are
+reproducible across machines.
 
 Then configure your MCP client with:
 
@@ -192,7 +195,7 @@ Then configure your MCP client with:
 command: severino-vault-mcp
 ```
 
-Rerun `go install ./cmd/severino-vault-mcp` after pulling new repo changes.
+Rerun `go install -trimpath ./cmd/severino-vault-mcp` after pulling new repo changes.
 
 ## 8. Optional: Enable Restricted Local Unlock
 

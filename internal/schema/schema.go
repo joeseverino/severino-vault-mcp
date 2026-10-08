@@ -240,9 +240,10 @@ func (p *Profile) CheckDocEnums(text string) []string {
 		if m == nil {
 			continue
 		}
-		field, rhs := m[1], strings.SplitN(m[2], "#", 2)[0]
+		rhs, _, _ := strings.Cut(m[2], "#")
+		field := m[1]
 		tokens := map[string]bool{}
-		for _, tok := range strings.Split(rhs, "|") {
+		for tok := range strings.SplitSeq(rhs, "|") {
 			if t := strings.TrimSpace(tok); t != "" {
 				tokens[t] = true
 			}
