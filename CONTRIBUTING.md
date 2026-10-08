@@ -46,6 +46,11 @@ scripts/check.sh
 bash tests/golden/verify.sh
 ```
 
+The gate runs `go test -race`, `govulncheck` (a `tool` directive in `go.mod`)
+and `golangci-lint` (configured in `.golangci.yml`; a pinned version runs
+through `go run`). Fix findings in place. A `//nolint` needs a specific linter
+and a reason.
+
 The suite covers indexing and frontmatter parsing, search and body search,
 the sensitivity gate and local unlock, validated writes, the task ledger, the
 CLI and its golden contracts, the MCP server through a real client, the

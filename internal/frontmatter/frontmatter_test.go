@@ -3,6 +3,7 @@ package frontmatter
 import (
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 )
 
@@ -76,5 +77,39 @@ func TestBodyOffset(t *testing.T) {
 	}
 	if BodyOffset("no block\n") != 0 {
 		t.Fatal("offset without a block")
+	}
+}
+
+func FuzzSplit(f *testing.F) {
+	for _, text := range fuzzseed.Markdown(f) {
+		f.Add(text)
+	}
+	f.Add("---\ndoc_id: x\ntags: [a, \"b\"]\nnotes: >-\n  one\n  two\n---\nbody\n")
+	f.Add("---\n---\n")
+	f.Add("[")
+	f.Fuzz(func(t *testing.T, text string) {
+		fm, _, line := Split(text)
+		if line < 1 {
+			t.Fatalf("body line %d", line)
+		}
+		if fm != nil {
+			_ = Serialize(fm)
+		}
+		if off := BodyOffset(text); off < 0 || off > len(text) {
+			t.Fatalf("BodyOffset %d outside 0..%d", off, len(text))
+		}
+		_ = ParseBlock(text)
+	})
+}
+
+func TestParseBlockSurvivesAnEmptyListItem(t *testing.T) {
+	for block, want := range map[string]string{
+		"A:\n - ":       `{"A":[null]}`,
+		"A:\n - \u00a0": `{"A":[null]}`,
+		"A:\n -":        `{"A":[]}`,
+	} {
+		if got := jsonx.Compact(ParseBlock(block)); got != want {
+			t.Errorf("%q parsed as %s, want %s", block, got, want)
+		}
 	}
 }

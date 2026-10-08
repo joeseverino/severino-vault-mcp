@@ -51,12 +51,13 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   restricted bodies.
 - Writes are schema-specific: validate against the vault's profile, keep
   `doc_id` immutable, serialize with `frontmatter.Serialize`, replace through
-  `fsx.WriteFile` (atomic). Never write vault files any other way.
+  `fsx.Vault.AtomicWrite` (atomic, confined to the vault by `os.Root`). Never
+  write vault files any other way.
 
 ## Verify
 
 ```bash
-scripts/check.sh            # the CI gate: gofmt, vet, test, govulncheck, repo invariants
+scripts/check.sh            # the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, repo invariants
 bash tests/golden/verify.sh
 ```
 
@@ -67,7 +68,7 @@ bash tests/golden/verify.sh
   and declares no providers, so no test reads this machine's real vaults.
 - `mcpserver` tests drive the real server through an in-memory client; the
   provider seam is tested against the test binary re-executed as a provider.
-- Seams: `gate.PromptPhrase` (unlock prompt), `fsx.WriteFile` (atomic write),
-  `clock.Now`.
+- Seams: `gate.PromptPhrase` (unlock prompt), `clock.Now`. A failed atomic
+  write is simulated with a read-only directory.
 - `internal/parity` diffs this binary against a Python reference CLI. It skips
   unless `SVMC_PARITY_PY` names one.

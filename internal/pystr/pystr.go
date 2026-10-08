@@ -210,7 +210,7 @@ func Prefix(s string, n int) string {
 // ReadText reads a file the way Python's Path.read_text(errors="replace")
 // does: invalid UTF-8 replaced, newlines universal.
 func ReadText(path string) (string, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // callers pass vault paths or operator-supplied files
 	if err != nil {
 		return "", err
 	}

@@ -147,9 +147,11 @@ Common constraints:
 
 - Every call acts on the vault named by its `vault` argument, through that
   vault's context. One vault's files are never reachable through another's.
-- Writes reject paths that escape the vault root. Path validation
-  (`internal/fsx`), scalar escaping (`frontmatter.Escape`) and durable
-  replacement (`fsx.AtomicWrite`) each have one implementation.
+- Writes reject paths that escape the vault root, by `..` or by a symlink
+  that leaves it. Reads and writes of vault files go through an `os.Root`
+  (`internal/fsx`), so a symlink swapped in after a check cannot redirect them.
+  Scalar escaping (`frontmatter.Escape`) and durable replacement
+  (`fsx.Vault.AtomicWrite`) each have one implementation.
 - Every write reports failure with the same `{"ok": false, "error": "..."}`
   envelope.
 - Frontmatter writes validate against the vault's schema profile before

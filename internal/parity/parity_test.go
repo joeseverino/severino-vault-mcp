@@ -11,6 +11,7 @@ package parity
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -78,7 +79,7 @@ func runCmd(argv []string, env map[string]string, stdin string) (string, int) {
 	cmd.Stderr = &bytes.Buffer{}
 	err := cmd.Run()
 	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		code = ee.ExitCode()
 	}
 	return out.String(), code
@@ -250,7 +251,7 @@ func TestCLIWritesLeaveTheSameFiles(t *testing.T) {
 
 func stripCreated(s string) string {
 	var out []string
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if !strings.HasPrefix(line, "created: ") {
 			out = append(out, line)
 		}

@@ -4,6 +4,7 @@
 package gate
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -70,7 +71,7 @@ func LoadHash(envHash, hashFile, service, account string) string {
 		return strings.TrimSpace(envHash)
 	}
 	if info, err := os.Stat(hashFile); err == nil && info.Mode().IsRegular() {
-		raw, err := os.ReadFile(hashFile)
+		raw, err := os.ReadFile(hashFile) //nolint:gosec // the unlock-hash file is operator config
 		if err != nil {
 			return ""
 		}
@@ -109,24 +110,18 @@ var PromptPhrase = func(docID, title string) (string, bool) {
 }
 
 func runTimeout(d time.Duration, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.Output()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return string(out), err
-	case <-time.After(d):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // only called with fixed program names
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("timeout")
 		}
-		<-done
-		return "", fmt.Errorf("timeout")
+		return "", err
 	}
+	return string(out), nil
 }
 
 func appleScriptString(v string) string {
@@ -149,10 +144,10 @@ func appendAudit(path, line string) {
 	if !strings.HasSuffix(line, "\n") {
 		line += "\n"
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // audit log directories keep the standard directory mode
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // the audit log path is operator config
 	if err != nil {
 		return
 	}

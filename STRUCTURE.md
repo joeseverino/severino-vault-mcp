@@ -22,8 +22,9 @@ One Go module, one binary.
 | `internal/write/`, `internal/tasks/` | Frontmatter writes and the task ledger. |
 | `internal/daily/`, `internal/brief/`, `internal/doctor/` | Daily notes and their brief region; the vault brief; frontmatter validation. |
 | `internal/education/`, `internal/hqmanifest/` | The edu dataset; the HQ docs manifest (moves to HQ). |
-| `internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}/` | Config, atomic writes and path checks, Python-exact JSON, Python string semantics, time, receipts, table rows. |
+| `internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}/` | Config, vault-confined file access (`os.Root`) and atomic writes, Python-exact JSON, Python string semantics, time, receipts, table rows. |
 | `internal/testkit/` | Test vault builders. |
+| `internal/fuzzseed/` | Sample-vault markdown as fuzz seeds. |
 | `internal/parity/` | Opt-in side-by-side harness against the Python reference. |
 
 ## Everything else
@@ -34,6 +35,7 @@ One Go module, one binary.
 | `docs/` | Architecture, safety model, AI tool contract, testing, migration, release checklist, release notes. |
 | `examples/sample-vault/` | Safe demo vault on the frontmatter contract. |
 | `scripts/check.sh` | The CI gate, run locally. |
-| `cordon.checks.json` | The gate's Go commands (gofmt, vet, test, govulncheck). |
+| `cordon.checks.json` | The gate's Go commands (gofmt, vet, test -race, govulncheck, golangci-lint, golden). |
+| `.golangci.yml` | golangci-lint v2 configuration. |
 | `.github/workflows/` | `ci.yml`, `release.yml`, `codeql.yml`, `scorecard.yml`. |
 | `config.example.toml` | Labs config template (edu and providers use the same `[vault]` shape). |

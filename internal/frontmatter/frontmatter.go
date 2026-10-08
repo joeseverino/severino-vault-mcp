@@ -83,7 +83,10 @@ func ParseBlock(block string) *jsonx.Obj {
 			continue
 		}
 		if currentList != "" && blockListItem.MatchString(raw) {
-			item := pystr.Strip(pystr.Strip(raw)[2:])
+			item := ""
+			if stripped := pystr.Strip(raw); len(stripped) > 2 {
+				item = pystr.Strip(stripped[2:])
+			}
 			existing, ok := data.Get(currentList)
 			list, isList := existing.([]any)
 			if !ok || !isList {
@@ -128,9 +131,9 @@ func ParseBlock(block string) *jsonx.Obj {
 			continue
 		}
 		currentList = ""
-		if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		if inner, ok := cutInlineList(value); ok {
 			items := []any{}
-			for _, item := range SplitInlineList(pystr.Strip(value[1 : len(value)-1])) {
+			for _, item := range SplitInlineList(pystr.Strip(inner)) {
 				items = append(items, Scalar(item))
 			}
 			data.Set(key, items)
@@ -282,4 +285,12 @@ func Serialize(data *jsonx.Obj) string {
 	}
 	lines = append(lines, "---", "")
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func cutInlineList(value string) (string, bool) {
+	inner, ok := strings.CutPrefix(value, "[")
+	if !ok {
+		return "", false
+	}
+	return strings.CutSuffix(inner, "]")
 }

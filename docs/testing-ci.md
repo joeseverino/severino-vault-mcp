@@ -25,8 +25,32 @@ Directly:
 ```bash
 gofmt -l .
 go vet ./...
-go test ./...
+go test -race ./...
+go tool govulncheck ./...
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 bash tests/golden/verify.sh
+```
+
+`govulncheck` and `deadcode` are `tool` directives in `go.mod`
+(`go tool deadcode -test ./...` lists unreachable functions). Lint rules live
+in `.golangci.yml`: errorlint, exhaustive, gocritic, gosec, modernize and
+staticcheck, with gosec's file-permission and subprocess rules relaxed for test
+files only.
+
+## Fuzzing and Benchmarks
+
+Fuzz targets cover the frontmatter parser, section chunking, the argon2 hash
+string parser, the daily-note brief region and path ordering. Run one with:
+
+```bash
+go test ./internal/frontmatter -run '^$' -fuzz FuzzSplit -fuzztime 20s
+```
+
+A crashing input is written under the package's `testdata/fuzz/` and replays
+as a regular test. The vault index build has a benchmark:
+
+```bash
+go test ./internal/vault -run '^$' -bench IndexBuild
 ```
 
 `find(by="text")` tests need `rg` on `PATH`.
@@ -58,7 +82,7 @@ each and diffs it; the gate runs it as the `golden` check.
 
 Runs on pushes to `main` and pull requests. It calls cordon's reusable gate
 (`cordon-gate.yml@v2`), which runs the commands in `cordon.checks.json`
-(gofmt, vet, test, govulncheck, golden) with cordon's repo invariants.
+(gofmt, vet, test with the race detector, govulncheck, golangci-lint, golden) with cordon's repo invariants.
 `scripts/check.sh` runs the same engine locally. `go.mod` pins the Go
 toolchain, so the runner fetches it if its own Go is older.
 
@@ -91,7 +115,10 @@ versioned by tag).
   for `restricted`; the one-request local unlock and its audit log.
 - `find(by="text")` skipping frontmatter and never searching restricted bodies.
 - Frontmatter creation and update against each profile; multiline values;
-  a failed atomic replace leaving the original intact; path escapes rejected.
+  a failed atomic replace leaving the original intact; `..` traversal and
+  symlinks that leave the vault rejected by every entry point that takes a path.
+- Provider child processes ending on handshake timeout and on context
+  cancellation.
 - The task ledger: add, status, promote, delete, reconcile.
 - Daily notes, the brief, `doctor`, the edu dataset, the HQ manifest.
 - The CLI: parsing, exit codes, `describe`, every subcommand.

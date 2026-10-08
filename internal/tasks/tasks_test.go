@@ -291,3 +291,52 @@ func TestCreateReceiptIsStableAndSorted(t *testing.T) {
 		t.Fatal(jsonx.Compact(ro))
 	}
 }
+
+func TestPromoteRefusesPathsOutsideTheVault(t *testing.T) {
+	root, loader := taskVault(t)
+	outside := filepath.Join(filepath.Dir(root), "outside-note.md")
+	tk.Write(t, outside, "# stray\n")
+	t.Cleanup(func() { _ = os.Remove(outside) })
+	if err := os.Symlink(outside, filepath.Join(root, "07 Backlog", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{"../outside-note.md", "07 Backlog/../../outside-note.md", "07 Backlog/link.md"} {
+		r := tasks.Promote(loader(), src, tasks.New{Title: "stolen", Effort: "S", Priority: "med"})
+		if r.Bool("ok") {
+			t.Fatalf("Promote(%q) accepted: %s", src, jsonx.Compact(r))
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatal("the outside note was deleted")
+	}
+}
+
+func TestAddRefusesAProjectNameThatLeavesTheVault(t *testing.T) {
+	root, loader := taskVault(t)
+	if err := os.MkdirAll(filepath.Join(root, "01 Projects", "cordon", "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := add(loader(), "escape attempt", project("../../.."))
+	if r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	outside := filepath.Join(filepath.Dir(root), "tasks")
+	if _, err := os.Stat(outside); err == nil {
+		t.Fatal("a directory was created outside the vault")
+	}
+}
+
+func TestAddRefusesATasksDirSymlinkedOutside(t *testing.T) {
+	root, loader := taskVault(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "01 Projects", "cordon", "tasks")); err != nil {
+		t.Fatal(err)
+	}
+	r := add(loader(), "linked out", project("cordon"))
+	if r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("task landed outside the vault: %v", entries)
+	}
+}

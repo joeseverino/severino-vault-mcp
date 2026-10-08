@@ -58,9 +58,10 @@ func wikiTargets(text string) []string {
 	var out []string
 	parts := strings.Split(text, "[[")
 	for _, part := range parts[1:] {
-		target := strings.SplitN(part, "]]", 2)[0]
-		target = strings.SplitN(target, "|", 2)[0]
-		target = pystr.Strip(strings.SplitN(target, "#", 2)[0])
+		target, _, _ := strings.Cut(part, "]]")
+		target, _, _ = strings.Cut(target, "|")
+		target, _, _ = strings.Cut(target, "#")
+		target = pystr.Strip(target)
 		if target != "" {
 			out = append(out, target)
 		}

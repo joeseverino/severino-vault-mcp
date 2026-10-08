@@ -92,7 +92,9 @@ func TestMalformedHashesFailClosed(t *testing.T) {
 
 func TestLoadHashPrefersEnvThenFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "hash")
-	os.WriteFile(file, []byte("$argon2id$v=19$m=64,t=1,p=1$a$b\n"), 0o600)
+	if err := os.WriteFile(file, []byte("$argon2id$v=19$m=64,t=1,p=1$a$b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if LoadHash(" env ", file, "s", "a") != "env" || LoadHash("", file, "s", "a") != "$argon2id$v=19$m=64,t=1,p=1$a$b" {
 		t.Fatal("load order")
 	}
@@ -113,4 +115,25 @@ func TestAdvisories(t *testing.T) {
 		!strings.Contains(Advisory(Restricted, true), "released") || Advisory(Public, false) != "" {
 		t.Fatal("advisories")
 	}
+}
+
+func FuzzParseHash(f *testing.F) {
+	encoded, err := HashPhrase("open sesame", fast)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(encoded)
+	f.Add("$argon2id$v=19$m=64,t=1,p=1$a$b")
+	f.Add("$argon2id$v=19$m=1048577,t=17,p=0$$")
+	f.Add("$argon2id$v=19$m=64,m=64,p=1$AAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAA")
+	f.Fuzz(func(t *testing.T, s string) {
+		p, salt, key, err := ParseHash(s)
+		if err != nil {
+			return
+		}
+		if p.Time == 0 || p.Time > maxTime || p.Memory > maxMemory || p.Threads == 0 ||
+			len(salt) < minSaltLen || len(key) < minKeyLen || len(key) > maxKeyLen {
+			t.Fatalf("accepted out-of-range hash %q: %+v", s, p)
+		}
+	})
 }

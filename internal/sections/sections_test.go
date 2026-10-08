@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
 )
 
 const multi = `Overview line before any heading.
@@ -84,4 +86,19 @@ func TestSummaryIsTheFirstSentenceCapped(t *testing.T) {
 	if got := Summary(long[0]); !strings.HasSuffix(got, "…") || len([]rune(got)) != 120 {
 		t.Fatalf("%d %q", len([]rune(got)), got)
 	}
+}
+
+func FuzzParseCap(f *testing.F) {
+	for _, text := range fuzzseed.Markdown(f) {
+		f.Add(text, 1, 800)
+	}
+	f.Add(multi, 5, 20)
+	f.Add("## a\n### b\n```\n## not a heading\n```\n", 1, 1)
+	f.Fuzz(func(t *testing.T, body string, startLine, tokenCap int) {
+		tokenCap = 1 + (tokenCap%4000+4000)%4000
+		secs := ParseCap(body, startLine, tokenCap)
+		for _, s := range secs {
+			_ = Summary(s)
+		}
+	})
 }

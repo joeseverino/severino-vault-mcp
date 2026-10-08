@@ -22,11 +22,11 @@ func TodayISO() string { return Today().Format("2006-01-02") }
 // ParseDate parses YYYY-MM-DD.
 func ParseDate(s string) (time.Time, error) {
 	if len(s) != 10 {
-		return time.Time{}, fmt.Errorf("Invalid isoformat string: %q", s)
+		return time.Time{}, fmt.Errorf("Invalid isoformat string: %q", s) //nolint:staticcheck // wording is part of the CLI's error contract
 	}
 	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("Invalid isoformat string: %q", s)
+		return time.Time{}, fmt.Errorf("Invalid isoformat string: %q", s) //nolint:staticcheck // wording is part of the CLI's error contract
 	}
 	return t, nil
 }

@@ -56,7 +56,12 @@ func UpdateLink(l *vault.Loader, docID, label, expectedHref, replacementHref str
 			return fail(pair[0] + " must be an absolute HTTP(S) URL")
 		}
 	}
-	text, err := pystr.ReadText(d.Path)
+	v, err := fsx.OpenVault(l.Config.VaultPath)
+	if err != nil {
+		return fail("write failed: " + err.Error())
+	}
+	defer v.Close()
+	text, err := v.ReadText(d.Path)
 	if err != nil {
 		return fail("write failed: " + err.Error())
 	}
@@ -72,7 +77,7 @@ func UpdateLink(l *vault.Loader, docID, label, expectedHref, replacementHref str
 		return fail(fmt.Sprintf("expected exactly one matching link; found %d", len(found)))
 	}
 	newBody := body[:found[0][0]] + "[" + label + "](" + replacementHref + ")" + body[found[0][1]:]
-	if err := fsx.WriteFile(d.Path, head+newBody); err != nil {
+	if err := v.AtomicWrite(d.Path, head+newBody); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	l.Index(true)
@@ -118,11 +123,12 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 	if len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
-	full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
 	if perr != nil {
 		return perr
 	}
-	body, err := pystr.ReadText(full)
+	defer v.Close()
+	body, err := v.ReadText(full)
 	if err != nil {
 		return fail("write failed: " + err.Error())
 	}
@@ -151,7 +157,7 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 			"effort", "S", "priority", "med", "created", reviewed,
 			"tags", strList(taskTags),
 		)
-		if err := fsx.WriteFile(full, frontmatter.Serialize(payload)+body); err != nil {
+		if err := v.AtomicWrite(full, frontmatter.Serialize(payload)+body); err != nil {
 			return fail("write failed: " + err.Error())
 		}
 		l.Index(true)
@@ -166,7 +172,7 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 		"tags", strList(tags),
 	)
 	text := frontmatter.Serialize(payload) + body
-	if err := fsx.WriteFile(full, text); err != nil {
+	if err := v.AtomicWrite(full, text); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	l.Index(true)
@@ -249,13 +255,14 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 	if len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
-	full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
 	if perr != nil {
 		return perr
 	}
+	defer v.Close()
 	root := fsx.Resolve(l.Config.VaultPath)
 	rel, _ := filepath.Rel(root, full)
-	text, err := pystr.ReadText(full)
+	text, err := v.ReadText(full)
 	if err != nil {
 		return fail("write failed: " + err.Error())
 	}
@@ -311,7 +318,7 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 		return jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
 			"message", "No fields differ — nothing written.")
 	}
-	if err := fsx.WriteFile(full, frontmatter.Serialize(fm)+body); err != nil {
+	if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	l.Index(true)
@@ -340,11 +347,12 @@ func strOr(p *string, def string) string {
 
 // SetFrontmatter creates the block when absent, else updates it.
 func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profile) *jsonx.Obj {
-	full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
 	if perr != nil {
 		return perr
 	}
-	text, err := pystr.ReadText(full)
+	defer v.Close()
+	text, err := v.ReadText(full)
 	if err != nil {
 		return fail("write failed: " + err.Error())
 	}
@@ -399,12 +407,13 @@ func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profi
 
 // TouchReviewed sets last_reviewed to today without rebuilding the index.
 func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
-	full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
 	if perr != nil {
 		return perr
 	}
+	defer v.Close()
 	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
-	text, err := pystr.ReadText(full)
+	text, err := v.ReadText(full)
 	if err != nil {
 		return fail("write failed: " + err.Error())
 	}
@@ -419,7 +428,7 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 			"message", "No fields differ — nothing written.")
 	}
 	fm.Set("last_reviewed", reviewed)
-	if err := fsx.WriteFile(full, frontmatter.Serialize(fm)+body); err != nil {
+	if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
 		return fail("write failed: " + err.Error())
 	}
 	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", []string{"last_reviewed"}, "next_step", nextStep)
@@ -430,6 +439,11 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 	idx := l.Index(true)
 	root := fsx.Resolve(l.Config.VaultPath)
+	v, err := fsx.OpenVault(l.Config.VaultPath)
+	if err != nil {
+		return fail("write failed: " + err.Error())
+	}
+	defer v.Close()
 	updated := []string{}
 	skipped := 0
 	for _, d := range idx.Docs {
@@ -437,7 +451,7 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 			continue
 		}
 		full := filepath.Join(root, d.RelativePath)
-		text, err := pystr.ReadText(full)
+		text, err := v.ReadText(full)
 		if err != nil {
 			return fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
 		}
@@ -470,7 +484,7 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 			}
 		}
 		fm.Set("aliases", aliases)
-		if err := fsx.WriteFile(full, frontmatter.Serialize(fm)+body); err != nil {
+		if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
 			return fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
 		}
 		updated = append(updated, d.RelativePath)

@@ -7,9 +7,11 @@
     { "id": "go-vet", "name": "go vet", "effect": "read", "network": true, "requires": ["go"],
       "exec": { "cmd": "go", "args": ["vet", "./..."] } },
     { "id": "go-test", "name": "go test", "effect": "read", "network": true, "requires": ["go", "rg"],
-      "exec": { "cmd": "go", "args": ["test", "./..."] }, "timeout": 600000 },
+      "exec": { "cmd": "go", "args": ["test", "-race", "./..."] }, "timeout": 600000 },
     { "id": "govulncheck", "name": "govulncheck", "effect": "read", "network": true, "requires": ["go"],
-      "exec": { "cmd": "go", "args": ["run", "golang.org/x/vuln/cmd/govulncheck@v1.8.0", "./..."] }, "timeout": 600000 },
+      "exec": { "cmd": "go", "args": ["tool", "govulncheck", "./..."] }, "timeout": 600000 },
+    { "id": "golangci-lint", "name": "golangci-lint", "effect": "read", "network": true, "requires": ["go"],
+      "exec": { "cmd": "go", "args": ["run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0", "run", "./..."] }, "timeout": 600000 },
     { "id": "golden", "name": "Golden contracts", "effect": "read", "network": true, "requires": ["go", "bash"],
       "exec": { "cmd": "bash", "args": ["tests/golden/verify.sh"] },
       "fix": "a deliberate contract change: regenerate the snapshot in tests/golden/" }

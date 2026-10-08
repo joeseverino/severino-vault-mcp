@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -142,13 +143,14 @@ func RecentChanges(l *vault.Loader, days, limit int) *jsonx.Obj {
 	args = append(args, l.Config.IndexedDirs...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // fixed program; arguments follow "--" or are numeric
 	cmd.Dir = l.Config.VaultPath
+	cmd.WaitDelay = time.Second
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		if _, isExit := err.(*exec.ExitError); !isExit {
+		if _, isExit := errors.AsType[*exec.ExitError](err); !isExit {
 			return jsonx.New("error", "git log failed: "+err.Error())
 		}
 		msg := strings.TrimSpace(stderr.String())
@@ -211,12 +213,13 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	args = append(args, roots...)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, rg, args...)
+	cmd := exec.CommandContext(ctx, rg, args...) //nolint:gosec // rg resolved by LookPath; the query is a pattern argument
+	cmd.WaitDelay = time.Second
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, runErr := cmd.Output()
 	if runErr != nil {
-		exit, isExit := runErr.(*exec.ExitError)
+		exit, isExit := errors.AsType[*exec.ExitError](runErr)
 		if !isExit {
 			return jsonx.New("error", "ripgrep failed: "+runErr.Error())
 		}

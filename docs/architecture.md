@@ -148,7 +148,8 @@ Details: [`ai-safety-security.md`](ai-safety-security.md).
 ## Write model
 
 - No tool takes an arbitrary path plus arbitrary text.
-- Paths validate against the named vault's root (`internal/fsx`).
+- Paths are confined to the named vault's root: file operations go through
+  an `os.Root` opened on it (`internal/fsx`).
 - Frontmatter writes validate against the vault's profile, keep `doc_id`
   immutable, and replace atomically; a failed write leaves the original intact.
 - Provider tools are the provider's to govern; the host forwards calls and

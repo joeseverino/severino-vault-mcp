@@ -42,7 +42,8 @@ func firstTruthy(vals ...any) any {
 }
 
 func slimEntry(fm *jsonx.Obj, relativePath, kind string) *jsonx.Obj {
-	slug := strings.Split(relativePath, "/")[1]
+	_, rest, _ := strings.Cut(relativePath, "/")
+	slug, _, _ := strings.Cut(rest, "/")
 	published := pystr.Truthy(get(fm, "published"))
 	var docID any
 	var contentType, externalURL string
@@ -124,7 +125,7 @@ func Build(vaultPath string, subdirs []string) *jsonx.Obj {
 			missingFM = append(missingFM, rel)
 			continue
 		}
-		top := strings.Split(rel, "/")[0]
+		top, _, _ := strings.Cut(rel, "/")
 		var entry *jsonx.Obj
 		switch {
 		case top == WriteupDir && filepath.Base(path) == "index.md":

@@ -87,7 +87,7 @@ func envList(env Env, name string, def []string) []string {
 // SplitColon splits a colon list, dropping empty parts.
 func SplitColon(v string) []string {
 	out := []string{}
-	for _, part := range strings.Split(v, ":") {
+	for part := range strings.SplitSeq(v, ":") {
 		if part != "" {
 			out = append(out, part)
 		}
@@ -110,7 +110,7 @@ func envBool(env Env, name string, def bool) bool {
 // ReadTOML parses a TOML file into a map; missing or invalid files are empty.
 func ReadTOML(path string) map[string]any {
 	data := map[string]any{}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // the config path is operator input
 	if err != nil {
 		return data
 	}
