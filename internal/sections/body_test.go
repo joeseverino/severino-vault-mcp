@@ -37,16 +37,13 @@ func TestBodyRanges(t *testing.T) {
 	if got := b.NextHeading(h.Line); got != 3 {
 		t.Errorf("NextHeading = %d, want 3 (any level)", got)
 	}
-	if got := b.SectionEnd(h); got != 5 {
-		t.Errorf("SectionEnd = %d, want 5 (subsections inside)", got)
-	}
 	if u, ok := b.Under(4); !ok || u.Text != "A1" {
 		t.Errorf("Under(4) = %v %v", u, ok)
 	}
 	if _, ok := b.Under(0); ok {
 		t.Error("the preamble is under no heading")
 	}
-	if b2, _ := b.Find(2, "B"); b.SectionEnd(b2) != len(b.Lines) {
+	if b2, _ := b.Find(2, "B"); b.NextHeading(b2.Line) != len(b.Lines) {
 		t.Error("the last section runs to the end")
 	}
 	if b.String() != "intro\n## A\na\n### A1\nx\n## B\nb" {

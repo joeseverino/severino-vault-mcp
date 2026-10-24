@@ -29,7 +29,11 @@ type Section struct {
 	Level       int    // 2, 3 when sub-split, 0 for the preamble
 	Body        string // includes its heading line
 	StartLine   int    // 1-indexed line in the source file
+	Part        int    // 1-based part of a heading hard-wrapped into several, or 0
 }
+
+// End is the line after the section: StartLine plus its line count.
+func (s Section) End() int { return s.StartLine + len(Lines(s.Body)) }
 
 type block struct {
 	heading     string
@@ -37,6 +41,7 @@ type block struct {
 	headingPath string
 	lines       []string
 	startLine   int
+	part        int
 }
 
 func estimateTokens(text string) int {
@@ -193,7 +198,7 @@ func hardwrap(b block, cap int) []block {
 		if b.headingPath != "" {
 			path = fmt.Sprintf("%s (part %d)", b.headingPath, n+1)
 		}
-		out = append(out, block{b.heading, b.level, path, chunk, b.startLine + cursor})
+		out = append(out, block{b.heading, b.level, path, chunk, b.startLine + cursor, n + 1})
 		cursor += len(chunk)
 	}
 	return out
@@ -212,7 +217,7 @@ func subsplit(b block, cap int) []block {
 	lead := b.lines[:h3[0]]
 	for _, line := range lead {
 		if pystr.Strip(line) != "" {
-			parts = append(parts, block{b.heading, 2, b.headingPath, lead, b.startLine})
+			parts = append(parts, block{b.heading, 2, b.headingPath, lead, b.startLine, 0})
 			break
 		}
 	}
@@ -222,7 +227,7 @@ func subsplit(b block, cap int) []block {
 			end = h3[n+1]
 		}
 		text := headings[start].text
-		parts = append(parts, block{text, 3, b.heading + " > " + text, b.lines[start:end], b.startLine + start})
+		parts = append(parts, block{text, 3, b.heading + " > " + text, b.lines[start:end], b.startLine + start, 0})
 	}
 	var out []block
 	for _, part := range parts {
@@ -253,7 +258,7 @@ func ParseCap(body string, bodyStartLine, cap int) []Section {
 	}
 	for _, line := range lines[:first] {
 		if pystr.Strip(line) != "" {
-			blocks = append(blocks, block{"", 0, "", lines[:first], bodyStartLine})
+			blocks = append(blocks, block{"", 0, "", lines[:first], bodyStartLine, 0})
 			break
 		}
 	}
@@ -263,7 +268,7 @@ func ParseCap(body string, bodyStartLine, cap int) []Section {
 			end = h2[n+1]
 		}
 		text := headings[start].text
-		blocks = append(blocks, block{text, 2, text, lines[start:end], bodyStartLine + start})
+		blocks = append(blocks, block{text, 2, text, lines[start:end], bodyStartLine + start, 0})
 	}
 
 	s := &slugger{counts: map[string]int{}}
@@ -277,30 +282,42 @@ func ParseCap(body string, bodyStartLine, cap int) []Section {
 				Level:       sub.level,
 				Body:        strings.Join(sub.lines, "\n"),
 				StartLine:   sub.startLine,
+				Part:        sub.part,
 			})
 		}
 	}
 	return out
 }
 
-// Resolve finds a section by slug, then by heading path or heading.
+// Resolve is the first section Matches finds for ref, or nil.
 func Resolve(secs []Section, ref string) *Section {
+	if m := Matches(secs, ref); len(m) > 0 {
+		return m[0]
+	}
+	return nil
+}
+
+// Matches are the sections ref names: the one whose slug it is, else every
+// section whose heading path or heading it is, case aside, or whose slug is
+// ref's slug.
+func Matches(secs []Section, ref string) []*Section {
 	needle := strings.ToLower(pystr.Strip(ref))
 	if needle == "" {
 		return nil
 	}
 	for i := range secs {
 		if needle == strings.ToLower(secs[i].Slug) {
-			return &secs[i]
+			return []*Section{&secs[i]}
 		}
 	}
+	var out []*Section
 	nslug := Slugify(needle)
 	for i := range secs {
 		if needle == strings.ToLower(secs[i].HeadingPath) || needle == strings.ToLower(secs[i].Heading) || nslug == secs[i].Slug {
-			return &secs[i]
+			out = append(out, &secs[i])
 		}
 	}
-	return nil
+	return out
 }
 
 // Summary is the section's first prose sentence, capped at 120 characters.

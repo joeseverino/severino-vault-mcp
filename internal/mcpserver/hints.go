@@ -63,7 +63,7 @@ var outputSchemas = map[string]json.RawMessage{
 	"find": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "mode", ty("string"), "filters", ty("object"),
 		"fallback", ty("string"), "match_count", ty("integer"), "words", textList(),
-		"recommended", ty("object"), "hits", records(core.HitFields), "next_steps", textList(),
+		"recommended", ty("object"), "hits", records(core.HitFields), "next_steps", textList(), "warning", ty("string"),
 	)),
 	"read_doc": outSchema(fieldProps(core.DocFields).Merge(jsonx.New(
 		"found", ty("boolean"), "resolved_from_alias", ty("object"), "body_released", ty("boolean"),
@@ -72,12 +72,12 @@ var outputSchemas = map[string]json.RawMessage{
 			"section", ty("string"), "heading_path", ty("string"), "body", ty("string")))),
 		"section_error", ty("string"), "available_sections", jsonx.New("type", "array", "items", ty("object")),
 		"ok", ty("boolean"), "error", ty("string"), "ambiguous", ty("boolean"), "paths", textList(),
-		"alias_hint", ty("string"), "next_steps", textList(),
+		"alias_hint", ty("string"), "next_steps", textList(), "warning", ty("string"),
 	))),
 	"task_board": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "count", ty("integer"), "total", ty("integer"),
 		"tasks", records(core.TaskFields), "shipped", records(core.TaskFields), "projects", textList(),
-		"queue", records(core.QueueItemFields), "next_steps", textList(),
+		"queue", records(core.QueueItemFields), "next_steps", textList(), "warning", ty("string"),
 	)),
 	"task_write": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "doc_id", ty("string"), "relative_path", ty("string"),

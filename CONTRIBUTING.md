@@ -43,7 +43,7 @@ Run before opening a pull request:
 
 ```bash
 scripts/check.sh
-bash tests/golden/verify.sh
+mise run golden
 ```
 
 The gate runs `go test -race`, `govulncheck` (a `tool` directive in `go.mod`)

@@ -36,7 +36,7 @@ internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
 internal/core            the 10 shared tools, transport-free (the MCP adapter and tests both call these)
-internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
+internal/{vault,sections,links,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 internal/archtest         source guards (tests only): one home per fact
@@ -115,7 +115,7 @@ internal/archtest         source guards (tests only): one home per fact
 
 ```bash
 scripts/check.sh            # the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, repo invariants
-bash tests/golden/verify.sh
+mise run golden             # the public surfaces against tests/golden
 scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
 ```
 

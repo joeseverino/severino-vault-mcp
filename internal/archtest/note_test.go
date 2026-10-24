@@ -2,6 +2,8 @@ package archtest
 
 import (
 	"go/ast"
+	"go/parser"
+	"go/token"
 	"testing"
 )
 
@@ -161,8 +163,11 @@ func isBuiltinMake(call *ast.CallExpr, elem string) bool {
 	return ok && lid.Name == "len"
 }
 
-// fieldGetter matches func(x *jsonx.Obj, key string, ...) string: reading
-// one field as text.
+// fieldGetter matches func(x *jsonx.Obj, key string, ...) string whose body
+// reads x with key (x[key], x.Get(key), x.Text(key)) and returns something
+// other than a literal, a concatenation or a formatted message: reading one
+// field as text. A check that takes the same parameters and returns a problem
+// message returns only literals and formatted text, so it does not match.
 func fieldGetter(fn *ast.FuncDecl, jsonxName string) bool {
 	if fn.Recv != nil || fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
 		return false
@@ -170,17 +175,23 @@ func fieldGetter(fn *ast.FuncDecl, jsonxName string) bool {
 	if id, ok := fn.Type.Results.List[0].Type.(*ast.Ident); !ok || id.Name != "string" {
 		return false
 	}
-	var types []ast.Expr
+	type param struct {
+		name string
+		typ  ast.Expr
+	}
+	var params []param
 	for _, f := range fn.Type.Params.List {
-		n := max(len(f.Names), 1)
-		for range n {
-			types = append(types, f.Type)
+		if len(f.Names) == 0 {
+			params = append(params, param{"", f.Type})
+		}
+		for _, n := range f.Names {
+			params = append(params, param{n.Name, f.Type})
 		}
 	}
-	if len(types) < 2 {
+	if len(params) < 2 {
 		return false
 	}
-	star, ok := types[0].(*ast.StarExpr)
+	star, ok := params[0].typ.(*ast.StarExpr)
 	if !ok {
 		return false
 	}
@@ -192,6 +203,89 @@ func fieldGetter(fn *ast.FuncDecl, jsonxName string) bool {
 	if !ok || pkg.Name != jsonxName || sel.Sel.Name != "Obj" {
 		return false
 	}
-	key, ok := types[1].(*ast.Ident)
-	return ok && key.Name == "string"
+	key, ok := params[1].typ.(*ast.Ident)
+	if !ok || key.Name != "string" {
+		return false
+	}
+	obj, keyName := params[0].name, params[1].name
+	if obj == "" || keyName == "" || obj == "_" || keyName == "_" {
+		return false
+	}
+	isObj := func(e ast.Expr) bool { id, ok := e.(*ast.Ident); return ok && id.Name == obj }
+	isKey := func(e ast.Expr) bool { id, ok := e.(*ast.Ident); return ok && id.Name == keyName }
+	reads, returnsValue := false, false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && isObj(sel.X) {
+				for _, a := range n.Args {
+					if isKey(a) {
+						reads = true
+					}
+				}
+			}
+		case *ast.IndexExpr:
+			x := n.X
+			if sel, ok := x.(*ast.SelectorExpr); ok {
+				x = sel.X
+			}
+			if isObj(x) && isKey(n.Index) {
+				reads = true
+			}
+		case *ast.ReturnStmt:
+			for _, r := range n.Results {
+				if !messageExpr(r) {
+					returnsValue = true
+				}
+			}
+		}
+		return true
+	})
+	return reads && returnsValue
+}
+
+// messageExpr is a return expression that builds text rather than passing a
+// read value through: a string literal, a concatenation, or a Sprintf.
+func messageExpr(e ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		return true
+	case *ast.BinaryExpr:
+		return true
+	case *ast.CallExpr:
+		sel, ok := e.Fun.(*ast.SelectorExpr)
+		return ok && sel.Sel.Name == "Sprintf"
+	}
+	return false
+}
+
+func TestFieldGetterMatchesReadsOnly(t *testing.T) {
+	const src = `package p
+import "x/jsonx"
+func getter(o *jsonx.Obj, k string) string { v, _ := o.Get(k).(string); return v }
+func indexed(o *jsonx.Obj, k string) string { return o.M[k] }
+func check(o *jsonx.Obj, k string) string {
+	if o.Has(k) { return "" }
+	return fmt.Sprintf("%s missing", k)
+}
+func literal(o *jsonx.Obj, k string) string {
+	if o.Text(k) == "" { return "empty" }
+	return ""
+}
+func other(o *jsonx.Obj, k string) string { return "x" }
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"getter": true, "indexed": true, "check": false, "literal": false, "other": false}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if got := fieldGetter(fn, "jsonx"); got != want[fn.Name.Name] {
+			t.Errorf("fieldGetter(%s) = %v, want %v", fn.Name.Name, got, want[fn.Name.Name])
+		}
+	}
 }

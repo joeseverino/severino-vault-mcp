@@ -638,7 +638,16 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+" with the same body, once the user has fixed the unlock")
 		}
 	}
-	return guide(write.EditSection(v.Loader, d.RelativePath, heading, a.Body, a.Mode == "append_section", v.Profile), v.sectionSteps(d, a.Mode))
+	out := write.EditSection(v.Loader, d.RelativePath, heading, a.Body, a.Mode == "append_section", v.Profile)
+	if c, ok := out.Get("candidates"); ok {
+		names := vault.CoerceList(c)
+		steps := make([]string, len(names))
+		for i, n := range names {
+			steps[i] = Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", n) + " with the same body"
+		}
+		return steer(out, steps...)
+	}
+	return guide(out, v.sectionSteps(d, a.Mode))
 }
 
 // noProfile is the step for a vault without a schema profile.
@@ -674,7 +683,7 @@ func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []
 			[]string{Call("find", "query", docID) + " to get a doc_id, then retry with it"}
 	case relativePath != "":
 		clean := filepath.Clean(strings.TrimLeft(relativePath, "/"))
-		for _, d := range idx.Docs {
+		for _, d := range idx.WithArchived() {
 			if d.RelativePath == clean {
 				return d, "", nil
 			}

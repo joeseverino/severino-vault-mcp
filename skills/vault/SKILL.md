@@ -56,8 +56,11 @@ they started with.
   project's `index.md` that includes `project_path` and the work queue keys
   `repos` / `add_repos` / `remove_repos` and `queue_prefix`.
 - `write_doc` creates a registered doc, or replaces or appends to one section
-  of its body; `heading: ""` is the text before the first heading. Body edits to a registered doc go through it, never the file
-  directly.
+  of its body. `heading` takes a `heading_path` or section slug from
+  `read_doc`'s outline, or a unique heading text; `""` is the text before the
+  first heading. `replace_section` replaces exactly what `read_doc` returns
+  for that section, so read it first; the body leaves out the heading line.
+  Body edits to a registered doc go through it, never the file directly.
 - `move_doc` moves or renames a registered doc (`to` is a .md path, or a
   folder ending in `/`); its doc_id and frontmatter stay. Never move a vault
   file with the shell. A file name another note already has is refused, since
@@ -75,7 +78,10 @@ they started with.
 - `99 Archive` is history: only archived docs go there (a task: closed), and
   `archive=true` on `move_doc` or `move_folder` sets `status: archived` in the
   same call. `find` leaves archived docs out unless `include_archived=true`;
-  `read_doc` still reads them by doc_id.
+  `read_doc` still reads them by doc_id. `set_frontmatter` and `write_doc`
+  edit an archived doc like any other while it stays archived, and
+  `set_frontmatter` registers a bare archive note with `doc_id`, `title`,
+  `doc_type` and `status: archived`.
 - A newer report of a series supersedes the old one: on the old one,
   `set_frontmatter` `superseded_by` to the new doc's doc_id and
   `status: deprecated`.
@@ -102,9 +108,12 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   `kind="decision"` add, closed with their answer as the resolution.
 - `queue(action="list", cwd=...)` shows open and returned items;
   `ready=true` the unblocked next work, `kind="decision"` the open questions,
-  `all=true` every project's queue.
+  `all=true` every project's queue, `links={"branch": ...}` the items on
+  exactly that branch, in whichever queue holds them.
 - `queue(action="set", id=..., claim=true, owner=...)` takes an item only if
-  nobody holds it; `status="returned"` marks a delegated item handed back;
+  nobody holds it; add `agent=...`, `kind="delegated"` and `links={"branch":...}`
+  to take a queued item over for a worker in the same call (one locked edit,
+  so a lost claim changes nothing); `status="returned"` marks a delegated item handed back;
   `links={...}` records a pr, branch, commit or slug.
 - `queue(action="close", id=..., resolution="repo@sha")` closes it
   (`status="dropped"` with the reason as the resolution for work not done).

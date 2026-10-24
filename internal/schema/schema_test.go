@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "a978fb8e0581acd40a0cd16ab0ddcc06108ebdde3b6165acc1082cc90f5c8506"
+const labsFingerprint = "b138c66bf083f5160ef57a1fe725f99224af2dd5f887dd17d3eba6604151710d"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -85,13 +85,23 @@ func TestDocumentSchemaValidatesComposableFieldRules(t *testing.T) {
 	}
 }
 
-// A work queue note is its own doc_type, and its doc_id carries queue-.
+// A work queue note is its own doc_type, its doc_id carries queue-, and it
+// is held to its own required set: queue_format, and no environment or
+// sensitivity.
 func TestAQueueNoteCarriesTheQueuePrefix(t *testing.T) {
 	block := func(id string) *jsonx.Obj {
-		return jsonx.New("doc_id", id, "title", "Q", "doc_type", "queue", "system", "x", "environment", "other",
-			"status", "active", "sensitivity", "internal")
+		return jsonx.New("doc_id", id, "title", "Q", "doc_type", "queue", "system", "x", "status", "active", QueueFormatField, "1")
 	}
 	if errs := Labs.Check(block("queue-example"), "01 Projects/Example/Queue.md"); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	unformatted := block("queue-example")
+	unformatted.Delete(QueueFormatField)
+	if errs := Labs.Check(unformatted, "01 Projects/Example/Queue.md"); !slices.Equal(errs, []string{"missing required field: queue_format"}) {
+		t.Fatal(errs)
+	}
+	runbook := block("rb-example").Set("doc_type", "runbook")
+	if errs := Labs.Check(runbook, "03 Runbooks/Example.md"); !slices.Contains(errs, "missing required field: environment") {
 		t.Fatal(errs)
 	}
 	errs := Labs.Check(block("note-example"), "01 Projects/Example/Queue.md")
@@ -121,6 +131,11 @@ func TestFromContractRoundTripsAndRejectsUnknownDocTypes(t *testing.T) {
 	p.DocumentSchemas = map[string]DocumentSchema{"runbook": domain}
 	back, err := FromContract(p.ContractDict())
 	if err != nil || back.Fingerprint() != p.Fingerprint() {
+		t.Fatalf("%v", err)
+	}
+	// A doc_type's own required set survives the trip.
+	labs, err := FromContract(Labs.ContractDict())
+	if err != nil || labs.Fingerprint() != Labs.Fingerprint() || !slices.Equal(labs.RequiredFor(QueueDocType), Labs.RequiredFor(QueueDocType)) {
 		t.Fatalf("%v", err)
 	}
 	c := p.ContractDict()

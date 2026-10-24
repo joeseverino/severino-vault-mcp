@@ -1,7 +1,6 @@
 package core
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -12,14 +11,10 @@ import (
 )
 
 // archivedStatus is the status a doc carries in the archive.
-const archivedStatus = "archived"
-
-// closedTask are the task statuses that go into the archive as they are:
-// archived is not a task status, and a closed task is already history.
-var closedTask = []string{"done", "wontfix"}
+const archivedStatus = schema.ArchivedStatus
 
 func openTask(d *vault.Doc) bool {
-	return schema.IsTask(d.Frontmatter) && !slices.Contains(closedTask, d.Status)
+	return schema.IsTask(d.Frontmatter) && !schema.Archivable(d.Frontmatter)
 }
 
 // unarchived are the docs among docs that cannot go into the archive as they

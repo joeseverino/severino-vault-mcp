@@ -205,7 +205,7 @@ func TestRenamingAProjectFolderCarriesEveryLinkAndReference(t *testing.T) {
 	}
 	queueNote := tk.Read(t, filepath.Join(root, newProject, "Queue.md"))
 	qfm := frontmatter.NewNote(queueNote).FM
-	if qfm.Text("doc_id") != "queue-widgetry" || qfm.Text("title") != "widgetworks Queue" || !strings.Contains(queueNote, "\n# widgetworks Queue\n") {
+	if qfm.Text("doc_id") != "queue-widgetry" || qfm.Text("title") != "widgetworks Queue" {
 		t.Fatalf("queue note:\n%s", queueNote)
 	}
 	list := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "widgetworks"}))

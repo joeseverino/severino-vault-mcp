@@ -28,3 +28,6 @@ tool (
 	golang.org/x/tools/cmd/deadcode
 	golang.org/x/vuln/cmd/govulncheck
 )
+
+// var/ holds gitignored scratch files; no ./... walk reads them.
+ignore ./var

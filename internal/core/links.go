@@ -1,64 +1,27 @@
 package core
 
 import (
-	"io/fs"
 	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/internal/links"
 )
 
-// Links that name a file by path, as Obsidian writes them: a wikilink or an
-// embed, its target ending at the first | or # (a table cell escapes the
-// pipe as \|), and a markdown link or image, its target in angle brackets
-// or bare up to whitespace or the closing parenthesis.
-var (
-	wikiLinkRE = regexp.MustCompile(`(!?\[\[)([^\[\]|#\n]*)((?:[#|][^\[\]\n]*)?\]\])`)
-	mdLinkRE   = regexp.MustCompile(`(!?\[[^\]\n]*\]\()(<[^>\n]*>|[^)\s]+)((?:\s+"[^"\n]*")?\))`)
-	schemeRE   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
-)
+// schemeRE marks a markdown link to a URL rather than a file.
+var schemeRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
 
 // layout is the vault's files before a folder moved, and the move: from and
 // to are clean vault-relative folders.
 type layout struct {
 	from, to string
-	files    map[string]string // lowercased path -> path, before the move
-	sorted   []string          // the paths, sorted
-}
-
-// vaultFiles is every file in the vault outside its hidden trees (the note
-// locks, .obsidian, .trash), as clean vault-relative paths.
-func vaultFiles(vaultPath string) []string {
-	var out []string
-	_ = filepath.WalkDir(vaultPath, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if p != vaultPath && strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if rel, err := filepath.Rel(vaultPath, p); err == nil {
-			out = append(out, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	slices.Sort(out)
-	return out
+	*links.Files
 }
 
 func newLayout(from, to string, files []string) *layout {
-	l := &layout{from: from, to: to, files: map[string]string{}, sorted: files}
-	for _, f := range files {
-		l.files[strings.ToLower(f)] = f
-	}
-	return l
+	return &layout{from: from, to: to, Files: links.NewFiles(files)}
 }
 
 // under reports whether rel is inside dir.
@@ -80,29 +43,6 @@ func (l *layout) before(rel string) string {
 	return rel
 }
 
-// exact is the file at rel, or at rel.md, compared case-insensitively.
-func (l *layout) exact(rel string) (string, bool) {
-	low := strings.ToLower(rel)
-	if f, ok := l.files[low]; ok {
-		return f, true
-	}
-	f, ok := l.files[low+".md"]
-	return f, ok
-}
-
-// bySuffix is the first file whose path ends in /rel or /rel.md, as
-// Obsidian resolves a partial path.
-func (l *layout) bySuffix(rel string) (string, bool) {
-	low := "/" + strings.ToLower(rel)
-	for _, f := range l.sorted {
-		lf := strings.ToLower(f)
-		if strings.HasSuffix(lf, low) || strings.HasSuffix(lf, low+".md") {
-			return f, true
-		}
-	}
-	return "", false
-}
-
 // endsWith reports whether a partial path still names target.
 func endsWith(target, partial string) bool {
 	lt, lp := strings.ToLower(target), "/"+strings.ToLower(partial)
@@ -122,14 +62,11 @@ func sameExt(written, rel string) string {
 // or "" when it needs none. A link by file name alone resolves wherever the
 // file is; one by path changes when the file it names moved.
 func (l *layout) wikiTarget(target string) string {
-	t := strings.TrimSuffix(target, `\`)
-	clean := strings.TrimLeft(strings.TrimSpace(t), "/")
-	if !strings.Contains(clean, "/") {
+	lead, clean, tail, ok := links.PathTarget(target)
+	if !ok {
 		return ""
 	}
-	start := strings.Index(t, clean)
-	lead, tail := t[:start], target[start+len(clean):]
-	if f, ok := l.exact(clean); ok {
+	if f, ok := l.Exact(clean); ok {
 		if !under(f, l.from) {
 			return ""
 		}
@@ -138,7 +75,7 @@ func (l *layout) wikiTarget(target string) string {
 	if under(strings.ToLower(clean), strings.ToLower(l.from)) {
 		return lead + l.to + clean[len(l.from):] + tail
 	}
-	f, ok := l.bySuffix(clean)
+	f, ok := l.BySuffix(clean)
 	if !ok || !under(f, l.from) || endsWith(l.moved(f), clean) {
 		return ""
 	}
@@ -170,7 +107,7 @@ func (l *layout) mdTarget(raw, note string) string {
 	oldNote, newNote := l.before(note), note
 	explicit := strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../")
 	var next string
-	if f, ok := l.exact(path.Join(path.Dir(oldNote), p)); ok || explicit {
+	if f, ok := l.Exact(path.Join(path.Dir(oldNote), p)); ok || explicit {
 		if !ok {
 			return ""
 		}
@@ -182,14 +119,14 @@ func (l *layout) mdTarget(raw, note string) string {
 		next = sameExt(p, next)
 	} else {
 		clean := strings.TrimLeft(p, "/")
-		f, ok := l.exact(clean)
+		f, ok := l.Exact(clean)
 		switch {
 		case ok && under(f, l.from):
 			next = l.to + clean[len(l.from):]
 		case !ok && under(strings.ToLower(clean), strings.ToLower(l.from)):
 			next = l.to + clean[len(l.from):]
 		case !ok && strings.Contains(clean, "/"):
-			g, found := l.bySuffix(clean)
+			g, found := l.BySuffix(clean)
 			if !found || !under(g, l.from) || endsWith(l.moved(g), clean) {
 				return ""
 			}
@@ -233,35 +170,24 @@ func escapePath(p string) string {
 // move broke, pointing where its file is now; n is how many changed. Fenced
 // code and inline code spans are left as they are.
 func (l *layout) rewriteLinks(body, note string) (string, int) {
-	lines := sections.Lines(body)
-	n := 0
-	for i, code := range sections.Fenced(lines) {
-		if code || !strings.Contains(lines[i], "](") && !strings.Contains(lines[i], "[[") {
-			continue
-		}
-		spans := strings.Split(lines[i], "`")
-		for j := 0; j < len(spans); j += 2 {
-			spans[j] = wikiLinkRE.ReplaceAllStringFunc(spans[j], func(m string) string {
-				g := wikiLinkRE.FindStringSubmatch(m)
-				if t := l.wikiTarget(g[2]); t != "" && t != g[2] {
-					n++
-					return g[1] + t + g[3]
-				}
-				return m
-			})
-			spans[j] = mdLinkRE.ReplaceAllStringFunc(spans[j], func(m string) string {
-				g := mdLinkRE.FindStringSubmatch(m)
-				if t := l.mdTarget(g[2], note); t != "" && t != g[2] {
-					n++
-					return g[1] + t + g[3]
-				}
-				return m
-			})
-		}
-		lines[i] = strings.Join(spans, "`")
-	}
-	if n == 0 {
-		return body, 0
-	}
-	return strings.Join(lines, "\n"), n
+	return links.Prose(body, func(span string) (string, int) {
+		n := 0
+		span = links.Wiki.ReplaceAllStringFunc(span, func(m string) string {
+			g := links.Wiki.FindStringSubmatch(m)
+			if t := l.wikiTarget(g[2]); t != "" && t != g[2] {
+				n++
+				return g[1] + t + g[3]
+			}
+			return m
+		})
+		span = links.Markdown.ReplaceAllStringFunc(span, func(m string) string {
+			g := links.Markdown.FindStringSubmatch(m)
+			if t := l.mdTarget(g[2], note); t != "" && t != g[2] {
+				n++
+				return g[1] + t + g[3]
+			}
+			return m
+		})
+		return span, n
+	})
 }

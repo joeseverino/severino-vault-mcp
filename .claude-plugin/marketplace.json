@@ -1,0 +1,13 @@
+{
+  "name": "severino-vault-mcp",
+  "owner": {
+    "name": "Joe Severino"
+  },
+  "plugins": [
+    {
+      "name": "severino-vault-mcp",
+      "source": "./",
+      "description": "Governed MCP access to Obsidian vaults: schema-validated writes, sensitivity tiers, section reads and a per-project work queue."
+    }
+  ]
+}

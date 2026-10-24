@@ -42,17 +42,6 @@ func (b *Body) NextHeading(at int) int {
 	return len(b.Lines)
 }
 
-// SectionEnd is the line where h's section ends: the next heading at h's
-// level or above, or len(Lines). Its subsections are inside it.
-func (b *Body) SectionEnd(h Heading) int {
-	for _, o := range b.Headings() {
-		if o.Line > h.Line && o.Level <= h.Level {
-			return o.Line
-		}
-	}
-	return len(b.Lines)
-}
-
 // Under is the nearest heading above line at, of any level, or false.
 func (b *Body) Under(at int) (Heading, bool) {
 	var out Heading

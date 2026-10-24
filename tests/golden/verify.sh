@@ -3,12 +3,20 @@
 # committed snapshot. HQ, the severino-obsidian plugin, the tools CLIs and
 # Claude Code bind to these, so a change here is a deliberate contract change.
 #
-# Run from the repo root:  bash tests/golden/verify.sh
+# Run from the repo root:  mise run golden
 # Exit 0 = all surfaces unchanged. Exit 1 = drift (printed as a diff).
+# Exit 2 = go is not on PATH.
 #
 # Gates the source tree by default. Override to gate an installed binary:
 #   SVMC_CMD=severino-vault-mcp bash tests/golden/verify.sh
 set -uo pipefail
+
+# Every surface below is built with go; without it each diff would read as
+# drift. `mise run golden` puts the pinned go on PATH.
+if ! command -v go >/dev/null 2>&1; then
+  echo "verify.sh: go is not on PATH; run it as \`mise run golden\`" >&2
+  exit 2
+fi
 
 read -r -a CLI <<< "${SVMC_CMD:-go run ./cmd/severino-vault-mcp}"
 GOLDEN="$(cd "$(dirname "$0")" && pwd)"

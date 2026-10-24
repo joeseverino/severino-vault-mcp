@@ -56,6 +56,10 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 	if exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1","links":{"branch":"pass/store","commit":"abc1234,def5678"}}]`) {
 		t.Fatal(exit, out)
 	}
+	exit, out, _ = run(t, root, "", "queue", "list", "--branch", "pass/store", "--fields", "id", "project")
+	if exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1","project":"Example Tracker"}]`) {
+		t.Fatal(exit, out)
+	}
 	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a1", "--resolution", "example-tracker@def5678")
 	if exit != 0 || tk.Get(decode(t, out), "item.resolution") != "example-tracker@def5678" {
 		t.Fatal(exit, out)
@@ -82,6 +86,51 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 	}
 	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a2", "--partial", "--resolution", "example-other@def5678")
 	if exit != 0 || tk.Get(decode(t, out), "item.status") != "closed" {
+		t.Fatal(exit, out)
+	}
+}
+
+// A brief that starts from a queued item takes it over in one call, and
+// landing closes it by agent, leaving one closed item.
+func TestALaunchClaimsAQueuedItemThenLandingClosesIt(t *testing.T) {
+	root := tk.Dir(t)
+	tk.Doc(t, filepath.Join(root, "01 Projects/Example Tracker/index.md"),
+		"doc_id: project-example-tracker\ntitle: Example Tracker\ndoc_type: architecture_note\nsystem: Example\n"+
+			"environment: other\nstatus: active\nsensitivity: internal\nqueue_prefix: ex\nrepos: [example-tracker]", "# Example Tracker\n")
+	for _, kind := range []string{"next", "decision"} {
+		if exit, out, _ := run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", kind, "--text", "Queued "+kind); exit != 0 {
+			t.Fatal(exit, out)
+		}
+	}
+	// A decision is not taken over as delegated work.
+	if exit, out, _ := run(t, root, "", "queue", "set", "ex-2", "--kind", "delegated", "--agent", "a1"); exit != 1 || !strings.Contains(out, `"next_steps"`) {
+		t.Fatal(exit, out)
+	}
+	// Another owner's claim changes nothing.
+	run(t, root, "", "queue", "set", "ex-1", "--owner", "other")
+	if exit, out, _ := run(t, root, "", "queue", "set", "ex-1", "--claim", "--owner", "worker", "--agent", "a1", "--kind", "delegated", "--branch", "pass/x"); exit != 1 {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ := run(t, root, "", "queue", "list", "--all", "--fields", "id", "kind", "agent", "owner")
+	if exit != 0 || !strings.Contains(out, `{"id":"ex-1","kind":"next","owner":"other"}`) {
+		t.Fatal(exit, out)
+	}
+	run(t, root, "", "queue", "set", "ex-1", "--owner=")
+	exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--claim", "--owner", "worker", "--agent", "a1", "--kind", "delegated", "--branch", "pass/x")
+	r := decode(t, out)
+	if exit != 0 || tk.Get(r, "item.kind") != "delegated" || tk.Get(r, "item.agent") != "a1" || tk.Get(r, "item.owner") != "worker" || tk.Get(r, "item.links.branch") != "pass/x" {
+		t.Fatal(exit, out)
+	}
+	// An agent with an open item takes no second one.
+	if exit, out, _ = run(t, root, "", "queue", "set", "ex-2", "--agent", "a1"); exit != 1 || !strings.Contains(out, "already has") {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a1", "--resolution", "example-tracker@abc1234")
+	if exit != 0 || tk.Get(decode(t, out), "item.status") != "closed" {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "list", "--all", "--status", "closed", "--fields", "id")
+	if exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "1" {
 		t.Fatal(exit, out)
 	}
 }

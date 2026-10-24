@@ -31,7 +31,13 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 			shared.Set(f.Name, property(f, false))
 		}
 	}
-	isTask := jsonx.New("properties", jsonx.New("doc_type", jsonx.New("const", "task")), "required", []string{"doc_type"})
+	isTask := ofType("task")
+	// A doc_type with its own required set is held to it in its allOf entry
+	// below, and not to the profile's.
+	notTask := branch(doc, p.RequiredFields)
+	if own := p.ownRequired(); len(own) > 0 {
+		notTask = jsonx.New("properties", doc, "if", ofType(own...), "else", requires(p.RequiredFields))
+	}
 	o := jsonx.New(
 		"$schema", JSONSchemaDialect,
 		"title", p.Name+" frontmatter",
@@ -41,22 +47,20 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 		"properties", shared,
 		"if", isTask,
 		"then", branch(task, p.TaskRequiredFields),
-		"else", branch(doc, p.RequiredFields),
+		"else", notTask,
 	)
 	var perType []any
 	for _, name := range slices.Sorted(mapKeys(p.DocumentSchemas)) {
 		ds := p.DocumentSchemas[name]
 		props := jsonx.New()
-		var required []string
+		required := slices.Clone(ds.RequiredFields)
 		for _, f := range slices.Sorted(mapKeys(ds.Fields)) {
 			props.Set(f, property(ds.Fields[f], false))
-			if ds.Fields[f].Required {
+			if ds.Fields[f].Required && !slices.Contains(required, f) {
 				required = append(required, f)
 			}
 		}
-		perType = append(perType, jsonx.New(
-			"if", jsonx.New("properties", jsonx.New("doc_type", jsonx.New("const", name)), "required", []string{"doc_type"}),
-			"then", branch(props, required)))
+		perType = append(perType, jsonx.New("if", ofType(name), "then", branch(props, required)))
 	}
 	if len(perType) > 0 {
 		o.Set("allOf", perType)
@@ -70,15 +74,29 @@ func absent() *jsonx.Obj { return jsonx.New("$ref", "#/$defs/absent") }
 // branch holds props and requires each of required with a value that is not
 // absent.
 func branch(props *jsonx.Obj, required []string) *jsonx.Obj {
-	o := jsonx.New("properties", props)
+	return jsonx.New("properties", props).Merge(requires(required))
+}
+
+// requires is the schema that holds each of required with a value that is
+// not absent; empty when required is.
+func requires(required []string) *jsonx.Obj {
 	if len(required) == 0 {
-		return o
+		return jsonx.New()
 	}
 	present := jsonx.New()
 	for _, name := range required {
 		present.Set(name, jsonx.New("not", absent()))
 	}
-	return o.Set("required", slices.Clone(required)).Set("allOf", []any{jsonx.New("properties", present)})
+	return jsonx.New("required", slices.Clone(required), "allOf", []any{jsonx.New("properties", present)})
+}
+
+// ofType matches a block whose doc_type is one of names.
+func ofType(names ...string) *jsonx.Obj {
+	match := jsonx.New("const", names[0])
+	if len(names) > 1 {
+		match = jsonx.New("enum", slices.Clone(names))
+	}
+	return jsonx.New("properties", jsonx.New("doc_type", match), "required", []string{"doc_type"})
 }
 
 // property is one field's schema: absent, or a value its rule accepts.

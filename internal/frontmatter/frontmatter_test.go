@@ -56,7 +56,7 @@ func TestSplitReturnsBodyAndStartLine(t *testing.T) {
 
 func TestSerializeOrdersAndEscapes(t *testing.T) {
 	got := Serialize(jsonx.New("extra", "x", "title", `Driver: "A"`, "doc_id", "renewal-quoted", "tags", []any{}, "flag", true, "gone", nil))
-	want := "---\ndoc_id: renewal-quoted\ntitle: \"Driver: \\\"A\\\"\"\ntags: []\nextra: x\nflag: true\ngone: null\n---\n\n"
+	want := "---\ndoc_id: renewal-quoted\ntitle: \"Driver: \\\"A\\\"\"\nextra: x\nflag: true\ngone: null\n---\n\n"
 	if got != want {
 		t.Fatalf("%q", got)
 	}

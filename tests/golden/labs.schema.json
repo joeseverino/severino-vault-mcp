@@ -405,56 +405,68 @@
         ]
       }
     },
-    "required": [
-      "doc_id",
-      "title",
-      "doc_type",
-      "system",
-      "environment",
-      "status",
-      "sensitivity"
-    ],
-    "allOf": [
-      {
-        "properties": {
-          "doc_id": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "title": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "doc_type": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "system": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "environment": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "status": {
-            "not": {
-              "$ref": "#/$defs/absent"
-            }
-          },
-          "sensitivity": {
-            "not": {
-              "$ref": "#/$defs/absent"
+    "if": {
+      "properties": {
+        "doc_type": {
+          "const": "queue"
+        }
+      },
+      "required": [
+        "doc_type"
+      ]
+    },
+    "else": {
+      "required": [
+        "doc_id",
+        "title",
+        "doc_type",
+        "system",
+        "environment",
+        "status",
+        "sensitivity"
+      ],
+      "allOf": [
+        {
+          "properties": {
+            "doc_id": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "title": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "doc_type": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "system": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "environment": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "status": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
+            },
+            "sensitivity": {
+              "not": {
+                "$ref": "#/$defs/absent"
+              }
             }
           }
         }
-      }
-    ]
+      ]
+    }
   },
   "allOf": [
     {
@@ -483,12 +495,42 @@
           }
         },
         "required": [
-          "doc_id"
+          "doc_id",
+          "title",
+          "doc_type",
+          "system",
+          "status",
+          "queue_format"
         ],
         "allOf": [
           {
             "properties": {
               "doc_id": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              },
+              "title": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              },
+              "doc_type": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              },
+              "system": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              },
+              "status": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              },
+              "queue_format": {
                 "not": {
                   "$ref": "#/$defs/absent"
                 }
