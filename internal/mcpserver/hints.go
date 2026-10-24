@@ -94,7 +94,7 @@ var outputSchemas = map[string]json.RawMessage{
 		"links", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
 			jsonx.New("relative_path", ty("string"), "count", ty("integer")))),
 		"skipped_restricted", textList(), "failed", textList(),
-	)),
+	).Merge(movePlanProps())),
 	"move_folder": outSchema(jsonx.New(
 		"from", ty("string"), "to", ty("string"),
 		"files", ty("integer"), "docs", ty("integer"),
@@ -106,7 +106,15 @@ var outputSchemas = map[string]json.RawMessage{
 			"queue", jsonx.New("type", "object", "properties", jsonx.New("doc_id", ty("string"), "relative_path", ty("string"), "title", ty("string"))),
 			"queue_prefix", ty("string"))),
 		"failed", textList(),
-	)),
+	).Merge(movePlanProps())),
+}
+
+func movePlanProps() *jsonx.Obj {
+	return jsonx.New("dry_run", ty("boolean"), "archive_updates", textList(),
+		"moves", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties", jsonx.New(
+			"from", ty("string"), "to", ty("string")))),
+		"repairs", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties", jsonx.New(
+			"tool", jsonx.New("enum", []string{"set_frontmatter", "write_doc"}), "arguments", ty("object")))))
 }
 
 func ty(t any) *jsonx.Obj { return jsonx.New("type", t) }

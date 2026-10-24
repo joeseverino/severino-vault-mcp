@@ -73,6 +73,12 @@ duplicate-ID exclusion, section chunking and ranking, the sensitivity gate and
 the 1Password unlock, schema profiles, frontmatter parsing and serialization, atomic
 writes, path validation, the work queue, daily notes and `doctor`. On top:
 
+Each vault's index builds once the client finishes connecting, so the first
+search finds it ready and the handshake never waits on it. A call trusts the
+index for `SVMC_CACHE_SECONDS` (default 30); after that it
+stats every note, the aliases file and the projects folder, and rebuilds
+only when one of them changed.
+
 - `internal/core`: the shared tools, transport-free.
 - `internal/vaults`, `internal/provider`: composition.
 - `internal/mcpserver`: the MCP adapter and the instructions block.

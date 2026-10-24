@@ -61,6 +61,7 @@ func Dir(t testing.TB) string {
 func Env(root string, extra ...string) config.Env {
 	env := config.Hermetic(root)
 	env["PATH"] = os.Getenv("PATH")
+	env["XDG_STATE_HOME"] = os.Getenv("XDG_STATE_HOME")
 	env["SVMC_CACHE_SECONDS"] = "0"
 	env["SVMC_RESTRICTED_UNLOCK_AUDIT_LOG"] = filepath.Join(root, ".audit.log")
 	env["SVMC_EDU_CONFIG"] = filepath.Join(root, "no-edu.toml")

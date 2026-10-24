@@ -145,6 +145,7 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		{"find", c{"query": "wiki", "by": "project"}, `find(query="wiki", project="wiki")`},
 		{"find", c{"query": "wiki", "by": "fuzzy"}, `find(query="wiki") with by one of ["relevance","text"]`},
 		{"find", c{"query": "wiki", "limit": "many"}, `find(query="wiki") with limit as a valid integer`},
+		{"find", c{"query": "wiki", "limit": "12abc"}, `find(query="wiki") with limit as a valid integer`},
 		{"find", c{"query": 7}, ""},
 		{"find", c{}, `find(query="...") with query set: what to look for`},
 		{"read_doc", c{}, `read_doc(doc_id="...") with doc_id set`},

@@ -78,8 +78,9 @@ binary serves MCP on stdio.
 
 ## Install
 
-Requires Go 1.27. `ripgrep` is needed for `find(by="text")`; `fd` is used to
-walk the vault when it is on `PATH`, otherwise a built-in walk does.
+Requires Go 1.27 and `ripgrep`, which `find(by="text")` runs. The index
+skips hidden trees and templates; a Git ignore file hides nothing inside a
+configured folder.
 
 Install the binary:
 
@@ -90,7 +91,8 @@ go install github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp@l
 Or download the archive for your platform (darwin or linux, amd64 or arm64)
 from the [latest release](https://github.com/joeseverino/severino-vault-mcp/releases/latest),
 check it against `SHA256SUMS`, and put `severino-vault-mcp` on your `PATH`. To
-work on the code, clone the repo and run `go install ./cmd/severino-vault-mcp`.
+work on the code, clone the repo and run `mise run install`, which builds
+into `~/.local/bin` and prints the binary's `--fingerprint`.
 
 For Claude Code, register the binary as a server:
 
@@ -111,6 +113,17 @@ A server you already registered with the same command wins over the plugin's
 copy, so its tool names stay `mcp__severino-vault-mcp__*`; the plugin then only
 adds the skill. Without one, the plugin's tools are
 `mcp__plugin_severino-vault-mcp_severino-vault-mcp__*`.
+
+Codex installs the same plugin from the same marketplace:
+
+```bash
+codex plugin marketplace add joeseverino/severino-vault-mcp
+codex plugin add severino-vault-mcp@severino-vault-mcp
+```
+
+Codex runs its own copy of an installed plugin, so a newer skill reaches it
+when `codex plugin add` runs again; `mise run install` does that for a
+checkout.
 
 A running session moves to an upgraded binary on its own: at its next call
 the server execs the new binary in place, on the same connection, keeps the
@@ -202,7 +215,7 @@ override the labs config:
 | `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks:07 Backlog` | Folders the loader indexes |
 | `SVMC_ARCHIVE_DIR` | `99 Archive` with the default indexed dirs, else unset | The archive: indexed apart, left out of `find` unless `include_archived` |
 | `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Phrase to `doc_id` aliases |
-| `SVMC_CACHE_SECONDS` | `30` | How long the index stays warm |
+| `SVMC_CACHE_SECONDS` | `30` | How long the index is trusted before a stat of every note checks it for changes |
 | `SVMC_RESTRICTED_UNLOCK_REF` | unset | `op://` reference to the 1Password unlock item; unset keeps restricted bodies withheld (macOS only, see Sensitivity) |
 | `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Unlock attempts; never bodies |
 
@@ -229,6 +242,7 @@ The full table and the unlock flow are in
 [`docs/ai-safety-security.md`](docs/ai-safety-security.md) ·
 [`docs/migration-guide.md`](docs/migration-guide.md) ·
 [`docs/testing-ci.md`](docs/testing-ci.md) ·
+[`docs/dependencies.md`](docs/dependencies.md) ·
 [`docs/release-checklist.md`](docs/release-checklist.md)
 
 ## License

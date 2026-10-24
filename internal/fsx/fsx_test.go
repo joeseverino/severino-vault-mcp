@@ -2,15 +2,46 @@ package fsx_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
 	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
+
+// Different notes take different locks, but share the staging-name source.
+func TestConcurrentCreatesAndUpdatesOfDifferentNotes(t *testing.T) {
+	v, err := fsx.OpenVault(tk.Dir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			name := fmt.Sprintf("note-%d.md", i)
+			if err := v.AtomicCreate(name, "before"); err != nil {
+				t.Error(err)
+				return
+			}
+			if _, err := v.Update(name, func(string) string { return "after" }); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	for i := range 32 {
+		got, err := v.ReadText(fmt.Sprintf("note-%d.md", i))
+		if err != nil || got != "after" {
+			t.Errorf("note %d: %q, %v", i, got, err)
+		}
+	}
+}
 
 func sandbox(t *testing.T) (vaultDir, outside string, v *fsx.Vault) {
 	t.Helper()

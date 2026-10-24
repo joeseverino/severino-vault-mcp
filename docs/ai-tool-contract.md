@@ -485,6 +485,26 @@ rewritten note with a count. A restricted note is rewritten only with
 audited per note); otherwise it is listed in `skipped_restricted`. A write
 that fails after the folder moved is listed in `failed`.
 
+Both move tools accept `dry_run=true` (CLI `--dry-run`). The same destination,
+schema and archive checks run, with no file or frontmatter writes and no
+restricted unlock. `moves` lists each file's `from` and `to`; `links` lists
+the planned note paths and link counts; `archive_updates` lists the notes
+whose status would change. Restricted notes stay in `skipped_restricted`,
+even with `include_restricted`. A preview describes the current files and
+reserves nothing; the actual move validates again.
+
+When a move succeeds but follow-on writes fail, `ok` stays true: the file or
+folder has moved. `failed` names each failed write and `repairs` holds ordinary
+MCP tool calls, each `{"tool": "...", "arguments": {...}}`. Run them in order:
+`set_frontmatter` repairs precede `write_doc(mode="replace_text")` link repairs.
+A link repair carries the exact old passage and replacement; it refuses a
+changed, ambiguous or already-applied passage. The normal schema, lock and
+restricted-unlock rules still apply; body repairs update `last_reviewed`.
+Frontmatter repairs are normal field replacements: reread the note before
+applying one if another writer has changed those fields. An unregistered or
+read-only note can have no supported repair call; it remains in `failed` for
+an editor to fix. Do not repeat the move to repair its links.
+
 Renaming a project, `01 Projects/<old>` to `01 Projects/<new>`, also carries
 its slug (the folder name):
 
@@ -493,8 +513,8 @@ its slug (the folder name):
   folders keeps its entry and is listed in `project.related_projects_skipped`;
 - the queue note keeps its doc_id (doc_ids never change, so it stays
   `queue-<old>` and the queue tool reports that id), and its `title`,
-  `system` and any `# <old> Queue` heading take the new name when they
-  carried the old one;
+  `system` take the new name when they carried the old one; its body stays
+  as written (new queue notes have no H1);
 - queue item ids never change. A project's new items take its
   `queue_prefix`, else the slug of its folder name; when `index.md` sets no
   `queue_prefix` and the old slug is a valid one, it is pinned there so new

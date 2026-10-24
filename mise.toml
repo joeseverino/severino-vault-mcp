@@ -13,18 +13,23 @@ min_version = "2026.10.15"
 [settings]
 # The platforms that install from this lock: macOS arm64 and the Linux x64 CI runners.
 lockfile_platforms = ["macos-arm64", "linux-x64"]
+locked = true
 
 [settings.task]
 # Tasks that run together print one after another, each whole and labeled.
 output = "keep-order"
 
+[env]
+# mise owns the Go release; Go must not silently download another toolchain.
+GOTOOLCHAIN = "local"
+
 [tools]
 # Matches go.mod's toolchain line.
 go = "1.27.3"
-golangci-lint = "2.14.0"
-"go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"
+golangci-lint = "2.15.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
 # find(by="text") and its tests shell out to rg.
-ripgrep = "15.1.0"
+ripgrep = "15.2.0"
 shellcheck = "0.11.0"
 actionlint = "1.7.12"
 
@@ -51,6 +56,22 @@ fi
 [tasks."check:vet"]
 description = "go vet"
 run = "go vet ./..."
+
+[tasks."check:modernize"]
+description = "Go's built-in fixer finds no remaining automatic modernizations"
+run = "go fix -diff ./..."
+
+[tasks.fix]
+description = "Apply Go's built-in modernizations and formatting"
+run = ["go fix ./...", "go fmt ./..."]
+
+[tasks."check:modules"]
+description = "Go module files are tidy and downloaded modules match their checksums"
+run = ["go mod tidy -diff", "go mod verify"]
+
+[tasks."check:tasks"]
+description = "mise validates task dependencies, usage specifications and task configuration"
+run = "mise tasks validate"
 
 [tasks."check:test"]
 description = "The test suite under the race detector"
@@ -150,6 +171,9 @@ fi
   # Built beside its place and renamed over it, so a session that starts
   # during the build runs the old binary, never a half-written one.
   'go build -trimpath -ldflags="-s -w" -o "$HOME/.local/bin/severino-vault-mcp.new" ./cmd/severino-vault-mcp && mv -f "$HOME/.local/bin/severino-vault-mcp.new" "$HOME/.local/bin/severino-vault-mcp"',
+  # Codex runs a copy of an installed plugin, so the copy is refreshed to
+  # carry this checkout's skill.
+  'if command -v codex >/dev/null 2>&1 && codex plugin list 2>/dev/null | grep -q "^severino-vault-mcp@severino-vault-mcp .*installed"; then codex plugin add severino-vault-mcp@severino-vault-mcp >/dev/null; fi',
   '"$HOME/.local/bin/severino-vault-mcp" --fingerprint',
 ]
 

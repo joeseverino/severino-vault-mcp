@@ -49,6 +49,18 @@
     {"id": "doc-id-query-text", "query": "rb-restore-from-backup", "mode": "text", "want": ["rb-restore-from-backup"], "source": "doc-id-as-query"},
     {"id": "title-query-press", "query": "Check the Press Queue From a Phone", "mode": "relevance", "want": ["rb-press-queue-from-phone"], "source": "title-as-query"},
     {"id": "title-query-hub", "query": "Quire", "mode": "relevance", "want": ["infra-quire"], "source": "title-as-query"},
-    {"id": "title-query-text", "query": "Port Map", "mode": "text", "want": ["note-port-map"], "source": "title-as-query"}
+    {"id": "title-query-text", "query": "Port Map", "mode": "text", "want": ["note-port-map"], "source": "title-as-query"},
+    {"id": "restore-filtered", "query": "restore", "mode": "relevance", "system": "Backups", "doc_type": "recovery_procedure", "want": ["rb-restore-from-backup"], "source": "ambiguous-filtered"},
+    {"id": "client-filtered", "query": "client", "mode": "relevance", "system": "Identity Provider", "doc_type": "runbook", "want": ["rb-add-oidc-client"], "source": "ambiguous-filtered"},
+    {"id": "quire-tests-filtered", "query": "quire tests dev database", "mode": "relevance", "project": "quire", "doc_type": "runbook", "want": ["rb-quire-local-development"], "source": "ambiguous-filtered"},
+    {"id": "quire-reset-text", "query": "mise run db:reset", "mode": "text", "want": ["rb-quire-local-development"], "source": "command-punctuation"},
+    {"id": "oidc-env-token", "query": "OIDC_CLIENT_SECRET", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-token"},
+    {"id": "oidc-callback", "query": "redirect URI trailing slash", "mode": "relevance", "want": ["rb-add-oidc-client"], "source": "prose-reformulation"},
+    {"id": "backup-extract", "query": "borg extract volume scratch compare live", "mode": "relevance", "want": ["rb-restore-from-backup"], "source": "prose-reformulation"},
+    {"id": "compose-case", "query": "DOCKER COMPOSE PULL", "mode": "text", "want": ["rb-bump-container-image"], "source": "case-insensitive"},
+    {"id": "cert-whitespace", "query": "  generate   internal certificate  ", "mode": "relevance", "want": ["rb-generate-internal-cert"], "source": "whitespace"},
+    {"id": "doc-id-upper", "query": "RB-RESTORE-FROM-BACKUP", "mode": "relevance", "want": ["rb-restore-from-backup"], "source": "identifier-case"},
+    {"id": "two-vpn-procedures", "query": "update vpn client", "mode": "relevance", "want": ["rb-update-vpn-server", "rb-counter-pc-vpn"], "source": "multiple-valid-answers"},
+    {"id": "release-doc-filter", "query": "proof room release", "mode": "relevance", "doc_type": "runbook", "want": ["rb-deploy-proof-room", "rb-hand-off-proof-room-release"], "source": "multiple-valid-answers"}
   ]
 }

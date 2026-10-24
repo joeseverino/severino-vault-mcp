@@ -13,6 +13,7 @@ func (h *handlers) moveDoc() coreTool {
 		"relative_path", optStr("The doc's current path from the vault root, instead of doc_id."),
 		"with_folder", boolean("Move the doc's whole folder, files beside it included, into `to` (a folder)."),
 		"archive", boolean("Into the archive: set status: archived first instead of refusing a doc without it."),
+		"dry_run", boolean("Preview moved files, link counts and archive updates without writing. Restricted bodies stay withheld."),
 	), []string{"to"})
 	return coreTool{"move_doc", descMoveDoc, input, func(p *params) (*jsonx.Obj, error) {
 		v := h.vault(p)
@@ -22,6 +23,7 @@ func (h *handlers) moveDoc() coreTool {
 			RelativePath: p.str("relative_path"),
 			WithFolder:   p.boolean("with_folder"),
 			Archive:      p.boolean("archive"),
+			DryRun:       p.boolean("dry_run"),
 		}
 		if p.err != nil {
 			return nil, p.err
@@ -37,6 +39,7 @@ func (h *handlers) moveFolder() coreTool {
 		"vault", h.vaultProp("Which vault."),
 		"archive", boolean("Into the archive: set status: archived on every doc in the folder first instead of refusing."),
 		"include_restricted", boolean("Also rewrite links inside restricted notes, behind a Touch ID approval through 1Password."),
+		"dry_run", boolean("Preview moved files, link counts and archive updates without writing. Restricted bodies stay withheld."),
 	), []string{"from", "to"})
 	return coreTool{"move_folder", descMoveFolder, input, func(p *params) (*jsonx.Obj, error) {
 		v := h.vault(p)
@@ -45,6 +48,7 @@ func (h *handlers) moveFolder() coreTool {
 			To:                p.required("to"),
 			Archive:           p.boolean("archive"),
 			IncludeRestricted: p.boolean("include_restricted"),
+			DryRun:            p.boolean("dry_run"),
 		}
 		if p.err != nil {
 			return nil, p.err
@@ -67,7 +71,10 @@ docs out unless include_archived=true.
 Every [[path/link]], ![[embed]] and [text](path) in the vault that named the
 doc by path names its new path, alias and #heading kept; links by file name
 alone need nothing. links lists each rewritten note with a count. Restricted
-notes are not read: they are listed in skipped_restricted.`
+notes are not read: they are listed in skipped_restricted.
+dry_run previews the files and link counts without writes or restricted
+unlocks. If a move's link writes fail, repairs holds exact write_doc calls
+for the registered, writable notes; run those, not the move again.`
 
 const descMoveFolder = `Move or rename a folder with everything in it (notes, Reports/, assets), then point every link at the new path.
 
@@ -82,4 +89,7 @@ A project renamed under 01 Projects also updates every related_projects entry
 naming the old slug and retitles its queue note; doc_ids and queue item ids
 never change, and an index.md without queue_prefix gets the old slug pinned
 so new items keep their prefix. Into 99 Archive every doc must be archived
-(a task: closed); archive=true sets status: archived first.`
+(a task: closed); archive=true sets status: archived first.
+dry_run previews the files and link counts without writes or restricted
+unlocks. If a move's link writes fail, repairs holds exact write_doc calls
+for the registered, writable notes; run those, not the move again.`

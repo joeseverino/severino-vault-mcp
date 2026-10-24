@@ -1,10 +1,14 @@
 package evals
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 func fixture(t *testing.T) ([]Case, string) {
@@ -18,6 +22,42 @@ func fixture(t *testing.T) ([]Case, string) {
 		t.Fatal(err)
 	}
 	return cases, root
+}
+
+// A larger index must still surface concrete procedures among generic
+// operational notes. CopyFS keeps this a throwaway vault; no real vault is
+// read and the committed fixture stays small.
+func TestRetrievalWithFiveHundredDistractorNotes(t *testing.T) {
+	_, source := fixture(t)
+	root := tk.Dir(t)
+	if err := os.CopyFS(root, os.DirFS(source)); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 500 {
+		tk.Doc(t, filepath.Join(root, "04 Reference", fmt.Sprintf("digest-%04d.md", i)),
+			fmt.Sprintf("doc_id: note-operations-%04d\ntitle: Operations Digest %04d\nsystem: Operations\nsensitivity: internal", i, i),
+			"Routine maintenance: review backup retention, client configuration, certificate expiry and deployment status.\n")
+	}
+	cfg := FixtureConfig(root)
+	if n := len(vault.NewLoader(cfg).Index(false).Docs); n < 500 {
+		t.Fatalf("the larger fixture only indexes %d docs", n)
+	}
+	cases := []Case{
+		{ID: "cert", Query: "generate internal cert", Mode: "relevance", Want: []string{"rb-generate-internal-cert"}},
+		{ID: "restore", Query: "restore backup volume", Mode: "relevance", Want: []string{"rb-restore-from-backup"}},
+		{ID: "relay", Query: "SMTP_RELAY_PASSWORD", Mode: "text", Want: []string{"rb-rotate-mail-relay"}},
+		{ID: "dev", Query: "quire dev server", Mode: "relevance", Want: []string{"rb-quire-local-development"}},
+		{ID: "proxy", Query: "expose service over https proxy route", Mode: "relevance", Want: []string{"rb-add-proxy-route"}},
+	}
+	reports, err := RunAll(cfg, cases, []string{"ours"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range reports[0].Outcomes {
+		if outcome.Rank == 0 || outcome.Rank > 3 {
+			t.Errorf("%s: answer ranked %d, top result %s", outcome.Case.ID, outcome.Rank, outcome.Top)
+		}
+	}
 }
 
 // The floors sit a small margin under what `ours` scores on the fixture, so

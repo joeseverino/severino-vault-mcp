@@ -203,7 +203,7 @@ func missing(value any) bool {
 
 // IsISODate matches Python's date.fromisoformat for YYYY-MM-DD.
 func IsISODate(s string) bool {
-	_, err := time.Parse("2006-01-02", s)
+	_, err := time.Parse(time.DateOnly, s)
 	return err == nil && len(s) == 10
 }
 

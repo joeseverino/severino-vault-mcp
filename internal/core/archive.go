@@ -68,9 +68,12 @@ func archiveAll(v *Vault, docs []*vault.Doc) *jsonx.Obj {
 
 // archiveReady is the refusal for a move of docs into the archive, or nil
 // once every one of them is archived (with archive, once status is set).
-func archiveReady(v *Vault, docs []*vault.Doc, archive bool, retry string) *jsonx.Obj {
+func archiveReady(v *Vault, docs []*vault.Doc, archive, dryRun bool, retry string) *jsonx.Obj {
 	if problems := unarchived(v.Profile, docs, archive); len(problems) > 0 {
 		return failNext("only archived docs go into "+v.Config.ArchiveDir+": "+strings.Join(problems, "; "), archiveSteps(v.Profile, docs, retry)...)
+	}
+	if dryRun {
+		return nil
 	}
 	return archiveAll(v, docs)
 }

@@ -77,3 +77,17 @@ func TestSetFrontmatterRegistersAnArchiveNote(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
+
+// A new doc never takes the doc_id an archived doc holds: the archived one
+// would stop resolving by its id.
+func TestANewDocCannotTakeAnArchivedDocsID(t *testing.T) {
+	root := tk.FakeVault(t)
+	v := tk.Vault(root)
+	tk.Doc(t, filepath.Join(root, archivedRel), archivedFront("archived"), "# Archived Runbook\n")
+
+	r := core.WriteDoc(v, core.WriteDocArgs{Mode: "create", RelativePath: "03 Runbooks/Archived Runbook.md", Body: "## Steps\n\n1. Run `x`.\n",
+		DocID: "rb-archived-runbook", New: write.With("title", "Archived Runbook Again", "doc_type", "runbook", "system", "homelab")})
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), `doc_id "rb-archived-runbook" already exists at `+archivedRel) {
+		t.Fatal(jsonx.Compact(r))
+	}
+}

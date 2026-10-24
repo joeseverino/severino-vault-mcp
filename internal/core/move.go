@@ -25,6 +25,7 @@ type MoveArgs struct {
 	To           string
 	WithFolder   bool
 	Archive      bool
+	DryRun       bool
 }
 
 // MoveDoc moves or renames a registered doc, keeping its doc_id and
@@ -52,7 +53,7 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 		if a.WithFolder {
 			again = append(again, "with_folder", true)
 		}
-		if refused := archiveReady(v, []*vault.Doc{d}, a.Archive, Call("move_doc", append(again, "archive", true)...)); refused != nil {
+		if refused := archiveReady(v, []*vault.Doc{d}, a.Archive, a.DryRun, Call("move_doc", append(again, "archive", true)...)); refused != nil {
 			return refused
 		}
 	} else if problems := newProblems(v, d, from, to); len(problems) > 0 {
@@ -70,6 +71,13 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	if a.WithFolder {
 		l = newLayout(path.Dir(from), path.Dir(to), files)
 	}
+	if a.DryRun {
+		out := previewMove(v, root, l, []*vault.Doc{d}).Set("doc_id", d.DocID).Set("from", from).Set("to", to)
+		if a.WithFolder {
+			out.Set("folder", jsonx.New("from", l.from, "to", l.to))
+		}
+		return out
+	}
 	err = root.Move(l.from, l.to)
 	switch {
 	case errors.Is(err, fsx.ErrExists):
@@ -84,7 +92,7 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	if a.WithFolder {
 		out.Set("folder", jsonx.New("from", path.Dir(from), "to", path.Dir(to)))
 	}
-	rewritten, skipped, failed := rewriteVault(v, root, l, false)
+	rewritten, skipped, failed, repairs := rewriteVault(v, root, l, false)
 	out.Set("links", rewritten)
 	if len(skipped) > 0 {
 		out.Set("skipped_restricted", skipped)
@@ -92,7 +100,9 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	v.Loader.Index(true)
 	if len(failed) > 0 {
 		out.Set("failed", failed)
-		steer(out, Call("read_doc", "doc_id", "...")+" for each note failed names, then fix its links with write_doc; the doc itself has moved")
+		out.Set("repairs", repairs)
+		steer(out, "run the calls in repairs; each refuses changed or already-replaced text; the doc itself has moved",
+			Call("read_doc", "doc_id", "...")+" for failed notes without a repair call, or if a repair refuses because the note changed")
 	}
 	return out
 }

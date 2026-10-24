@@ -185,6 +185,7 @@ func init() {
 				{Name: "--doc-id", Help: core.DocRefHelp("The doc to move"), TakesValue: true},
 				{Name: "--relative-path", Help: "The doc's current vault-relative path (instead of --doc-id).", TakesValue: true},
 				{Name: "--with-folder", Help: "Move the doc's whole folder, files beside it included, into the destination folder."},
+				{Name: "--dry-run", Help: "Preview moved files, link counts and archive updates without writing."},
 				{Name: "--archive", Help: "Into the archive: set status: archived first instead of refusing a doc without it."},
 				pretty(prettyHelp),
 			},
@@ -196,6 +197,7 @@ func init() {
 			Args: []Arg{
 				{Name: "from", Help: "The folder to move, from the vault root."},
 				{Name: "to", Help: "Its new path from the vault root."},
+				{Name: "--dry-run", Help: "Preview moved files, link counts and archive updates without writing."},
 				{Name: "--archive", Help: "Into the archive: set status: archived on every doc in the folder first instead of refusing."},
 				pretty(prettyHelp),
 			},

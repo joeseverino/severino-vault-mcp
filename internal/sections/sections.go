@@ -4,9 +4,10 @@
 package sections
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -158,7 +159,7 @@ func headingsOf(lines []string) []Heading {
 	for i, hd := range h {
 		out = append(out, Heading{Line: i, Level: hd.level, Text: hd.text})
 	}
-	sort.Slice(out, func(a, b int) bool { return out[a].Line < out[b].Line })
+	slices.SortFunc(out, func(a, b Heading) int { return cmp.Compare(a.Line, b.Line) })
 	return out
 }
 
@@ -169,7 +170,7 @@ func levelIndexes(h map[int]heading, level int) []int {
 			idx = append(idx, i)
 		}
 	}
-	sort.Ints(idx)
+	slices.Sort(idx)
 	return idx
 }
 

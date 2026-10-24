@@ -503,13 +503,13 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 func runMoveDoc(c *Ctx, p Parsed) int {
 	return c.emit(core.MoveDoc(c.labsVault(), core.MoveArgs{
 		DocID: p.Str("doc_id"), RelativePath: p.Str("relative_path"), To: p.Str("to"), WithFolder: p.Bool("with_folder"),
-		Archive: p.Bool("archive"),
+		Archive: p.Bool("archive"), DryRun: p.Bool("dry_run"),
 	}), p.Bool("pretty"))
 }
 
 func runMoveFolder(c *Ctx, p Parsed) int {
 	return c.emit(core.MoveFolder(c.labsVault(), core.FolderArgs{
-		From: p.Str("from"), To: p.Str("to"), Archive: p.Bool("archive"),
+		From: p.Str("from"), To: p.Str("to"), Archive: p.Bool("archive"), DryRun: p.Bool("dry_run"),
 	}), p.Bool("pretty"))
 }
 

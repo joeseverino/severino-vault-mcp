@@ -780,6 +780,16 @@
           "takes_value": false
         },
         {
+          "name": "--dry-run",
+          "positional": false,
+          "required": false,
+          "help": "Preview moved files, link counts and archive updates without writing.",
+          "flags": [
+            "--dry-run"
+          ],
+          "takes_value": false
+        },
+        {
           "name": "--archive",
           "positional": false,
           "required": false,
@@ -819,6 +829,16 @@
           "positional": true,
           "required": true,
           "help": "Its new path from the vault root."
+        },
+        {
+          "name": "--dry-run",
+          "positional": false,
+          "required": false,
+          "help": "Preview moved files, link counts and archive updates without writing.",
+          "flags": [
+            "--dry-run"
+          ],
+          "takes_value": false
         },
         {
           "name": "--archive",

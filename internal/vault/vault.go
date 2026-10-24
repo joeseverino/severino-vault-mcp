@@ -5,10 +5,11 @@ package vault
 
 import (
 	"cmp"
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -55,32 +56,21 @@ func sortPaths(paths []string) {
 	slices.SortStableFunc(paths, ComparePaths)
 }
 
-// walkMD lists .md files under root with fd when available (hidden and
-// ignored files skipped), else every *.md entry.
+// walkMD lists .md files under root, pruning hidden and non-note trees.
+// The configured folders define the index; Git ignore files do not.
 func walkMD(root string) []string {
-	if fd, err := exec.LookPath("fd"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, fd, "--type", "f", "--extension", "md", ".", root) //nolint:gosec // fd resolved by LookPath; root is the configured vault
-		cmd.WaitDelay = time.Second
-		out, err := cmd.Output()
-		if err == nil {
-			var paths []string
-			for line := range strings.SplitSeq(string(out), "\n") {
-				if line != "" {
-					paths = append(paths, filepath.Clean(line))
-				}
-			}
-			sortPaths(paths)
-			return paths
-		}
-	}
 	var paths []string
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if p != root && strings.HasSuffix(d.Name(), ".md") {
+		if d.IsDir() {
+			if p != root && (strings.HasPrefix(d.Name(), ".") || skipDirParts[d.Name()]) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
 			paths = append(paths, p)
 		}
 		return nil
@@ -136,7 +126,7 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			matches, _ := filepath.Glob(filepath.Join(globEscape(vaultPath), "*.md"))
 			sortPaths(matches)
 			for _, p := range matches {
-				if !unlisted(filepath.Base(p)) {
+				if rel, err := filepath.Rel(vaultPath, p); err == nil && IsDocPath(rel, indexedDirs) && fsx.IsFile(p) {
 					out = append(out, p)
 				}
 			}
@@ -147,7 +137,8 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			continue
 		}
 		for _, p := range walkMD(root) {
-			if hasSkipPart(p) || unlisted(filepath.Base(p)) {
+			rel, err := filepath.Rel(vaultPath, p)
+			if err != nil || !IsDocPath(rel, indexedDirs) {
 				continue
 			}
 			out = append(out, p)
@@ -275,8 +266,7 @@ type Index struct {
 	// Err is why the vault could not be read: its root, or an indexed folder
 	// under it, is missing, not a directory, or denied to this process. An
 	// index with Err set is not a statement about what docs exist.
-	Err      error
-	loadedAt time.Time
+	Err error
 }
 
 // Folder layout a related_projects entry names: a live project is a folder
@@ -383,25 +373,60 @@ func (idx *Index) add(doc *Doc) {
 // the server runs tool calls in parallel.
 type Loader struct {
 	Config config.Config
-	mu     sync.Mutex // guards index and its rebuild, so callers share one build
+	mu     sync.Mutex // guards the fields below and a rebuild, so callers share one build
 	index  *Index
+	// signature is the vault's state the index was built from, checkedAt
+	// when it last matched the vault.
+	signature string
+	checkedAt time.Time
 }
 
 // NewLoader returns a loader for cfg.
 func NewLoader(cfg config.Config) *Loader { return &Loader{Config: cfg} }
 
-// Index returns the cached index, rebuilding past cache_seconds or on force.
-// The returned index is never modified afterwards, so callers read it freely.
+// Index returns the cached index, rebuilding on force or when the vault
+// changed. Within cache_seconds of the last check the index is trusted; past
+// it, a stat of every note (a few milliseconds, against tens for a build)
+// decides whether to rebuild. The returned index is never modified
+// afterwards, so callers read it freely.
 func (l *Loader) Index(force bool) *Index {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	if !force && l.index != nil && now.Sub(l.index.loadedAt).Seconds() < float64(l.Config.CacheSeconds) {
+	if !force && l.index != nil && now.Sub(l.checkedAt).Seconds() < float64(l.Config.CacheSeconds) {
 		return l.index
 	}
-	l.index = l.build()
-	l.index.loadedAt = now
+	// Taken before the build, so a note changed during it differs at the next check.
+	sig := l.vaultSignature()
+	if force || l.index == nil || l.index.Err != nil || sig != l.signature {
+		l.index = l.build()
+		l.signature = sig
+	}
+	l.checkedAt = now
 	return l.index
+}
+
+// vaultSignature hashes what an index is built from: each note's path, size
+// and modification time, the aliases file's, and the project folders.
+func (l *Loader) vaultSignature() string {
+	h := sha256.New()
+	dirs := l.Config.SearchDirs()
+	if l.Config.ArchiveDir != "" {
+		dirs = append(slices.Clone(dirs), l.Config.ArchiveDir)
+	}
+	stamp := func(p string) {
+		if info, err := os.Stat(p); err == nil {
+			fmt.Fprintf(h, "%s\x00%d\x00%d\n", p, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	for _, p := range MarkdownFiles(l.Config.VaultPath, dirs) {
+		stamp(p)
+	}
+	stamp(l.Config.AliasesPath)
+	for _, name := range l.projectNames() {
+		fmt.Fprintf(h, "project\x00%s\n", name)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Err is why the vault cannot be read, or nil: what Index.Err holds for the

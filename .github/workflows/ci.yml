@@ -18,7 +18,7 @@ jobs:
   # branch's required status check.
   check:
     name: mise run check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       # Nothing installs that mise.lock does not record.
@@ -36,12 +36,28 @@ jobs:
 
       - run: mise run check
 
+  test-macos:
+    name: Go tests (macOS)
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      MISE_LOCKED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install_args: go ripgrep
+          cache_save: ${{ github.ref_name == github.event.repository.default_branch }}
+      - run: mise run check:test
+
   # A pull request that adds or bumps a dependency with a known high or
   # critical advisory fails here.
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
