@@ -28,4 +28,4 @@ docker compose up -d
 
 ## Rollback
 
-Set the previous tag back and run the same two commands.
+Put the previous tag back and run the same two commands.

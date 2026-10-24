@@ -34,9 +34,14 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 	tk.Write(t, filepath.Join(worktree, ".git"), "gitdir: "+filepath.Join(code, "example-tracker", ".git", "worktrees", "agent-a1")+"\n")
 
 	exit, out, _ := run(t, root, "", "queue", "add", "--cwd", worktree, "--kind", "delegated", "--agent", "a1",
-		"--text=-dash-led goal: build the store", "--branch", "pass/store", "--owner", "worker", "--origin", "example-launcher")
+		"--text=-dash-led goal: build the store", "--branch", "pass/store", "--owner", "worker", "--origin", "example-launcher",
+		"--base", "main", "--owns", "internal/store,docs/store.md", "cmd/store")
 	r := decode(t, out)
-	if exit != 0 || r.Str("id") != "ex-1" || r.Str("project") != "Example Tracker" || tk.Get(r, "item.links.branch") != "pass/store" {
+	if exit != 0 || r.Str("id") != "ex-1" || r.Str("project") != "Example Tracker" || tk.Get(r, "item.links.branch") != "pass/store" ||
+		tk.Get(r, "item.base") != "main" || jsonx.Compact(tk.Get(r, "item.owns")) != `["internal/store","docs/store.md","cmd/store"]` || !tk.Has(r, "item.created") {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--agent", "a1", "--owns="); exit != 0 || tk.Has(decode(t, out), "item.owns") {
 		t.Fatal(exit, out)
 	}
 	launcher := filepath.Join(code, "example-launcher")
@@ -121,8 +126,28 @@ func TestALaunchClaimsAQueuedItemThenLandingClosesIt(t *testing.T) {
 	if exit != 0 || tk.Get(r, "item.kind") != "delegated" || tk.Get(r, "item.agent") != "a1" || tk.Get(r, "item.owner") != "worker" || tk.Get(r, "item.links.branch") != "pass/x" {
 		t.Fatal(exit, out)
 	}
-	// An agent with an open item takes no second one.
-	if exit, out, _ = run(t, root, "", "queue", "set", "ex-2", "--agent", "a1"); exit != 1 || !strings.Contains(out, "already has") {
+	// A second worker of the same type cannot take the item from the first.
+	if exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--claim", "--owner", "worker", "--agent", "a9", "--kind", "delegated"); exit != 1 || decode(t, out).Str("agent") != "a1" {
+		t.Fatal(exit, out)
+	}
+	// A released item goes back to the queue, and the next worker claims it.
+	exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--release", "--agent", "a1")
+	if r := decode(t, out); exit != 0 || tk.Get(r, "item.kind") != "next" || tk.Has(r, "item.agent") {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--claim", "--owner", "worker", "--agent", "a1", "--kind", "delegated"); exit != 0 {
+		t.Fatal(exit, out)
+	}
+	// An agent holds any number of items; by agent alone, a single-item
+	// verb then names them all and asks for one.
+	if exit, out, _ = run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "delegated", "--agent", "a1", "--text", "Second piece"); exit != 0 {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a1", "--resolution", "x"); exit != 1 || !strings.Contains(out, "ex-1") || !strings.Contains(out, "ex-3") {
+		t.Fatal(exit, out)
+	}
+	// Closing a held item by id goes through and says who held it.
+	if exit, out, _ = run(t, root, "", "queue", "close", "ex-3", "--status", "dropped", "--resolution", "folded into ex-1"); exit != 0 || !strings.Contains(decode(t, out).Str("warning"), "a1") {
 		t.Fatal(exit, out)
 	}
 	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a1", "--resolution", "example-tracker@abc1234")
@@ -130,7 +155,7 @@ func TestALaunchClaimsAQueuedItemThenLandingClosesIt(t *testing.T) {
 		t.Fatal(exit, out)
 	}
 	exit, out, _ = run(t, root, "", "queue", "list", "--all", "--status", "closed", "--fields", "id")
-	if exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "1" {
+	if exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1"}]`) {
 		t.Fatal(exit, out)
 	}
 }
@@ -152,7 +177,7 @@ func TestAnImportWritesAliasAndBodyThroughTheCLI(t *testing.T) {
 		t.Fatal(exit, out)
 	}
 	exit, out, _ = run(t, root, "", "queue", "set", "task-old-slug", "--body=")
-	if r := decode(t, out); exit != 0 || r.Str("id") != "ex-1" || r.Has("item.body") || strings.Contains(out, `"body"`) {
+	if r := decode(t, out); exit != 0 || r.Str("id") != "ex-1" || tk.Has(r, "item.body") || strings.Contains(out, `"body"`) {
 		t.Fatal(exit, out)
 	}
 	if exit, out, _ = run(t, root, "", "queue", "close", "task-old-slug", "--resolution", "merged (#213)"); exit != 0 || tk.Get(decode(t, out), "item.resolution") != "merged (#213)" {

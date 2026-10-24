@@ -16,8 +16,8 @@ tags: [index, navigation]
 
 | Intent | Start Here |
 |---|---|
-| Add HTTPS service | rb-add-proxy-host |
-| Add internal DNS name | rb-add-dns-rewrite |
+| Add HTTPS service | rb-add-proxy-route |
+| Add internal DNS name | rb-add-local-dns-record |
 | Issue internal certificate | rb-generate-internal-cert |
 | Restore a volume | rb-restore-from-backup |
-| Publish site writeup | rb-publish-writeup |
+| Publish a journal post | rb-publish-journal-post |

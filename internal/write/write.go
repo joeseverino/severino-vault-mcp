@@ -190,7 +190,10 @@ func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.P
 	}
 	defer v.Close()
 	var idx *vault.Index
-	if slices.ContainsFunc(c.names(), func(name string) bool { f, _ := p.Field(name); return f.Unique || f.DocRef }) {
+	if slices.ContainsFunc(c.names(), func(name string) bool {
+		f, _ := p.Field(name)
+		return f.Unique || f.DocRef || name == schema.ProjectsField
+	}) {
 		idx = l.Index(true)
 	}
 	var out *jsonx.Obj
@@ -255,6 +258,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 	task := schema.IsTask(fm)
 	var errs []string
 	refs := jsonx.New("doc_id", docID)
+	added := jsonx.New() // the related_projects entries this call adds; old ones stay
 	for _, name := range changed {
 		f, _ := p.Field(name)
 		if !f.InScope(rel) {
@@ -266,6 +270,10 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 		if f.DocRef {
 			refs.Set(name, v)
 		}
+		if name == schema.ProjectsField {
+			old, _ := before.Get(name)
+			added = added.Set(name, jsonx.Strings(slices.DeleteFunc(vault.CoerceList(v), func(s string) bool { return slices.Contains(vault.CoerceList(old), s) })))
+		}
 		if f.Unique && idx != nil {
 			old, _ := before.Get(name)
 			fresh := slices.DeleteFunc(vault.CoerceList(v), func(s string) bool { return slices.Contains(vault.CoerceList(old), s) })
@@ -276,6 +284,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 	}
 	if idx != nil {
 		errs = append(errs, p.RefProblems(refs, idx.Has)...)
+		errs = append(errs, p.ProjectProblems(added, idx.Projects)...)
 	}
 	if archive != "" {
 		errs = append(errs, schema.ArchiveProblems(fm, archive)...)
@@ -340,6 +349,7 @@ func checkNew(fm *jsonx.Obj, rel, archive string, p *schema.Profile, idx *vault.
 	}
 	if idx != nil {
 		errs = append(errs, p.RefProblems(fm, idx.Has)...)
+		errs = append(errs, p.ProjectProblems(fm, idx.Projects)...)
 	}
 	for _, f := range p.Settable() {
 		v, _ := fm.Get(f.Name)

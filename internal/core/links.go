@@ -13,10 +13,11 @@ import (
 // schemeRE marks a markdown link to a URL rather than a file.
 var schemeRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
 
-// layout is the vault's files before a folder moved, and the move: from and
-// to are clean vault-relative folders.
+// layout is the vault's files before a move, and the move: from and to are
+// clean vault-relative folders, or for a single file (file) its paths.
 type layout struct {
 	from, to string
+	file     bool
 	*links.Files
 }
 
@@ -24,11 +25,38 @@ func newLayout(from, to string, files []string) *layout {
 	return &layout{from: from, to: to, Files: links.NewFiles(files)}
 }
 
+func newFileLayout(from, to string, files []string) *layout {
+	return &layout{from: from, to: to, file: true, Files: links.NewFiles(files)}
+}
+
+// has reports whether rel, a path before the move, is moved by it.
+func (l *layout) has(rel string) bool {
+	if l.file {
+		return rel == l.from
+	}
+	return under(rel, l.from)
+}
+
+// retarget is the new path for a link written as clean that resolves to f,
+// a file the move carries.
+func (l *layout) retarget(clean, f string) string {
+	if l.file {
+		return sameExt(clean, l.to)
+	}
+	return l.to + clean[len(l.from):]
+}
+
 // under reports whether rel is inside dir.
 func under(rel, dir string) bool { return strings.HasPrefix(rel, dir+"/") }
 
 // moved is where rel, a path before the move, is after it.
 func (l *layout) moved(rel string) string {
+	if l.file {
+		if rel == l.from {
+			return l.to
+		}
+		return rel
+	}
 	if under(rel, l.from) {
 		return l.to + rel[len(l.from):]
 	}
@@ -37,6 +65,12 @@ func (l *layout) moved(rel string) string {
 
 // before is where rel, a path after the move, was before it.
 func (l *layout) before(rel string) string {
+	if l.file {
+		if rel == l.to {
+			return l.from
+		}
+		return rel
+	}
 	if under(rel, l.to) {
 		return l.from + rel[len(l.to):]
 	}
@@ -67,16 +101,16 @@ func (l *layout) wikiTarget(target string) string {
 		return ""
 	}
 	if f, ok := l.Exact(clean); ok {
-		if !under(f, l.from) {
+		if !l.has(f) {
 			return ""
 		}
-		return lead + l.to + clean[len(l.from):] + tail
+		return lead + l.retarget(clean, f) + tail
 	}
-	if under(strings.ToLower(clean), strings.ToLower(l.from)) {
+	if !l.file && under(strings.ToLower(clean), strings.ToLower(l.from)) {
 		return lead + l.to + clean[len(l.from):] + tail
 	}
 	f, ok := l.BySuffix(clean)
-	if !ok || !under(f, l.from) || endsWith(l.moved(f), clean) {
+	if !ok || !l.has(f) || endsWith(l.moved(f), clean) {
 		return ""
 	}
 	return lead + sameExt(clean, l.moved(f)) + tail
@@ -121,13 +155,13 @@ func (l *layout) mdTarget(raw, note string) string {
 		clean := strings.TrimLeft(p, "/")
 		f, ok := l.Exact(clean)
 		switch {
-		case ok && under(f, l.from):
-			next = l.to + clean[len(l.from):]
-		case !ok && under(strings.ToLower(clean), strings.ToLower(l.from)):
+		case ok && l.has(f):
+			next = l.retarget(clean, f)
+		case !ok && !l.file && under(strings.ToLower(clean), strings.ToLower(l.from)):
 			next = l.to + clean[len(l.from):]
 		case !ok && strings.Contains(clean, "/"):
 			g, found := l.BySuffix(clean)
-			if !found || !under(g, l.from) || endsWith(l.moved(g), clean) {
+			if !found || !l.has(g) || endsWith(l.moved(g), clean) {
 				return ""
 			}
 			next = sameExt(clean, l.moved(g))

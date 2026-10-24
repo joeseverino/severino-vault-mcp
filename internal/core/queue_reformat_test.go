@@ -37,19 +37,21 @@ const oldQueueFront = "doc_id: queue-example-tracker\ntitle: Example Tracker Que
 const oldQueueBody = "# Example Tracker Queue\n\n## Open\n\n" +
 	"- [ ] Build it  [kind:: delegated]  [owner:: worker]  [agent:: a1]  [branch:: pass/x]  [id:: ex-1]\n" +
 	"- [x] Ticked by hand  [kind:: next]  [body:: project-example-site]  [alias:: task-old]  [id:: ex-2]  [dependsOn:: ex-1]  [completion:: 2026-10-22]\n" +
-	"- [ ] mentions #queue/next  [kind:: follow-up]  [id:: ex-3]\n\n" +
+	"- [ ] mentions #queue/next  [kind:: follow-up]  [id:: ex-3]\n" +
+	"- [>] Someday, from when parked was a status  [kind:: next]  [id:: ex-5]\n\n" +
 	"## Closed\n\n" +
 	"- [x] Shipped  [kind:: decision]  [owner:: main]  [resolution:: yes (Friday)]  [id:: ex-4]  ✅ 2026-10-20\n"
 
 // leanQueueFront is that note's block after reformat drops what a queue
 // note does not need.
 const leanQueueFront = "doc_id: queue-example-tracker\ntitle: Example Tracker Queue\ndoc_type: queue\nsystem: Example Tracker\n" +
-	"status: active\nlast_reviewed: 2026-01-01\nqueue_format: 1"
+	"status: active\nlast_reviewed: 2026-01-01\nqueue_format: 3"
 
 const newQueueBody = "## Open\n\n" +
 	"- [ ] Build it #queue/delegated #owner/worker  [agent:: a1]  [branch:: pass/x]  [id:: ex-1]\n" +
 	"- [x] Ticked by hand ([[01 Projects/example-site/index|notes]]) #queue/next  [alias:: task-old]  [id:: ex-2]  [dependsOn:: ex-1]  [completion:: 2026-10-22]\n" +
-	"- [ ] mentions \\#queue/next #queue/follow-up  [id:: ex-3]\n\n" +
+	"- [ ] mentions \\#queue/next #queue/follow-up  [id:: ex-3]\n" +
+	"- [ ] Someday, from when parked was a status #queue/next  [id:: ex-5]\n\n" +
 	"## Closed\n\n" +
 	"- [x] Shipped #queue/decision #owner/main  [resolution:: yes (Friday)]  [id:: ex-4]  ✅ 2026-10-20\n"
 
@@ -60,7 +62,7 @@ func TestReformatRewritesEveryLineOnceAndThenNothing(t *testing.T) {
 	before := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Status: "all", Full: true}))
 
 	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "reformat", All: true}))
-	if r.Int("count") != 1 || tk.Get(r, "changed.0.relative_path") != trackerQueue || tk.Get(r, "changed.0.lines") != 4 || r.Has("unparsed_lines") ||
+	if r.Int("count") != 1 || tk.Get(r, "changed.0.relative_path") != trackerQueue || tk.Get(r, "changed.0.lines") != 5 || r.Has("unparsed_lines") ||
 		jsonx.Compact(tk.Get(r, "changed.0.fields_dropped")) != `["environment","sensitivity","related_projects","tags"]` ||
 		tk.Get(r, "changed.0.h1_dropped") != true {
 		t.Fatal(jsonx.Compact(r))
@@ -127,7 +129,7 @@ func TestReformatStampsTheFormatOnANoteWithoutIt(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 	note := tk.Read(t, path)
-	if _, body, _ := strings.Cut(note, "\n---\n\n"); body != newQueueBody || !strings.Contains(note, "\nqueue_format: 1\n") {
+	if _, body, _ := strings.Cut(note, "\n---\n\n"); body != newQueueBody || !strings.Contains(note, "\nqueue_format: 3\n") {
 		t.Fatal(note)
 	}
 	if again := mustOK(t, core.Queue(v, core.QueueArgs{Action: "reformat", All: true})); again.Int("count") != 0 || tk.Read(t, path) != note {

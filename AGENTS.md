@@ -137,5 +137,7 @@ scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the
   between a rewrite's read and its rename; `testkit.AppendDuringWrite` lands
   an outside append there), `fsx.LockWait`. A failed atomic write is
   simulated with a read-only directory.
+- Read a result by dotted path with `testkit.Get` and `testkit.Has`;
+  `jsonx.Obj.Has` takes one key (`archtest.TestNoDottedPathReachesObjHas`).
 - Compare a written body byte for byte as `text[frontmatter.BodyOffset(text):]`;
   `frontmatter.Split` trims the trailing newline.

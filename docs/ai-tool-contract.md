@@ -23,7 +23,7 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
-| Move or rename a doc | `move_doc(doc_id, to)` | Fix the links `wikilinks` lists with `write_doc`; never move a vault file with the shell. |
+| Move or rename a doc | `move_doc(doc_id, to)` | Path links follow; read `links` and `skipped_restricted`. Never move a vault file with the shell. |
 | Move or rename a folder or project; retire one | `move_folder(from, to)` (`to` in `99 Archive/` with `archive=true` to retire) | Path links and `related_projects` follow; read `links`, `skipped_restricted` and `failed`. |
 | Archived docs | `find(query, include_archived=true)` | `find` leaves `99 Archive` out otherwise. |
 | A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
@@ -127,7 +127,10 @@ again. A write that would leave one id on two item lines of a note is
 refused, and so is every write to a note that already has one, until a
 person renumbers a line. The caller never supplies one on `add`; `set` and `close`
 find the queue from the id's prefix, or take `agent` instead of
-`id` to name the one open item carrying that agent id.
+`id` to name the one open item carrying that agent id. An agent holds any
+number of items: `list` with `agent` returns them all, and `set` or
+`close` by `agent` alone, when it holds several, is refused with every id
+it holds.
 
 An item may carry an `alias`, an older id it also answers to (a task's
 doc_id when an import moves the task into a queue), and a `body`, the
@@ -177,7 +180,7 @@ so Obsidian, the [Tasks plugin](https://publish.obsidian.md/tasks/) (set its
 task format to Dataview) and Dataview render and query the note as it is:
 
 ```
-- [<mark>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: <agent>]  [origin:: <repo>]  [repos:: <repo>,<repo>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]
+- [<mark>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: <agent>]  [origin:: <repo>]  [repos:: <repo>,<repo>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [base:: <branch>]  [owns:: <path>,<path>]  [transcript:: <absolute path>]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]  [created:: <YYYY-MM-DD>]
 ```
 
 - `<mark>` is the status, as the Tasks plugin types it:
@@ -186,12 +189,12 @@ task format to Dataview) and Dataview render and query the note as it is:
   |---|---|---|
   | `open` | `[ ]` | TODO |
   | `returned` (delegated only) | `[/]` | IN_PROGRESS |
-  | `parked` | `[>]` | TODO by default; give `>` the ON_HOLD type in Tasks' settings to match |
   | `closed` | `[x]` | DONE |
   | `dropped` | `[-]` | CANCELLED |
 
   A closed or dropped item sits under `## Closed`; `close` takes
-  `status=dropped` for work not done.
+  `status=dropped` for work not done. A `[>]` line reads as `open`, and the next write of the line (or
+  `reformat`) gives it `[ ]`.
 - `<kind>`: `next`, `delegated`, `decision`, `follow-up`, as the tag
   `#queue/<kind>`. `<owner>`, when set, is the tag `#owner/<owner>`: one
   word of letters, digits, `_` or `-`. The tags follow the text (and its body
@@ -218,7 +221,11 @@ task format to Dataview) and Dataview render and query the note as it is:
   in the order above. `agent`, `origin`, the links (`commit`
   comma-separated) and `alias` are one word without spaces,
   brackets, parentheses or a backslash; `repos` is a comma list of such
-  words without `@`. `resolution` is one line, such as `repo@sha`, a PR or a
+  words without `@`. `base` is the branch the item's work lands on, one
+  such word; `owns` is a comma list of the paths its worker owns, each
+  without a comma, brackets, a backslash or a line break. `transcript` is
+  the absolute path of the worker transcript holding the item's brief and
+  report, under the same character rule. `resolution` is one line, such as `repo@sha`, a PR or a
   doc_id; inside its `[resolution:: ...]` only `]` and `\` take a backslash,
   since only a `]` ends the field, so `merged (#213)` is written as typed
   (a resolution that carries escaped parentheses or `[` still reads back
@@ -227,7 +234,11 @@ task format to Dataview) and Dataview render and query the note as it is:
   (the `repo@sha` landings so far).
 - `id` and `dependsOn` are the Tasks plugin's own dependency fields (the
   tool's `blocked_by`), last because Tasks reads fields from the end of the
-  line and stops at the first it does not know. Tasks' `is blocked` and
+  line and stops at the first it does not know. `created` is Tasks' own
+  created date, after them where Tasks reads it: `add` writes it on every
+  new item as the day it was filed, and `list` returns it as `created`. A
+  hand-typed `➕ YYYY-MM-DD` reads as the same field and is written back as
+  `[created:: …]`. Tasks' `is blocked` and
   `is blocking` filters and `ready` agree: a dependency stops blocking once
   it is closed or dropped.
 
@@ -262,7 +273,7 @@ resolution and the done and cancelled dates.
 
 A queue note carries `queue_format: <n>` in its frontmatter, one integer the
 labs profile declares: the line format it was written in. Every write
-stamps the format the running binary writes (currently 1); a note without
+stamps the format the running binary writes (currently 3); a note without
 the field predates it. So that no process, of any version, writes a note it
 does not fully read, every write (`add`, `set`, `close`, `reformat`) is
 refused, writing nothing, when the note:
@@ -308,7 +319,7 @@ the MCP tool against the labs vault and prints one line of compact JSON
 (the JSON carries `error` and `next_steps`), 2 on a usage error (stderr).
 Pass a value that starts with a dash as `--flag=value`. Items in the output
 carry `id, project, kind, status, owner, text, links`, plus `blocked_by,
-body, alias, agent, origin, repos, resolution` when set; `--fields` narrows
+body, alias, agent, origin, repos, base, owns, transcript, created, resolution` when set; `--fields` narrows
 them.
 
 `--owner` is one word of letters, digits, `_` or `-`, since the line writes
@@ -320,16 +331,35 @@ owner passes the part after its last `:` (`worker` for
 A brief that starts from a queued item (an `Item: <id>` line) launches its
 worker with one atomic call, `queue set <id> --claim --owner <type> --agent
 <agent id> --kind delegated --branch <branch>`: the claim, owner, agent, kind
-and branch land in one locked edit, so a lost claim (another owner holds the
-item) changes nothing and no duplicate delegated item is created. Landing
-then closes it by agent: `queue close --agent <agent id> --resolution
-<repo>@<sha>`.
+and branch land in one locked edit, so a lost claim changes nothing and no
+duplicate delegated item is created. A claim is refused when another agent
+holds the item (the refusal carries `agent`), when another owner holds it
+(`owner`), and when the item is closed or dropped; a claim that succeeds
+leaves the item `open`, so a returned item its worker claims again is open
+once more. Landing then closes it by agent: `queue close --agent <agent id>
+--resolution <repo>@<sha>`.
+
+A brief without an `Item:` line files its worker with `queue add --agent
+<agent id> --text <goal>`. The add is idempotent for a relaunch: when that
+agent already holds an open item with the same text in that queue, the call
+returns it with `no_op: true` instead of filing a second.
+
+`queue set <id> --release` hands an item back to the queue in one locked
+edit: no agent or owner, kind `next` (from `delegated`; another kind stays),
+status `open`. With `--agent`, the item must be held by that agent, so a
+stale release never frees another worker's item. A done item is not
+released, and `--release` takes no `--claim`, `--owner`, `--status` or
+`--kind`.
+
+A `set` or `close` that changes an item an agent holds (status `open` or
+`returned`, with an agent) without naming that agent goes through, and its
+result carries `warning`: `<id> was held by agent <agent>`.
 
 | Action | Flags |
 |---|---|
-| `add` | `--cwd`, `--repo` or `--project` (`--project backlog` for the backlog); `--kind`, `--text`; optional `--owner`, `--agent`, `--origin <repo or dir>`, `--repos <repo>,<repo>`, `--pr`, `--branch`, `--commit`, `--slug`, `--alias=<id>`, `--body=<doc_id>`, `--blocked-by <id or alias> ...` |
+| `add` | `--cwd`, `--repo` or `--project` (`--project backlog` for the backlog); `--kind`, `--text`; optional `--owner`, `--agent`, `--origin <repo or dir>`, `--repos <repo>,<repo>`, `--base <branch>`, `--owns <path>,<path>`, `--transcript <absolute path>`, `--pr`, `--branch`, `--commit`, `--slug`, `--alias=<id>`, `--body=<doc_id>`, `--blocked-by <id or alias> ...` |
 | `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent`, `--origin`, `--alias` or a link flag alone searches every queue); `--include-origin`; `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--branch <name>` (or any link flag: items whose link is exactly that value), `--ready`, `--contains`, `--limit` |
-| `set` | `<id or alias>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--agent` (with an id: writes the agent onto the item; refused when another open item has it), `--kind delegated` (the only kind change: from next or follow-up), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos` |
+| `set` | `<id or alias>` or `--agent`; `--status open\|returned`, `--owner` (with `--claim`: only if no other owner or agent holds it and it is not done), `--agent` (with an id: writes the agent onto the item; with `--release`, the holder it must have), `--release`, `--kind delegated` (the only kind change: from next or follow-up), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos`, `--base` (`''` removes it), `--owns` (`--owns=` clears it), `--transcript` (`''` removes it) |
 | `close` | `<id or alias>` or `--agent`; `--resolution` (`repoA@sha,repoB@sha` for an item with repos); `--partial` to record landings; `--status dropped` for work not done; link flags |
 | `reformat` | `--cwd`, `--repo`, `--project` or `--all`; `--drop-aliases` |
 
@@ -374,6 +404,15 @@ keeps a doc where it was archived from, so the rule holds live docs only.
 `validate` in a way it did not before (a `kind` on a non-report, a
 `doc_type` changed to one whose required set or folder the doc lacks); a
 problem the doc already had does not block an edit elsewhere in the block.
+
+A `related_projects` entry names a project folder, matched case-sensitively:
+`01 Projects/<name>/` holding an `index.md`, `<archive>/Projects/<name>/`, or
+`backlog`. This needs the vault's folders, so it is checked beside the
+doc-reference rule rather than in the per-file one: `set_frontmatter` and
+`write_doc` create refuse an entry they add that names none (the error
+lists the closest folder names), an entry already in the block does not
+block an edit elsewhere, and `doctor` and `validate` report every entry that
+names none. A vault without a projects folder checks nothing.
 
 ## Frontmatter as JSON Schema
 
@@ -449,10 +488,12 @@ Refused, each with `next_steps`:
 `with_folder=true` moves the doc's whole folder into `to` (a folder), for a
 report folder with evidence files; the folder may hold no other doc. The move
 holds both notes' locks and never replaces a file. The result is
-`{ok, doc_id, from, to, wikilinks}`: `wikilinks` lists each note whose
-`[[links]]` reached the old location and won't reach the new one, with a
-count; restricted notes are not read and are listed in `skipped_restricted`.
-Other notes are never rewritten.
+`{ok, doc_id, from, to, links}`. Afterwards every `[[path/link]]`,
+`![[embed]]` and `[text](path)` in the vault that named the doc by path names
+its new path (alias and `#heading` kept, links by file name alone untouched),
+through the same rewrite and note locks as `move_folder`; `links` lists each
+rewritten note with a count, `failed` the notes it could not rewrite, and
+restricted notes are not read but listed in `skipped_restricted`.
 
 ## Moving a folder
 
@@ -531,9 +572,9 @@ write one. `doctor` warns on a deprecated report (`doc_type: report`) with no
 ## Drift
 
 `doctor` reads the body of every live doc (the indexed dirs; not the archive
-or the read-only folders) for structure the vault has left behind. A report,
-a deprecated doc and a closed log entry record the past, so their text is
-not checked for retired structure:
+or the read-only folders) for structure the vault has left behind and code
+its repositories no longer have. A report, a deprecated doc and a closed log
+entry record the past, so their text is checked for neither:
 
 - a mention of retired structure is a warning, one per term per doc with the
   body lines it is on. The terms are the profile's `retired` list (`schema
@@ -544,6 +585,32 @@ not checked for retired structure:
   file in the vault, from the root, from the note's folder, or as the end of
   a file's path, is an error. A link by file name alone, and links in code,
   are not checked.
+- code a living doc names that its repository lacks is a warning, one per
+  doc listing each missing reference with its body lines. A living doc here
+  is `status: active` or `draft` and not a report or a work queue. Its
+  repositories are the `project_path` of the project folder it sits in and
+  of each of its `related_projects`. Only inline code spans are read, never
+  prose or fenced code, for three kinds of reference:
+  - a relative path holding a `/` that names a file (its last part has an
+    extension) or a folder below the top (`docs/old/`, or Go's
+    `./internal/...`). It is there when it is in a repository, its
+    `.gitignore` covers it (build output), it is a vault path from the doc's
+    folder, its project's folder, `01 Projects` or the vault root, or it
+    starts with a project's repository name and is in that repository.
+    Absolute and home paths, URLs, host and module paths, globs,
+    placeholders, a lone top folder (`images/`), a vault path written with
+    its folder number (`03 Runbooks/x.md`) and anything after a `cd` are not
+    references.
+  - a Go or Python test name (`TestXxx`, `test_xxx`, and pytest's
+    `file::test`), there when a `.go` or `.py` file in the repository holds
+    it.
+  - `mise run <task>` (each task after `:::` too, not a run with `-C`),
+    there when the repository's mise config files define it under `[tasks]`
+    (a name or an alias) or it is a file task in the default task folders or
+    those `task_config.includes` names.
+
+  A project whose `project_path` is not a folder on this machine gets one
+  warning at its `index.md`, and its docs are not checked.
 
 ## Writing a note from outside the server
 

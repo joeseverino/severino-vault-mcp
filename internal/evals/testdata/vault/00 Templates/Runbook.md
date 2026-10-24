@@ -12,7 +12,7 @@ sensitivity: internal
 
 ## Goal
 
-<What this runbook does: install, update, deploy, add, rotate a token.>
+<What this runbook does: install, update, deploy, add, rotate a password.>
 
 ## Steps
 

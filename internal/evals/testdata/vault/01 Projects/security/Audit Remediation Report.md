@@ -16,59 +16,63 @@ tags: [security, audit, report]
 
 ## Summary
 
-Findings from the lab audit and the fix for each.
+What the spring audit of the shop's systems found, and the fix chosen for
+each finding. Open items are tracked in the backlog and reviewed at the first
+staff meeting of each month.
 
 ## Secrets
 
-Agent tokens for the push server, the Cloudflare DNS token for the renewer and the connect server token were all stored in env files. Move each to the Secret Store and have the agent wrapper read it; a Touch ID prompt during an agent run means the wrapper was bypassed.
-
-Status: tracked in the backlog; owner reviews secrets monthly. Status: tracked in the backlog; owner reviews secrets monthly. Status: tracked in the backlog; owner reviews secrets monthly. Status: tracked in the backlog; owner reviews secrets monthly. Status: tracked in the backlog; owner reviews secrets monthly. Status: tracked in the backlog; owner reviews secrets monthly.
+The alertbot hooks for the press stations, the mail relay password and the
+carrier API key for the label service all sat in plain env files on the office
+server. Each now lives in the password manager, and the service reads it at
+start. A security key prompt at the front counter during a scheduled job means
+the job was reading the vault as a person instead of through its service login.
 
 ## Identity
 
-Two apps used a shared OIDC client. Give every app its own client ID and redirect URI in the identity provider, and check the client ID in each app's settings matches.
-
-Status: tracked in the backlog; owner reviews identity monthly. Status: tracked in the backlog; owner reviews identity monthly. Status: tracked in the backlog; owner reviews identity monthly. Status: tracked in the backlog; owner reviews identity monthly. Status: tracked in the backlog; owner reviews identity monthly. Status: tracked in the backlog; owner reviews identity monthly.
+The wiki and Quire shared one OIDC client, so revoking one app's access would
+have locked staff out of both. Every app now gets its own client ID and
+redirect URI in the identity provider, and each app's settings are checked
+against the client the provider shows.
 
 ## Network
 
-The Windows desktop's Tailscale client was months behind because auto-update was off; Linux servers were updated by hand. Turn on auto-update where the client supports it and record server updates in the changelog.
-
-Status: tracked in the backlog; owner reviews network monthly. Status: tracked in the backlog; owner reviews network monthly. Status: tracked in the backlog; owner reviews network monthly. Status: tracked in the backlog; owner reviews network monthly. Status: tracked in the backlog; owner reviews network monthly. Status: tracked in the backlog; owner reviews network monthly.
+The front counter PC's VPN client was four months out of date because
+auto-update was off, and the servers were only updated when someone noticed.
+Turn on auto-update wherever the client offers it, and record each server
+update in the IT changelog.
 
 ## Containers
 
-Image versions were unpinned on three stacks. Pin every image, then bump the pin, run docker compose pull and recreate the stack when updating.
-
-Status: tracked in the backlog; owner reviews containers monthly. Status: tracked in the backlog; owner reviews containers monthly. Status: tracked in the backlog; owner reviews containers monthly. Status: tracked in the backlog; owner reviews containers monthly. Status: tracked in the backlog; owner reviews containers monthly. Status: tracked in the backlog; owner reviews containers monthly.
+Three stacks ran images tagged `latest`, so a restart could change versions
+without anyone choosing to. Pin every image to a version; an update then means
+bumping the pin, running docker compose pull and recreating the stack.
 
 ## Certificates
 
-The internal CA key passphrase was typed on a shared screen. The public certificate renewal used a token with account-wide scope.
-
-Status: tracked in the backlog; owner reviews certificates monthly. Status: tracked in the backlog; owner reviews certificates monthly. Status: tracked in the backlog; owner reviews certificates monthly. Status: tracked in the backlog; owner reviews certificates monthly. Status: tracked in the backlog; owner reviews certificates monthly. Status: tracked in the backlog; owner reviews certificates monthly.
+The internal CA key passphrase was typed while the screen was shared on a
+video call. The storefront certificate was renewed with an account that could
+also change the shop's DNS.
 
 ## Access
 
-Root on the app host was reachable with a shared key. Replace it with the break-glass key and log every use.
+The file server's admin account used a password three people knew. It now has
+a break-glass key held in the office safe, and every use is written in the
+access log.
 
-Status: tracked in the backlog; owner reviews access monthly. Status: tracked in the backlog; owner reviews access monthly. Status: tracked in the backlog; owner reviews access monthly. Status: tracked in the backlog; owner reviews access monthly. Status: tracked in the backlog; owner reviews access monthly. Status: tracked in the backlog; owner reviews access monthly.
+## Quire
 
-## Beacon
-
-The dev server ran with debug on against a copy of production data; the edge controller install script fetched the binary without a checksum; plugins ran with the worker's full permissions.
-
-Status: tracked in the backlog; owner reviews beacon monthly. Status: tracked in the backlog; owner reviews beacon monthly. Status: tracked in the backlog; owner reviews beacon monthly. Status: tracked in the backlog; owner reviews beacon monthly. Status: tracked in the backlog; owner reviews beacon monthly. Status: tracked in the backlog; owner reviews beacon monthly.
+The dev server ran with debug on against a copy of real customer orders; the
+station agent install script downloaded its binary without checking a
+checksum; extensions ran with the worker's full database rights.
 
 ## Backups
 
-The restore test had not run in two quarters. Snapshots were fine; retention matched the policy.
-
-Status: tracked in the backlog; owner reviews backups monthly. Status: tracked in the backlog; owner reviews backups monthly. Status: tracked in the backlog; owner reviews backups monthly. Status: tracked in the backlog; owner reviews backups monthly. Status: tracked in the backlog; owner reviews backups monthly. Status: tracked in the backlog; owner reviews backups monthly.
+Nobody had run a restore drill in two quarters. The nightly archives were
+complete, and pruning matched the written policy.
 
 ## Documentation
 
-Runbooks for the DNS rewrite, the proxy host and the writeup publish gate were current; the security architecture report was out of date.
-
-Status: tracked in the backlog; owner reviews documentation monthly. Status: tracked in the backlog; owner reviews documentation monthly. Status: tracked in the backlog; owner reviews documentation monthly. Status: tracked in the backlog; owner reviews documentation monthly. Status: tracked in the backlog; owner reviews documentation monthly. Status: tracked in the backlog; owner reviews documentation monthly.
-
+The runbooks for local DNS records, proxy routes and the journal publish check
+were current. The security architecture report described a VPN layout the shop
+replaced in the spring.

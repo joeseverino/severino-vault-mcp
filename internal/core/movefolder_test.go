@@ -50,6 +50,7 @@ func projectVault(t *testing.T) (string, *core.Vault) {
 	doc(oldProject+"/Reports/Widget Audit.md", "report-widget-audit", schema.ReportDocType, "active", "internal", []string{"Widgetry"},
 		"# Widget Audit\n\nBack to [[Widgetry/index|the project]]; steps in [the runbook](<../../../03 Runbooks/Widget Runbook.md>).\n")
 	tk.Write(t, filepath.Join(root, oldProject, "diagram.png"), "png\n")
+	doc("01 Projects/example-other/index.md", "project-example-other", "architecture_note", "active", "internal", nil, "# Other\n")
 	doc("03 Runbooks/Widget Runbook.md", "rb-widget-runbook", "runbook", "active", "internal", []string{"Widgetry", "example-other"},
 		"# Widget Runbook\n\nThe project: [[01 Projects/Widgetry/index|Widgetry]] and [[01 Projects/Widgetry/Reports/Widget Audit]].\n"+
 			"| Doc | Note |\n| --- | --- |\n| [[01 Projects/Widgetry/index\\|home]] | table |\n"+
@@ -311,5 +312,17 @@ func TestMoveFolderRefusalsLeaveTheVaultAlone(t *testing.T) {
 				t.Fatalf("a refused move changed the vault:\n%v\n%v", before, after)
 			}
 		})
+	}
+}
+
+func TestAnInvalidRelatedProjectsEntryIsRefusedWithTheClosestFolders(t *testing.T) {
+	_, v := projectVault(t)
+	r := core.SetFrontmatter(v, "03 Runbooks/Widget Runbook.md", write.With("related_projects", []string{"widgetry", "Widgetry"}))
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "'widgetry' names no project folder (closest: Widgetry,") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	steps, _ := r.Get("next_steps")
+	if s, ok := steps.([]string); !ok || len(s) != 1 || !strings.Contains(s[0], "naming a folder the error lists") {
+		t.Fatal(jsonx.Compact(r))
 	}
 }

@@ -6,7 +6,7 @@
 // docs/ai-tool-contract.md; the store and the tool that write it live in
 // internal/core.
 //
-//   - [<status char>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: …] …  [id:: …]  [dependsOn:: …]
+//   - [<status char>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: …] …  [id:: …]  [dependsOn:: …]  [created:: …]
 //
 // The Tasks plugin hides only the fields it owns, so everything a reader
 // needs to see reads as text: the body as a short link, kind and owner as
@@ -15,8 +15,8 @@
 // it rewrites a line, and moves any it finds among its fields to that spot.
 // Tasks reads its fields from the end of the line and stops at the first one
 // it does not know, so id and dependsOn come after the queue's own fields, in
-// the order Tasks writes them, and the done and cancelled dates Tasks or
-// Dataview append when a box is ticked follow them.
+// the order Tasks writes them, then the created date, and the done and
+// cancelled dates Tasks or Dataview append when a box is ticked follow them.
 package queue
 
 import (
@@ -32,13 +32,17 @@ import (
 // Kinds are an item's kinds; Statuses its statuses.
 var (
 	Kinds    = []string{"next", "delegated", "decision", "follow-up"}
-	Statuses = []string{"open", "returned", "parked", "closed", "dropped"}
+	Statuses = []string{"open", "returned", "closed", "dropped"}
 )
 
 // marks are the checkbox characters of the statuses, as the Tasks plugin
-// types them: TODO, IN_PROGRESS, a forwarded TODO (ON_HOLD where configured),
-// DONE and CANCELLED.
-var marks = map[string]rune{"open": ' ', "returned": '/', "parked": '>', "closed": 'x', "dropped": '-'}
+// types them: TODO, IN_PROGRESS, DONE and CANCELLED.
+var marks = map[string]rune{"open": ' ', "returned": '/', "closed": 'x', "dropped": '-'}
+
+// retiredMarks are checkbox characters of statuses the queue no longer has,
+// each read as the status that replaced it, so an older note still parses
+// and its next write gives the line the current mark.
+var retiredMarks = map[rune]string{'>': "open"}
 
 // Done reports whether status ends an item: it sits under ## Closed, may carry
 // a resolution, and no longer blocks another (as Tasks treats DONE and
@@ -47,8 +51,8 @@ func Done(status string) bool { return status == "closed" || status == "dropped"
 
 // LinkKeys are the typed links a hook can match an item by. Format writes the
 // body link and the kind and owner tags after the text, then agent, origin,
-// repos, the links, alias and resolution in this order, then id and
-// dependsOn.
+// repos, the links, base, owns, alias and resolution in this order, then id,
+// dependsOn and created.
 var LinkKeys = []string{"pr", "branch", "commit", "slug"}
 
 // Unowned is the owner argument meaning nobody; the line simply omits owner.
@@ -62,6 +66,10 @@ const TokenRule = "one word without spaces, brackets, parentheses or a backslash
 // #owner/<owner>, which any other character would end.
 const OwnerRule = "one word of letters, digits, _ or -"
 
+// PathRule says what an owns entry may hold: a path inside the field's
+// brackets, in a comma list, so neither may appear in it.
+const PathRule = "a path without a comma, brackets, a backslash or a line break"
+
 // BodyLinkRule says what a body link may name: an Obsidian link target.
 const BodyLinkRule = "a note name without [ ] | # ^ or a line break"
 
@@ -69,6 +77,10 @@ const BodyLinkRule = "a note name without [ ] | # ^ or a line break"
 const (
 	idKey        = "id"
 	dependsOnKey = "dependsOn"
+	createdKey   = "created"
+	// createdEmoji starts the Tasks emoji form of the created date, which a
+	// person may type; it reads as the created field.
+	createdEmoji = "➕"
 	sep          = "  " // Tasks' own separator before an inline field
 	// bodyLabel is the text the body link shows.
 	bodyLabel = "notes"
@@ -84,14 +96,17 @@ var tagKeys = map[string]string{"queue": "kind", "owner": "owner"}
 // dependsOn. An extra field with one of these keys (or an emoji date) goes
 // after id, where Tasks reads it; any other extra goes before id, so it never
 // stops Tasks' parse short of the id.
-var tasksKeys = []string{"created", "start", "scheduled", "due", "completion", "cancelled", "priority", "repeat", "onCompletion"}
+var tasksKeys = []string{"start", "scheduled", "due", "completion", "cancelled", "priority", "repeat", "onCompletion"}
 
 // doneKeys are the fields Tasks and Dataview add on a tick, dropped again when
 // the item reopens.
 var doneKeys = []string{"completion", "cancelled"}
 
 // Item is one queue line. Owner "" is unowned; Links holds only the keys
-// given. Origin is the repository the session that filed the item ran in;
+// given. Created is the date the item was filed (YYYY-MM-DD). Base is the
+// branch its work lands on, Owns the paths its worker owns and Transcript
+// the absolute path of the worker transcript holding its brief and report.
+// Origin is the repository the session that filed the item ran in;
 // Repos are the repositories one item's work spans. Resolution is set on a
 // done item, and on an open one with Repos as the repo@sha landings so far.
 // Extra holds the fields the queue does not own (a done date Tasks appended,
@@ -106,6 +121,10 @@ type Item struct {
 	Body, BodyLink                string
 	Alias, Agent, Origin          string
 	Repos                         []string
+	Base                          string
+	Owns                          []string
+	Transcript                    string
+	Created                       string
 	Resolution                    string
 	Extra                         []string
 }
@@ -117,6 +136,8 @@ var (
 	keyRe    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 	ownerRe  = regexp.MustCompile(`^[\p{L}\p{N}_-]+$`)
 	linkRe   = regexp.MustCompile(`^[^\[\]|#^\r\n]+$`)
+	pathRe   = regexp.MustCompile(`^[^,\[\]\\\r\n]+$`)
+	dateRe   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	// tagRe is a tag in one of the queue's namespaces at the end of a line.
 	tagRe = regexp.MustCompile(`(?:^|\s)(#((?i:queue|owner))/(\S*))$`)
 	// bodyLinkRe is the body link at the end of the text; bodyLinkTail the
@@ -131,7 +152,7 @@ var (
 // Version is the item line format this binary writes and reads in full. A
 // queue note records the format it was written in as queue_format; a higher
 // one was written by a newer binary, whose lines this one may misread.
-const Version = 1
+const Version = 3
 
 // CheckVersion refuses a note's queue_format that this binary cannot write
 // under: one above Version, or anything but a whole number. "" is a note
@@ -215,6 +236,9 @@ func ValidOwner(s string) bool { return ownerRe.MatchString(s) && s != Unowned }
 
 // ValidBodyLink reports whether s can stand as a body link's target.
 func ValidBodyLink(s string) bool { return linkRe.MatchString(s) && strings.TrimSpace(s) == s }
+
+// ValidPath reports whether s can stand in an owns list.
+func ValidPath(s string) bool { return pathRe.MatchString(s) && strings.TrimSpace(s) == s }
 
 // ValidRepo reports whether s can stand in a comma list of repositories.
 func ValidRepo(s string) bool { return ValidToken(s) && !strings.ContainsAny(s, ",@") }
@@ -383,18 +407,29 @@ func (it Item) Validate() error {
 			return fmt.Errorf("blocked_by %q is not an item id", b)
 		}
 	}
-	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}, {"origin", it.Origin}} {
+	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}, {"origin", it.Origin}, {"base", it.Base}} {
 		if f[1] != "" && !ValidToken(f[1]) {
 			return fmt.Errorf("%s %q must be %s", f[0], f[1], TokenRule)
 		}
+	}
+	if it.Transcript != "" && (!ValidPath(it.Transcript) || !strings.HasPrefix(it.Transcript, "/")) {
+		return fmt.Errorf("transcript %q must be an absolute path, %s", it.Transcript, PathRule)
 	}
 	for _, r := range it.Repos {
 		if !ValidRepo(r) {
 			return fmt.Errorf("repos %q must each be %s, without a comma or @", r, TokenRule)
 		}
 	}
+	for _, p := range it.Owns {
+		if !ValidPath(p) {
+			return fmt.Errorf("owns %q must each be %s", p, PathRule)
+		}
+	}
+	if it.Created != "" && !dateRe.MatchString(it.Created) {
+		return fmt.Errorf("created %q is not a YYYY-MM-DD date", it.Created)
+	}
 	for _, x := range it.Extra {
-		if f, ok := lastField(x); !ok || f.raw != x || f.key != "" && owned(f.key) {
+		if f, ok := lastField(x); !ok || f.raw != x || f.key != "" && owned(f.key) || strings.HasPrefix(x, createdEmoji) {
 			return fmt.Errorf("extra field %q is not one inline field the queue does not own", x)
 		}
 	}
@@ -433,7 +468,7 @@ func (it *Item) Reopen(status string) {
 // owned reports whether the queue owns field key.
 func owned(key string) bool {
 	switch key {
-	case "kind", "owner", "agent", "origin", "repos", "body", "alias", "resolution", idKey, dependsOnKey:
+	case "kind", "owner", "agent", "origin", "repos", "base", "owns", "transcript", "body", "alias", "resolution", idKey, dependsOnKey, createdKey:
 		return true
 	}
 	return slices.Contains(LinkKeys, key)
@@ -461,6 +496,9 @@ func Format(it Item) string {
 	for _, k := range LinkKeys {
 		field(k, it.Links[k])
 	}
+	field("base", it.Base)
+	field("owns", strings.Join(it.Owns, ","))
+	field("transcript", it.Transcript)
 	if it.BodyLink == "" {
 		field("body", it.Body)
 	}
@@ -476,6 +514,7 @@ func Format(it Item) string {
 	}
 	field(idKey, it.ID)
 	field(dependsOnKey, strings.Join(it.BlockedBy, ","))
+	field(createdKey, it.Created)
 	for _, x := range after {
 		sb.WriteString(sep + x)
 	}
@@ -497,6 +536,9 @@ func Parse(line string) (it Item, ok bool) {
 		if m == mark {
 			it.Status = st
 		}
+	}
+	if st, ok := retiredMarks[mark]; ok {
+		it.Status = st
 	}
 	if it.Status == "" {
 		return Item{}, false
@@ -522,6 +564,9 @@ func Parse(line string) (it Item, ok bool) {
 	slices.Reverse(fields)
 	seen := map[string]bool{}
 	for _, f := range fields {
+		if f.key == "" && strings.HasPrefix(f.raw, createdEmoji) {
+			f.key, f.value = createdKey, strings.TrimSpace(strings.TrimPrefix(f.raw, createdEmoji))
+		}
 		if f.key == "" || !owned(f.key) {
 			it.Extra = append(it.Extra, f.raw)
 			continue
@@ -541,6 +586,14 @@ func Parse(line string) (it Item, ok bool) {
 			it.Origin = f.value
 		case "repos":
 			it.Repos = SplitList(f.value)
+		case "base":
+			it.Base = f.value
+		case "owns":
+			it.Owns = SplitList(f.value)
+		case "transcript":
+			it.Transcript = f.value
+		case createdKey:
+			it.Created = f.value
 		case "body":
 			it.Body = f.value
 		case "alias":

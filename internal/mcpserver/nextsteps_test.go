@@ -148,15 +148,15 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		args c
 		step string
 	}{
-		{"find", c{"query": "hq", "by": "system"}, `find(query="hq", system="hq")`},
-		{"find", c{"query": "hq", "by": "project"}, `find(query="hq", project="hq")`},
-		{"find", c{"query": "hq", "by": "fuzzy"}, `find(query="hq") with by one of ["relevance","text"]`},
-		{"find", c{"query": "hq", "limit": "many"}, `find(query="hq") with limit as a valid integer`},
+		{"find", c{"query": "wiki", "by": "system"}, `find(query="wiki", system="wiki")`},
+		{"find", c{"query": "wiki", "by": "project"}, `find(query="wiki", project="wiki")`},
+		{"find", c{"query": "wiki", "by": "fuzzy"}, `find(query="wiki") with by one of ["relevance","text"]`},
+		{"find", c{"query": "wiki", "limit": "many"}, `find(query="wiki") with limit as a valid integer`},
 		{"find", c{"query": 7}, ""},
 		{"find", c{}, `find() with query set`},
-		{"find", c{"query": "hq", "vault": "nope"}, `find(query="hq") with vault `},
-		{"find", c{"query": "hq", "sytem": "Example"}, `find(query="hq", system="Example")`},
-		{"find", c{"query": "hq", "zzzz": 1}, `find(query="hq"): without ['zzzz']`},
+		{"find", c{"query": "wiki", "vault": "nope"}, `find(query="wiki") with vault `},
+		{"find", c{"query": "wiki", "sytem": "Example"}, `find(query="wiki", system="Example")`},
+		{"find", c{"query": "wiki", "zzzz": 1}, `find(query="wiki"): without ['zzzz']`},
 		{"read_doc", c{"doc_id": "rb-backup-ops", "section": "goal"}, `read_doc(doc_id="rb-backup-ops", sections=["goal"])`},
 		{"read_doc", c{"doc_id": "rb-backup-ops", "fields": "outline"}, ""},
 		{"set_frontmatter", c{"relative_path": "03 Runbooks/Backup Ops.md", "titel": "x"}, `set_frontmatter(relative_path="03 Runbooks/Backup Ops.md", title="x")`},

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
@@ -29,7 +29,8 @@ type MoveArgs struct {
 // MoveDoc moves or renames a registered doc, keeping its doc_id and
 // frontmatter. Obsidian resolves [[Name]] by unique file name, so a
 // destination whose name another note in the vault already has is refused;
-// links elsewhere that named the old location are reported, never rewritten.
+// links elsewhere that named the old location by path are rewritten to the
+// new one, as move_folder does.
 // A doc moves into the archive only once it is archived (a task: closed);
 // Archive sets status: archived in the same call.
 func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
@@ -55,16 +56,17 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 			Call("move_doc", "doc_id", d.DocID, "to", path.Dir(from)+"/")+" or another folder the fields apply to",
 			Call("set_frontmatter", "relative_path", from)+" to drop the fields the error names first")
 	}
+	files := links.VaultFiles(v.Config.VaultPath)
 	root, err := fsx.OpenVault(v.Config.VaultPath)
 	if err != nil {
 		return failNext("move failed: "+err.Error(), Call("move_doc", "doc_id", d.DocID, "to", a.To)+" again")
 	}
+	defer root.Close()
+	l := newFileLayout(from, to, files)
 	if a.WithFolder {
-		err = root.Move(path.Dir(from), path.Dir(to))
-	} else {
-		err = root.Move(from, to)
+		l = newLayout(path.Dir(from), path.Dir(to), files)
 	}
-	_ = root.Close()
+	err = root.Move(l.from, l.to)
 	switch {
 	case errors.Is(err, fsx.ErrExists):
 		return failNext("destination exists: "+to, Call("move_doc", "doc_id", d.DocID, "to", "...")+" with a path nothing occupies")
@@ -78,10 +80,15 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	if a.WithFolder {
 		out.Set("folder", jsonx.New("from", path.Dir(from), "to", path.Dir(to)))
 	}
-	links, skipped := staleLinks(v, from, to)
-	out.Set("wikilinks", links)
+	rewritten, skipped, failed := rewriteVault(v, root, l, false)
+	out.Set("links", rewritten)
 	if len(skipped) > 0 {
 		out.Set("skipped_restricted", skipped)
+	}
+	v.Loader.Index(true)
+	if len(failed) > 0 {
+		out.Set("failed", failed)
+		steer(out, Call("read_doc", "doc_id", "...")+" for each note failed names, then fix its links with write_doc; the doc itself has moved")
 	}
 	return out
 }
@@ -232,53 +239,6 @@ func newProblems(v *Vault, d *vault.Doc, from, to string) []string {
 		}
 	}
 	return out
-}
-
-// staleLinks are the notes whose [[links]] reached the doc at from and will
-// not reach it at to, each with how many such links it holds. A restricted
-// note's body is not read; its path is listed in skipped.
-func staleLinks(v *Vault, from, to string) (links []*jsonx.Obj, skipped []string) {
-	links = []*jsonx.Obj{}
-	root, err := fsx.OpenVault(v.Config.VaultPath)
-	if err != nil {
-		return links, nil
-	}
-	defer root.Close()
-	for _, rel := range vault.Notes(v.Config.VaultPath) {
-		if rel == to {
-			continue
-		}
-		note, err := root.ReadNote(rel)
-		if err != nil || !strings.Contains(note.Text, "[[") {
-			continue
-		}
-		text := note.Text
-		if fm := note.FM; fm != nil {
-			if s, _ := fm.Get("sensitivity"); gate.Parse(pystr.Str(orNone(s))) == gate.Restricted {
-				skipped = append(skipped, rel)
-				continue
-			}
-		}
-		n := 0
-		for _, target := range wikiTargets(text) {
-			if linksTo(target, from) && !linksTo(target, to) {
-				n++
-			}
-		}
-		if n > 0 {
-			links = append(links, jsonx.New("relative_path", rel, "count", n))
-		}
-	}
-	return links, skipped
-}
-
-// linksTo reports whether a [[target]] resolves to the note at rel: its name,
-// or a trailing part of its path, without the .md, compared as Obsidian does,
-// case-insensitively.
-func linksTo(target, rel string) bool {
-	t := strings.ToLower(strings.TrimSuffix(strings.TrimLeft(target, "/"), ".md"))
-	p := strings.ToLower(strings.TrimSuffix(rel, ".md"))
-	return t != "" && (p == t || strings.HasSuffix(p, "/"+t))
 }
 
 func orNone(v any) any {

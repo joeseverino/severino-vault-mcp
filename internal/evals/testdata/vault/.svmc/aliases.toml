@@ -1,2 +1,2 @@
 [aliases]
-"https proxy" = "rb-add-proxy-host"
+"https proxy" = "rb-add-proxy-route"
