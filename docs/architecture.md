@@ -136,6 +136,7 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
 | `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's profile. |
 | `task_board`, `task_write` | The task ledger. |
+| `log_entries` | An append-only log note's entries: list the open ones, or close one with its resolution. |
 
 Broad questions start at the Quick Index; specific ones use `find`, then
 `read_doc`; answers come from the doc. See [`demo.md`](demo.md). The

@@ -23,7 +23,19 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
 | Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
+| Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
+
+## Failures
+
+Every failure is `{"ok": false, "error": "..."}` with `next_steps`: short
+strings, each starting with a call to a registered tool, such as
+`find(query="...")` for an unknown doc_id or
+`read_doc(doc_id="...", fields=["outline"])` for a heading that isn't there.
+`read_doc`'s not-found and withheld answers, and a `find` with no hits, carry
+them too. An argument the schema refuses (an unknown name, a wrong type, a
+value outside its enum, a missing required one) fails the same way, flagged
+as a tool error. Take a next step before guessing.
 
 ## Sensitivity
 
@@ -44,6 +56,7 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 | The command surface | `severino-vault-mcp describe` |
 | Ranked section menu | `severino-vault-mcp find <query>` |
 | Some sections or a whole body | `severino-vault-mcp read <doc_id> [--sections <slug> ...] [--fields outline]` |
+| Open log entries, or close one | `severino-vault-mcp log-entries list <doc_id> [--contains <text>]`, `log-entries close <doc_id> --match <text> --resolution <text>` |
 | The edu dataset | `severino-vault-mcp export education` |
 
 `describe` is generated from the CLI's command table and emits a

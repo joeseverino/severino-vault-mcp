@@ -42,6 +42,8 @@
     {"id": "passphrase-text", "query": "passphrase", "mode": "text", "want": ["rb-generate-internal-cert"], "source": "text-token"},
     {"id": "cf-env-text", "query": "CF_DNS_API_TOKEN", "mode": "text", "want": ["rb-rotate-cloudflare-token"], "source": "text-token"},
     {"id": "redirect-uri-text", "query": "oidc redirect uri", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-keywords"},
-    {"id": "invalid-client-text", "query": "invalid_client", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-token"}
+    {"id": "invalid-client-text", "query": "invalid_client", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-token"},
+    {"id": "deploy-desk-title", "query": "deploy lantern desk", "mode": "relevance", "want": ["rb-deploy-lantern-desk"], "source": "title-names-the-query"},
+    {"id": "deploy-desk-project", "query": "deploy", "mode": "relevance", "project": "lantern-desk", "want": ["rb-deploy-lantern-desk"], "source": "title-names-the-query"}
   ]
 }

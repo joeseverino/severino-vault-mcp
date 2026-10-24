@@ -24,7 +24,16 @@ const (
 	bodyMatchCap    = 3
 	headingWeight   = 3
 	sectionBody     = 1
+	// titleCover is per query word, once a title holds every word of the query:
+	// a doc named for the question outranks docs that only mention its words.
+	titleCover = 3
+	// procedureVerb favours a procedure named for the query's action: its title
+	// opens with a query word, as "Deploy X" does for "deploy x".
+	procedureVerb = 3
 )
+
+// procedureTypes are the doc types that say how to do something.
+var procedureTypes = set("runbook", "deployment_guide", "troubleshooting_guide")
 
 // Set is a token set.
 type Set map[string]struct{}
@@ -101,6 +110,16 @@ func Score(doc *vault.Doc, q Set) int {
 	env := Tokenize(doc.Environment)
 
 	s := 5*Intersect(q, tag) + 3*Intersect(q, sys) + 3*Intersect(q, title) + Intersect(q, id) + Intersect(q, env)
+	if inTitle := Intersect(q, title); inTitle > 0 {
+		if inTitle == len(q) {
+			s += titleCover * len(q)
+		}
+		if _, ok := procedureTypes[doc.DocType]; ok {
+			if _, ok := q[strings.ToLower(tokenRE.FindString(doc.Title))]; ok {
+				s += procedureVerb
+			}
+		}
+	}
 
 	meta := union(tag, sys, title, id, env)
 	body := Set{}

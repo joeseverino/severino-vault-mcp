@@ -29,6 +29,42 @@ func TestASpecificSectionOutranksAHubThatNamesTheSubject(t *testing.T) {
 	}
 }
 
+func typed(d *vault.Doc, docType string, tags ...string) *vault.Doc {
+	d.DocType, d.Tags = docType, tags
+	return d
+}
+
+const deployGuide = "# Deploy Example Desk\n\n## Routine: landing on main is the deploy\n\nMerge, then watch the deploy job.\n"
+
+// A doc whose title holds every word of the query outranks a hub whose tags,
+// system and title name most of them and whose section mentions the rest.
+func TestATitleThatCoversTheQueryOutranksAHubThatMentionsIt(t *testing.T) {
+	hub := typed(doc("infra-example-desk", "Example Desk", "Example Desk", gate.Internal,
+		"# Example Desk\n\n## Overview\n\nThe help desk.\n\n## Deploy\n\nThe deploy job ships each merge.\n"),
+		"architecture_note", "example", "example-desk")
+	guide := typed(doc("rb-deploy-example-desk", "Deploy Example Desk", "Example Desk", gate.Internal, deployGuide),
+		"deployment_guide", "example")
+	hits := search.Rank([]*vault.Doc{hub, guide}, "deploy example desk", 5)
+	if len(hits) != 2 || hits[0].Doc != guide {
+		t.Fatalf("want the deploy guide first, got %v", hits)
+	}
+}
+
+// A procedure named for the query's action outranks notes whose tags carry
+// the same word.
+func TestAProcedureNamedForTheActionOutranksTaggedNotes(t *testing.T) {
+	task := typed(doc("task-apply-config-in-the-deploy", "Apply the new config in the deploy that ships it", "", gate.Internal,
+		"# Apply the new config in the deploy that ships it\n\nThe deploy restarts with the old config.\n"),
+		"task", "deploy", "containers")
+	task.Status = "open"
+	guide := typed(doc("rb-deploy-example-desk", "Deploy Example Desk", "Example Desk", gate.Internal, deployGuide),
+		"deployment_guide", "example")
+	hits := search.Rank([]*vault.Doc{task, guide}, "deploy", 5)
+	if len(hits) != 2 || hits[0].Doc != guide {
+		t.Fatalf("want the deploy guide first, got %v", hits)
+	}
+}
+
 func TestRestrictedBodiesNeverFeedRankingOrMenus(t *testing.T) {
 	d := doc("rb-ca", "Certificate Authority", "pki", gate.Restricted,
 		"## Root key\n\nThe zebrafish passphrase lives offline.\n")

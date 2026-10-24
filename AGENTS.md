@@ -14,7 +14,7 @@ internal/cli             command table -> parsing, --help, describe; one runner 
 internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
-internal/core            the 6 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/core            the 7 shared tools, transport-free (the MCP adapter and tests both call these)
 internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing

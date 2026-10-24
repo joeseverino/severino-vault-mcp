@@ -27,7 +27,13 @@ type Case struct {
 	Mode   string   `json:"mode"` // relevance or text
 	Want   []string `json:"want"`
 	Source string   `json:"source,omitempty"`
+	// System and Project narrow the search as find's filters of the same names do.
+	System  string `json:"system,omitempty"`
+	Project string `json:"project,omitempty"`
 }
+
+// Filter is a case's narrowing of the search.
+type Filter struct{ System, Project string }
 
 // LoadCases reads a case file and checks every case is scorable.
 func LoadCases(path string) ([]Case, error) {
@@ -70,13 +76,13 @@ type Found struct {
 	Tokens   int
 }
 
-// Backend is a retriever under test. Find ranks docs for a query; Read
-// returns the token cost of reading one doc the way an agent using this
+// Backend is a retriever under test. Find ranks docs for a query within a
+// filter; Read returns the token cost of reading one doc the way an agent using this
 // backend would: the whole doc with no section, else just that section where
 // the backend can scope a read.
 type Backend interface {
 	Name() string
-	Find(query, mode string, limit int) (Found, error)
+	Find(query, mode string, f Filter, limit int) (Found, error)
 	Read(docID, section string) (int, error)
 }
 
@@ -139,7 +145,7 @@ type Metrics struct {
 func Run(b Backend, cases []Case) (Report, error) {
 	r := Report{Backend: b.Name()}
 	for _, c := range cases {
-		f, err := b.Find(c.Query, c.Mode, Limit)
+		f, err := b.Find(c.Query, c.Mode, Filter{c.System, c.Project}, Limit)
 		if err != nil {
 			return r, fmt.Errorf("%s: case %s: %w", b.Name(), c.ID, err)
 		}

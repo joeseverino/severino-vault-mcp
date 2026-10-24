@@ -103,12 +103,26 @@ func hasH1(body string) bool {
 
 // EditSection replaces or appends to the section under one heading of an
 // existing doc. The section runs to the next heading of the same or higher
-// level. The frontmatter block is kept byte for byte except last_reviewed,
-// which becomes today, and must still validate.
+// level.
 func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode bool, p *schema.Profile) *jsonx.Obj {
 	if appendMode && pystr.Strip(body) == "" {
 		return fail("body is empty; nothing to append")
 	}
+	mode := "replace_section"
+	if appendMode {
+		mode = "append_section"
+	}
+	return EditBody(l, relativePath, p, func(old, rel string) (string, *jsonx.Obj) {
+		return spliceSection(old, heading, body, appendMode, rel)
+	}, "mode", mode, "heading", pystr.Strip(heading))
+}
+
+// EditBody rewrites an existing doc's body through edit, which gets the body
+// and the vault-relative path and returns the new body or a failure. The
+// frontmatter block is kept byte for byte except last_reviewed, which becomes
+// today, and must still validate; the file is replaced atomically. extra are
+// key/value pairs the result carries after relative_path.
+func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
 	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
@@ -124,7 +138,7 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 		return fail("file has no frontmatter; register it with set_frontmatter first.")
 	}
 	head, old := text[:cut], text[cut:]
-	newBody, ferr := spliceSection(old, heading, body, appendMode, rel)
+	newBody, ferr := edit(old, rel)
 	if ferr != nil {
 		return ferr
 	}
@@ -134,11 +148,10 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 		return fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
 	}
 	docID, _ := fm.Get("doc_id")
-	mode := "replace_section"
-	if appendMode {
-		mode = "append_section"
+	out := jsonx.New("ok", true, "doc_id", docID, "relative_path", rel)
+	for i := 0; i+1 < len(extra); i += 2 {
+		out.Set(extra[i].(string), extra[i+1])
 	}
-	out := jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "mode", mode, "heading", pystr.Strip(heading))
 	if newText == text {
 		return out.Set("no_op", true).Set("wrote_bytes", 0)
 	}

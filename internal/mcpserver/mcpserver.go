@@ -73,7 +73,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write"}
+var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write", "log_entries"}
 
 // ----- schemas ------------------------------------------------------------------
 
@@ -127,7 +127,7 @@ func addTool(s *mcp.Server, tool *mcp.Tool, next mcp.ToolHandler) {
 	}
 	s.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if err := unknownArgs(req.Params.Arguments, valid); err != nil {
-			return toolError(tool.Name, err), nil
+			return argFailure(tool, req.Params.Arguments, err), nil
 		}
 		return next(ctx, req)
 	})
@@ -178,14 +178,21 @@ func unknownArgs(raw json.RawMessage, valid []string) error {
 	}
 	slices.Sort(unknown)
 	if len(valid) == 0 {
-		return argError{fmt.Sprintf("unknown arguments %s; this tool takes none", pystr.ReprList(unknown))}
+		return argError{msg: fmt.Sprintf("unknown arguments %s; this tool takes none", pystr.ReprList(unknown)), unknown: unknown}
 	}
-	return argError{fmt.Sprintf("unknown arguments %s; valid arguments are %s", pystr.ReprList(unknown), pystr.ReprList(valid))}
+	return argError{msg: fmt.Sprintf("unknown arguments %s; valid arguments are %s", pystr.ReprList(unknown), pystr.ReprList(valid)), unknown: unknown}
 }
 
 type args struct{ o *jsonx.Obj }
 
-type argError struct{ msg string }
+// argError is an argument the schema refuses. arg names the one at fault and
+// unknown the undeclared ones, so the failure can name the call to make instead.
+type argError struct {
+	msg     string
+	arg     string
+	missing bool
+	unknown []string
+}
 
 func (e argError) Error() string { return e.msg }
 
@@ -195,11 +202,11 @@ func parseArgs(raw json.RawMessage) (args, error) {
 	}
 	v, err := jsonx.Decode(raw)
 	if err != nil {
-		return args{}, argError{"arguments are not valid JSON"}
+		return args{}, argError{msg: "arguments are not valid JSON"}
 	}
 	o, ok := v.(*jsonx.Obj)
 	if !ok {
-		return args{}, argError{"arguments must be an object"}
+		return args{}, argError{msg: "arguments must be an object"}
 	}
 	return args{o}, nil
 }
@@ -216,13 +223,13 @@ func (a args) str(name string, required bool, def string) (string, error) {
 	v, ok := a.value(name)
 	if !ok {
 		if required {
-			return "", argError{name + ": field required"}
+			return "", argError{msg: name + ": field required", arg: name, missing: true}
 		}
 		return def, nil
 	}
 	s, isStr := v.(string)
 	if !isStr {
-		return "", argError{name + ": input should be a valid string"}
+		return "", argError{msg: name + ": input should be a valid string", arg: name}
 	}
 	return s, nil
 }
@@ -234,7 +241,7 @@ func (a args) opt(name string) (*string, error) {
 	}
 	s, isStr := v.(string)
 	if !isStr {
-		return nil, argError{name + ": input should be a valid string"}
+		return nil, argError{msg: name + ": input should be a valid string", arg: name}
 	}
 	return &s, nil
 }
@@ -258,7 +265,7 @@ func (a args) integer(name string, def int) (int, error) {
 			return n, nil
 		}
 	}
-	return 0, argError{name + ": input should be a valid integer"}
+	return 0, argError{msg: name + ": input should be a valid integer", arg: name}
 }
 
 func (a args) boolean(name string) (bool, error) {
@@ -284,7 +291,7 @@ func (a args) boolean(name string) (bool, error) {
 			return false, nil
 		}
 	}
-	return false, argError{name + ": input should be a valid boolean"}
+	return false, argError{msg: name + ": input should be a valid boolean", arg: name}
 }
 
 func (a args) list(name string) ([]string, bool, error) {
@@ -294,13 +301,13 @@ func (a args) list(name string) ([]string, bool, error) {
 	}
 	arr, isArr := v.([]any)
 	if !isArr {
-		return nil, false, argError{name + ": input should be a valid list"}
+		return nil, false, argError{msg: name + ": input should be a valid list", arg: name}
 	}
 	out := []string{}
 	for _, item := range arr {
 		s, isStr := item.(string)
 		if !isStr {
-			return nil, false, argError{name + ": items should be strings"}
+			return nil, false, argError{msg: name + ": items should be strings", arg: name}
 		}
 		out = append(out, s)
 	}
@@ -317,7 +324,7 @@ func (a args) choice(name string, choices []string, def string) (string, error) 
 		for _, c := range choices {
 			quoted = append(quoted, pystr.Repr(c))
 		}
-		return "", argError{fmt.Sprintf("%s: input should be %s", name, strings.Join(quoted, " or "))}
+		return "", argError{msg: fmt.Sprintf("%s: input should be %s", name, strings.Join(quoted, " or ")), arg: name}
 	}
 	return s, nil
 }
@@ -326,13 +333,6 @@ func (a args) choice(name string, choices []string, def string) (string, error) 
 
 func result(o *jsonx.Obj) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: core.Text(o)}}, StructuredContent: o}
-}
-
-func toolError(name string, err error) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Error executing tool " + name + ": " + err.Error()}},
-		IsError: true,
-	}
 }
 
 // ----- core tools ------------------------------------------------------------------
@@ -346,7 +346,7 @@ func (h *handlers) vault(a args) (*core.Vault, string, error) {
 	}
 	v := h.reg.Lookup(name)
 	if v == nil {
-		return nil, "", argError{fmt.Sprintf("unknown vault %s; one of %s", pystr.Repr(name), pystr.ReprList(h.reg.Names()))}
+		return nil, "", argError{msg: fmt.Sprintf("unknown vault %s; one of %s", pystr.Repr(name), pystr.ReprList(h.reg.Names())), arg: "vault"}
 	}
 	return v, name, nil
 }
@@ -354,18 +354,19 @@ func (h *handlers) vault(a args) (*core.Vault, string, error) {
 type toolFunc func(a args) (*jsonx.Obj, error)
 
 func (h *handlers) add(s *mcp.Server, name, desc string, schema json.RawMessage, fn toolFunc) {
-	addTool(s, &mcp.Tool{Name: name, Description: desc, InputSchema: schema, Annotations: annotations[name], OutputSchema: outputSchemas[name]},
-		func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			a, err := parseArgs(req.Params.Arguments)
-			if err != nil {
-				return toolError(name, err), nil
-			}
-			o, err := fn(a)
-			if err != nil {
-				return toolError(name, err), nil
-			}
-			return result(o), nil
-		})
+	tool := &mcp.Tool{Name: name, Description: desc, InputSchema: schema, Annotations: annotations[name], OutputSchema: outputSchemas[name],
+		Meta: toolMeta[name]}
+	addTool(s, tool, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		a, err := parseArgs(req.Params.Arguments)
+		if err != nil {
+			return argFailure(tool, req.Params.Arguments, err), nil
+		}
+		o, err := fn(a)
+		if err != nil {
+			return argFailure(tool, req.Params.Arguments, err), nil
+		}
+		return result(o), nil
+	})
 }
 
 func (h *handlers) registerCore(s *mcp.Server) {
@@ -624,34 +625,82 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		}
 		for _, k := range a.o.Keys() {
 			if k != "vault" && k != "items" && !isNull(a.o, k) {
-				return nil, argError{"items: give each change's fields inside its item, not beside items (got " + pystr.Repr(k) + ")"}
+				return nil, argError{msg: "items: give each change's fields inside its item, not beside items (got " + pystr.Repr(k) + ")", arg: "items"}
 			}
 		}
 		list, isList := raw.([]any)
 		if !isList {
-			return nil, argError{"items: input should be a valid list"}
+			return nil, argError{msg: "items: input should be a valid list", arg: "items"}
 		}
 		valid := item.Keys()
 		var batch []core.TaskWriteArgs
 		for i, entry := range list {
 			o, isObj := entry.(*jsonx.Obj)
 			if !isObj {
-				return nil, argError{fmt.Sprintf("items[%d]: input should be an object", i)}
+				return nil, argError{msg: fmt.Sprintf("items[%d]: input should be an object", i), arg: "items"}
 			}
 			if err := unknownArgs(json.RawMessage(jsonx.Compact(o)), valid); err != nil {
-				return nil, argError{fmt.Sprintf("items[%d]: %s", i, err)}
+				return nil, argError{msg: fmt.Sprintf("items[%d]: %s", i, err), arg: "items"}
 			}
 			t, err := taskItem(args{o})
 			if err != nil {
-				return nil, argError{fmt.Sprintf("items[%d]: %s", i, err)}
+				return nil, argError{msg: fmt.Sprintf("items[%d]: %s", i, err), arg: "items"}
 			}
 			batch = append(batch, t)
 		}
 		return core.TaskWrites(v, batch), nil
 	})
 
+	h.add(s, "log_entries", descLogEntries, object(jsonx.New(
+		"doc_id", str("The log note's doc_id (from `find`)."),
+		"action", enum(core.LogActions, core.LogActions[0], "list or close; see the tool description."),
+		"vault", h.vaultProp("Which vault."),
+		"open_only", jsonx.New("type", "boolean", "default", true, "description", "list: only entries without a resolution."),
+		"contains", optStr("list: only entries whose text contains this (case-insensitive)."),
+		"limit", integer(logLimit, "list: most entries to return, in file order; 0 for all. `count` says how many matched."),
+		"match", optStr("close: text (case-insensitive) that exactly one open entry contains."),
+		"resolution", optStr("close: one line saying how the entry was resolved, e.g. a commit."),
+		"fields", strList("Entry fields to return. Default: line, text; also closed, resolution."),
+	), []string{"doc_id"}), func(a args) (*jsonx.Obj, error) {
+		v, _, err := h.vault(a)
+		if err != nil {
+			return nil, err
+		}
+		id, err := a.str("doc_id", true, "")
+		if err != nil {
+			return nil, err
+		}
+		l := core.LogArgs{OpenOnly: true}
+		if l.Action, err = a.choice("action", core.LogActions, core.LogActions[0]); err != nil {
+			return nil, err
+		}
+		if _, given := a.value("open_only"); given {
+			if l.OpenOnly, err = a.boolean("open_only"); err != nil {
+				return nil, err
+			}
+		}
+		for _, f := range []struct {
+			name string
+			dst  *string
+		}{{"contains", &l.Contains}, {"match", &l.Match}, {"resolution", &l.Resolution}} {
+			if *f.dst, err = a.str(f.name, false, ""); err != nil {
+				return nil, err
+			}
+		}
+		if l.Limit, err = a.integer("limit", logLimit); err != nil {
+			return nil, err
+		}
+		if l.Fields, _, err = a.list("fields"); err != nil {
+			return nil, err
+		}
+		return core.LogEntries(v, id, l), nil
+	})
+
 	h.addResources(s)
 }
+
+// logLimit is log_entries' default cap on a list.
+const logLimit = 50
 
 // boardLimit is task_board's default cap: the top of the ranked board.
 const boardLimit = 25
@@ -777,6 +826,16 @@ replace_section: replace the content under heading (doc_id or
 append_section: add body to the end of that section.
 Section modes keep the frontmatter as it is except last_reviewed, which
 becomes today. Restricted docs need include_restricted and a Touch ID approval through 1Password.`
+
+const descLogEntries = `Work an append-only log note: one top-level bullet per entry, closed once
+its line carries " → " and a resolution.
+
+list (default): the entries as {line, text}, open ones only unless
+    open_only=false, narrowed by contains, in file order.
+close: append " → <resolution>" to the one open entry match names; zero or
+    several matches is an error listing the candidates. The frontmatter
+    stays as it is except last_reviewed, which becomes today.
+Restricted notes are refused; notes in read-only folders can be listed, not closed.`
 
 const descBoard = `A vault's task board: open work, counts, recently shipped, and the projects tasks can go in.`
 

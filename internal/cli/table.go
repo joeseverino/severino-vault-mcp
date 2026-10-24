@@ -162,6 +162,21 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runWriteDoc},
+		{Name: "log-entries", Effect: "vault_write",
+			Summary: "List an append-only log note's entries (one top-level bullet each), or close one by appending ' → <resolution>' " +
+				"to its line. The MCP log_entries tool: close needs --match to name exactly one open entry, and writes like a section edit.",
+			Args: []Arg{
+				{Name: "action", Help: "list or close.", Choices: []string{"list", "close"}},
+				{Name: "doc_id", Help: "The log note's doc_id."},
+				{Name: "--all", Help: "list: include closed entries.", Dest: "include_closed"},
+				{Name: "--contains", Help: "list: only entries whose text contains this (case-insensitive).", TakesValue: true},
+				{Name: "--limit", Help: "list: most entries to print, in file order (default 0: all).", TakesValue: true, Int: true, Default: "0"},
+				{Name: "--match", Help: "close: text that exactly one open entry contains.", TakesValue: true},
+				{Name: "--resolution", Help: "close: one line saying how the entry was resolved.", TakesValue: true},
+				fieldsArg("Entry fields to print (line, text, closed, resolution); omit for every field."),
+				pretty(prettyHelp),
+			},
+			Run: runLogEntries},
 		{Name: "task-reconcile", Effect: "read",
 			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status — the idempotent tidy sweep for statuses " +
 				"edited by hand (a Base/Properties edit) that didn't move through task-move.",

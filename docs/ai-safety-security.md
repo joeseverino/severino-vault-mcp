@@ -142,6 +142,7 @@ file" or "run this command" capability.
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block when none exists (doc_id, title, doc_type, system required) or updates allowed fields in place. `doc_id` is immutable. |
 | `write_doc` | One registered doc under the named vault's root and indexed folders: create it (refuses an existing file), or replace or append one section. Frontmatter validates against that vault's schema; restricted docs need a Touch ID approval through 1Password. |
 | `task_write` | Task files in the named vault: add, status, promote an inbox note, delete. |
+| `log_entries` | One registered log note: `close` appends ` → <resolution>` to one open entry's line, through `write_doc`'s validated atomic write. Restricted notes are refused; notes in read-only folders can be listed but not closed. |
 | Provider tools | Governed by the provider process; the host forwards calls unchanged and never widens them. |
 
 Common constraints:
