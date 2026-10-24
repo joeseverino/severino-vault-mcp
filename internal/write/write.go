@@ -280,12 +280,32 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 	if archive != "" {
 		errs = append(errs, schema.ArchiveProblems(fm, archive)...)
 	}
+	for _, e := range introduced(p, before, fm, rel, archive) {
+		if !slices.Contains(errs, e) {
+			errs = append(errs, e)
+		}
+	}
 	if len(errs) > 0 {
 		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
 	slices.Sort(changed)
 	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel,
 		"changed_fields", changed, "next_step", nextStep)
+}
+
+// introduced are the problems the whole block after has that before did
+// not, by the rules validate checks it by (CheckArchived in the archive dir
+// archive, Check elsewhere): an update may leave an unrelated old problem
+// in place, never add one.
+func introduced(p *schema.Profile, before, after *jsonx.Obj, rel, archive string) []string {
+	check := func(fm *jsonx.Obj) []string {
+		if archive != "" {
+			return p.CheckArchived(fm, archive)
+		}
+		return p.Check(fm, rel)
+	}
+	old := check(before)
+	return slices.DeleteFunc(check(after), func(e string) bool { return slices.Contains(old, e) })
 }
 
 // createBlock prepends the block c builds to a file that has none.

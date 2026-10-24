@@ -49,10 +49,61 @@ func TestCheckHoldsEachDeclaredFieldToItsRuleAndScope(t *testing.T) {
 	}
 }
 
+// A report carries a kind, no other doc_type does, and reports live in
+// Reports folders, which hold nothing else; the archive keeps a doc where
+// it was archived from.
+func TestAReportCarriesAKindAndLivesInAReportsFolder(t *testing.T) {
+	doc := func(docType string, extra ...any) *jsonx.Obj {
+		return jsonx.New("doc_id", "report-x", "title", "X", "doc_type", docType, "system", "x",
+			"environment", "other", "status", "active", "sensitivity", "internal").Merge(jsonx.New(extra...))
+	}
+	report := doc(ReportDocType, ReportKindField, "audit")
+	for _, rel := range []string{"01 Projects/Example/Reports/X.md", "Reports/X.md", "01 Projects/Example/Reports/X — 2026-10-01/X.md"} {
+		if e := Labs.Check(report, rel); len(e) != 0 {
+			t.Errorf("%s: %v", rel, e)
+		}
+	}
+	for _, c := range []struct {
+		fm   *jsonx.Obj
+		rel  string
+		want string
+	}{
+		{doc(ReportDocType), "Reports/X.md", "missing required field: kind"},
+		{doc(ReportDocType, ReportKindField, "musing"), "Reports/X.md", "kind 'musing' not in"},
+		{doc("decision_record", ReportKindField, "audit"), at, "kind only applies to doc_type ['report'], not 'decision_record'"},
+		{report, "01 Projects/Example/X.md", "a doc_type 'report' doc lives in a 'Reports' folder"},
+		{report, "01 Projects/Example/Reports.md", "a doc_type 'report' doc lives in a 'Reports' folder"},
+		{doc("decision_record"), "01 Projects/Example/Reports/X.md", "a 'Reports' folder holds only doc_type 'report' docs, not 'decision_record'"},
+		{doc("decision_record"), "Reports/Old/X.md", "holds only doc_type 'report' docs"},
+	} {
+		if e := Labs.Check(c.fm, c.rel); !has(e, c.want) {
+			t.Errorf("%s: want %q, got %v", c.rel, c.want, e)
+		}
+	}
+	archived := doc("decision_record", "status", ArchivedStatus)
+	if e := Labs.CheckArchived(archived, "99 Archive"); len(e) != 0 {
+		t.Errorf("an archived doc from a Reports folder: %v", e)
+	}
+	if e := Labs.CheckArchived(doc(ReportDocType, ReportKindField, "audit", "status", ArchivedStatus), "99 Archive"); len(e) != 0 {
+		t.Errorf("an archived report: %v", e)
+	}
+}
+
 func TestFromContractKeepsAProfilesOwnFields(t *testing.T) {
 	back, err := FromContract(Labs.ContractDict())
 	if err != nil || back.Fingerprint() != Labs.Fingerprint() {
 		t.Fatalf("%v", err)
+	}
+	if back.DocTypeFolders[ReportDocType] != Labs.DocTypeFolders[ReportDocType] {
+		t.Fatalf("doc_type folders: %v", back.DocTypeFolders)
+	}
+	if k, ok := back.Field(ReportKindField); !ok || !slices.Equal(k.DocTypes, []string{ReportDocType}) || !slices.Equal(Sorted(k.Choices), Sorted(ReportKinds)) {
+		t.Fatalf("%+v", k)
+	}
+	c := Labs.ContractDict()
+	c.Set("doc_type_folders", jsonx.New("musing", "Musings"))
+	if _, err := FromContract(c); err == nil || !strings.Contains(err.Error(), "unknown doc_types") {
+		t.Fatalf("a folder for an unknown doc_type: %v", err)
 	}
 	f, ok := back.Field("queue_prefix")
 	if !ok || !f.Unique || f.Scope != projectIndex || !slices.Equal(f.Reserved, []string{"backlog"}) {

@@ -14,7 +14,7 @@ One Go module, one binary.
 | `internal/provider/` | Connects to a provider: reads its profile, lists its tools, forwards calls. |
 | `internal/core/` | The shared tools, transport-free. |
 | `internal/vault/` | The walk (`fd` when present), the lenient doc parse, duplicates, aliases, the cached index. |
-| `internal/sections/`, `internal/search/` | H2 section chunking; the keyword ranker and section scoring. |
+| `internal/sections/`, `internal/search/` | H2 section chunking; find's BM25F ranker over section units. |
 | `internal/query/` | Hit projection, the section menu, section reads, `git log` for the brief, filtered ripgrep body search. |
 | `internal/frontmatter/` | The constrained YAML subset: parse, serialize, body offset. |
 | `internal/schema/` | Profiles: built-in labs and education, `FromContract` for provider profiles. |

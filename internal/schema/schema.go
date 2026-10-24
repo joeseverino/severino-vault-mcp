@@ -54,6 +54,9 @@ type Field struct {
 	// Scope is the path.Match pattern a doc's vault-relative path matches to
 	// carry the field; "" is every doc.
 	Scope string
+	// DocTypes are the doc_types whose docs may carry the field; empty is
+	// every doc_type.
+	DocTypes []string
 	// Unique: no two docs share the value, or any one list item, compared
 	// case-insensitively.
 	Unique bool
@@ -83,6 +86,17 @@ func (f Field) InScope(rel string) bool {
 // ScopeError is the refusal for a field set on a doc outside its scope.
 func (f Field) ScopeError(rel string) string {
 	return fmt.Sprintf("%s only applies to docs at %s, not %s", f.Name, pystr.Repr(f.Scope), rel)
+}
+
+// ForDocType reports whether a doc of docType may carry the field.
+func (f Field) ForDocType(docType string) bool {
+	return len(f.DocTypes) == 0 || slices.Contains(f.DocTypes, docType)
+}
+
+// DocTypeError is the refusal for a field set on a doc of a doc_type that
+// may not carry it.
+func (f Field) DocTypeError(docType string) string {
+	return fmt.Sprintf("%s only applies to doc_type %s, not %s", f.Name, pystr.ReprList(Sorted(f.DocTypes)), pystr.Repr(docType))
 }
 
 // Validate checks one value against the rule.
@@ -201,7 +215,7 @@ func (f Field) Contract() *jsonx.Obj {
 		key    string
 		values []string
 		sorted bool
-	}{{"choices", f.Choices, true}, {"task_choices", f.TaskChoices, true}, {"prefixes", f.Prefixes, false}} {
+	}{{"choices", f.Choices, true}, {"task_choices", f.TaskChoices, true}, {"prefixes", f.Prefixes, false}, {"doc_types", f.DocTypes, true}} {
 		if len(l.values) > 0 {
 			if l.sorted {
 				o.Set(l.key, Sorted(l.values))
@@ -291,6 +305,32 @@ type Profile struct {
 	// Retired is structure the vault has given up; doctor warns on a live
 	// doc that mentions any of it.
 	Retired []Retired
+	// DocTypeFolders name, for a doc_type, the folder its docs live in: a doc
+	// of the type sits under a folder of that name, and a doc under one is of
+	// the type. Check holds live docs to it; the archive keeps docs where
+	// they were archived from.
+	DocTypeFolders map[string]string
+}
+
+// PlacementProblems are the problems with where a doc of docType sits at
+// rel: outside the folder its type lives in, or inside one that holds only
+// another type's docs. The wording leaves out rel, so a move that keeps
+// the problem does not count it as new.
+func (p *Profile) PlacementProblems(docType, rel string) []string {
+	dirs := strings.Split(path.Dir(filepath.ToSlash(path.Clean(filepath.ToSlash(rel)))), "/")
+	var errs []string
+	for _, t := range slices.Sorted(mapKeys(p.DocTypeFolders)) {
+		folder := p.DocTypeFolders[t]
+		inside := slices.Contains(dirs, folder)
+		switch {
+		case t == docType && !inside:
+			errs = append(errs, fmt.Sprintf("a doc_type %s doc lives in a %s folder; move it into one", pystr.Repr(t), pystr.Repr(folder)))
+		case t != docType && inside:
+			errs = append(errs, fmt.Sprintf("a %s folder holds only doc_type %s docs, not %s; move the doc out or make it a %s",
+				pystr.Repr(folder), pystr.Repr(t), pystr.Repr(docType), t))
+		}
+	}
+	return errs
 }
 
 // Retired is one piece of retired structure: Pattern, a regular expression,
@@ -485,13 +525,15 @@ func (p *Profile) ownRequired() []string {
 
 // Check validates a whole frontmatter block at rel with the rules
 // set_frontmatter writes by: required fields (RequiredFor the block's
-// doc_type), every declared field's rule and scope (a task skips the
-// doc-only fields), and the per-doc-type field rules.
+// doc_type), every declared field's rule, path scope and doc_types (a task
+// skips the doc-only fields), the per-doc-type field rules, and the doc's
+// placement (PlacementProblems).
 func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
 	task := IsTask(fm)
 	dt, _ := fm.Get("doc_type")
+	docType := pystr.Str(orEmpty(dt))
 	var errs []string
-	for _, name := range p.RequiredFor(pystr.Str(orEmpty(dt))) {
+	for _, name := range p.RequiredFor(docType) {
 		if v, _ := fm.Get(name); missing(v) {
 			errs = append(errs, "missing required field: "+name)
 		}
@@ -506,8 +548,12 @@ func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
 		if !f.InScope(rel) {
 			errs = append(errs, f.ScopeError(rel))
 		}
+		if !f.ForDocType(docType) {
+			errs = append(errs, f.DocTypeError(docType))
+		}
 	}
-	return append(errs, p.ValidateDocument(fm)...)
+	errs = append(errs, p.ValidateDocument(fm)...)
+	return append(errs, p.PlacementProblems(docType, rel)...)
 }
 
 // ArchivedStatus is the status a doc carries in the archive;
@@ -664,6 +710,13 @@ func (p *Profile) ContractDict() *jsonx.Obj {
 		}
 		o.Set("retired", retired)
 	}
+	if len(p.DocTypeFolders) > 0 {
+		folders := jsonx.New()
+		for _, t := range slices.Sorted(mapKeys(p.DocTypeFolders)) {
+			folders.Set(t, p.DocTypeFolders[t])
+		}
+		o.Set("doc_type_folders", folders)
+	}
 	return o
 }
 
@@ -786,7 +839,7 @@ const projectIndex = "01 Projects/*/index.md"
 var Labs = &Profile{
 	Name: "labs",
 	DocTypes: []string{"runbook", "architecture_note", "deployment_guide", "troubleshooting_guide",
-		"recovery_procedure", "public_article_draft", "decision_record", "task", "queue"},
+		"recovery_procedure", "public_article_draft", "decision_record", "task", QueueDocType, ReportDocType},
 	Environments:       []string{"homelab", "vps", "wordpress", "cloudflare", "tailscale", "adguard", "unifi", "local_mac", "other"},
 	Statuses:           []string{"draft", "active", "deprecated", "archived"},
 	Sensitivities:      []string{"public", "internal", "sensitive", "restricted"},
@@ -808,6 +861,8 @@ var Labs = &Profile{
 			Help: "The item line format a work queue note is written in; the queue tool writes it and refuses to write a note whose format is newer than it knows."},
 		{Name: "superseded_by", Kind: KindString, DocRef: true, Example: "report-example-audit-2026-10-01",
 			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
+		{Name: ReportKindField, Kind: KindEnum, Choices: ReportKinds, DocTypes: []string{ReportDocType}, Example: "audit",
+			Help: "What run a report records."},
 	},
 	DocumentSchemas: map[string]DocumentSchema{
 		// A project's work queue note (the queue tool's Queue.md): its folder
@@ -817,7 +872,14 @@ var Labs = &Profile{
 			Fields:         map[string]Field{"doc_id": {Kind: KindString, Required: true, Prefixes: []string{QueueDocIDPrefix}}},
 			RequiredFields: []string{"doc_id", "title", "doc_type", "system", "status", QueueFormatField},
 		},
+		// A dated record of one run, written once and superseded by the
+		// next in its series.
+		ReportDocType: {
+			Fields:         map[string]Field{},
+			RequiredFields: []string{"doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity", ReportKindField},
+		},
 	},
+	DocTypeFolders: map[string]string{ReportDocType: "Reports"},
 	Retired: []Retired{
 		{Pattern: `00 Reporting`, Help: "the 00 Reporting folder is retired; a report lives in the folder of the project it belongs to"},
 		{Pattern: `\btasks/`, Help: "task folders are retired; a project's work lives in its Queue.md"},
@@ -833,6 +895,18 @@ const (
 	QueueDocIDPrefix = "queue-"
 	QueueFormatField = "queue_format"
 )
+
+// ReportDocType marks a report in the labs profile: a dated record of one
+// run (an audit, review, research pass, session or evaluation), written once
+// and superseded by the next in its series. ReportKindField says which run,
+// one of ReportKinds.
+const (
+	ReportDocType   = "report"
+	ReportKindField = "kind"
+)
+
+// ReportKinds are the runs a report records.
+var ReportKinds = []string{"audit", "review", "research", "pass", "session_log", "evaluation"}
 
 // Education is the coursework profile.
 var Education = &Profile{
@@ -891,7 +965,7 @@ func fieldFromContract(where string, ro *jsonx.Obj) (Field, error) {
 	for _, l := range []struct {
 		key string
 		dst *[]string
-	}{{"choices", &field.Choices}, {"task_choices", &field.TaskChoices}, {"prefixes", &field.Prefixes}, {"reserved", &field.Reserved}} {
+	}{{"choices", &field.Choices}, {"task_choices", &field.TaskChoices}, {"prefixes", &field.Prefixes}, {"reserved", &field.Reserved}, {"doc_types", &field.DocTypes}} {
 		v, ok := ro.Get(l.key)
 		if !ok {
 			continue
@@ -1049,6 +1123,24 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				return nil, fmt.Errorf("retired[%d].pattern must be a regular expression", i)
 			}
 			p.Retired = append(p.Retired, r)
+		}
+	}
+	if rv, ok := c.Get("doc_type_folders"); ok {
+		ro, isObj := rv.(*jsonx.Obj)
+		if !isObj {
+			return nil, fmt.Errorf("profile contract doc_type_folders must be an object")
+		}
+		p.DocTypeFolders = map[string]string{}
+		for _, docType := range ro.Keys() {
+			v, _ := ro.Get(docType)
+			folder, isStr := v.(string)
+			if !isStr || folder == "" || strings.Contains(folder, "/") {
+				return nil, fmt.Errorf("doc_type_folders.%s must be one folder name", docType)
+			}
+			if !p.HasDocType(docType) {
+				return nil, fmt.Errorf("doc_type_folders references unknown doc_types: ['%s']", docType)
+			}
+			p.DocTypeFolders[docType] = folder
 		}
 	}
 	return p, nil

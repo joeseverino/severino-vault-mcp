@@ -59,6 +59,21 @@ vault://labs/doc/<your-runbook-id>
 find("your operational question")
 ```
 
+## Reports
+
+A report (`doc_type: report`) is a dated record of one run, written once:
+an audit, review, research pass, session or evaluation, named by its
+required `kind`. It lives in a `Reports/` folder, and a `Reports/` folder
+holds only reports, so `validate` refuses a report anywhere else and any
+other doc_type inside one. Moving a vault to this rule:
+
+- A note in `Reports/` that records one run: set `doc_type: report` and its
+  `kind` in one `set_frontmatter` call.
+- A note there that keeps changing (a plan, a decision record, a scorecard
+  that is appended to): move it out with `move_doc`, to the project's notes.
+- A note whose work is done and that nothing reads: `move_doc` with
+  `archive=true`. The archive keeps it where it lands, `Reports/` or not.
+
 ## Bad Doc To Fixed Doc
 
 Before:

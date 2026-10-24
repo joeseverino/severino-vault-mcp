@@ -355,7 +355,25 @@ A doc_type may name its own required set in its document schema
 replaces the profile's `required_fields` for that type, and a create
 writes no default for a field the set leaves out. The labs profile's
 `queue` type requires `doc_id`, `title`, `doc_type`, `system`, `status`
-and `queue_format`.
+and `queue_format`; its `report` type requires the profile's set and
+`kind`.
+
+A field may name the doc_types that carry it (`doc_types` in its contract):
+the labs `kind` (`audit`, `review`, `research`, `pass`, `session_log`,
+`evaluation`) is a report's alone.
+
+A doc_type may name the folder its docs live in (`doc_type_folders` in
+`schema --contract`): a live doc of the type sits under a folder of that
+name, at any depth, and a live doc under one is of the type. In the labs
+profile a `report`, a dated record of one run (an audit, review, research
+pass, session or evaluation) written once and superseded by the next in
+its series, lives in a `Reports/` folder, and only reports do. The archive
+keeps a doc where it was archived from, so the rule holds live docs only.
+
+`set_frontmatter` refuses an update that would leave the block failing
+`validate` in a way it did not before (a `kind` on a non-report, a
+`doc_type` changed to one whose required set or folder the doc lacks); a
+problem the doc already had does not block an edit elsewhere in the block.
 
 ## Frontmatter as JSON Schema
 
@@ -379,7 +397,9 @@ check-jsonschema --schemafile labs.schema.json note-frontmatter.json
   digits as a string.
 - What a schema can't check is in the field's `description` and stays with
   `validate`: a field's path scope, uniqueness across docs, and whether a doc
-  reference names a doc that exists.
+  reference names a doc that exists. The folder a doc_type lives in is said
+  in the schema's `description`. A field only some doc_types carry is held
+  absent on the others.
 
 A test holds `schema.Profile.Check` and a JSON Schema validator to the same
 verdict on every fixture doc; `tests/golden/labs.schema.json` pins the labs
@@ -504,14 +524,16 @@ those four (`status: archived`).
 newer report of a series is written, the old one gets `superseded_by` (the
 new doc_id) and `status: deprecated`. `validate` and `doctor` refuse a
 `superseded_by` that names no doc in the vault, and `set_frontmatter` won't
-write one. `doctor` warns on a deprecated doc with a date (YYYY-MM-DD) in its
-title and no `superseded_by`, and on a `superseded_by` that names a doc that
-is itself deprecated.
+write one. `doctor` warns on a deprecated report (`doc_type: report`) with no
+`superseded_by`, and on a `superseded_by` that names a doc that is not live
+(deprecated or archived).
 
 ## Drift
 
 `doctor` reads the body of every live doc (the indexed dirs; not the archive
-or the read-only folders) for structure the vault has left behind:
+or the read-only folders) for structure the vault has left behind. A report,
+a deprecated doc and a closed log entry record the past, so their text is
+not checked for retired structure:
 
 - a mention of retired structure is a warning, one per term per doc with the
   body lines it is on. The terms are the profile's `retired` list (`schema

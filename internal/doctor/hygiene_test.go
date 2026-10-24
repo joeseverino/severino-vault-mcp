@@ -79,14 +79,15 @@ func TestRetiredStructureComesFromTheProfile(t *testing.T) {
 	}
 }
 
-// History mentions what was: a deprecated or archived doc and a closed log
-// entry keep their retired structure without a warning, while an open entry
-// is still live.
+// History mentions what was: a report, a deprecated or archived doc and a
+// closed log entry keep their retired structure without a warning, while an
+// open entry is still live.
 func TestRetiredStructureIsFlaggedOnlyInLivingText(t *testing.T) {
 	root := tk.FakeVault(t)
 	quiet := map[string]string{
-		"03 Runbooks/Deprecated.md": strings.Replace(driftFront, "status: active", "status: deprecated", 1),
-		"03 Runbooks/Archived.md":   strings.Replace(driftFront, "status: active", "status: archived", 1),
+		"03 Runbooks/Deprecated.md":          strings.Replace(driftFront, "status: active", "status: deprecated", 1),
+		"03 Runbooks/Archived.md":            strings.Replace(driftFront, "status: active", "status: archived", 1),
+		"03 Runbooks/Reports/Drift Audit.md": strings.Replace(driftFront, "doc_type: runbook", "doc_type: report\nkind: audit", 1),
 	}
 	n := 0
 	for rel, front := range quiet {

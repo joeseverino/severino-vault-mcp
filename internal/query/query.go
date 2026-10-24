@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -43,22 +44,27 @@ func Hit(d *vault.Doc) *jsonx.Obj {
 	)
 }
 
-// SectionMenu is the hit's best-matching section line; empty without sections.
-func SectionMenu(d *vault.Doc, query string) *jsonx.Obj {
-	sec, score := search.BestSection(d, query)
+// hundredths is a BM25 score as find reports it, an integer.
+func hundredths(s float64) int { return int(math.Round(s * 100)) }
+
+// sectionMenu is the line for the section a hit ranked at; empty when it
+// ranked on its metadata alone. A doc scores as its best section, so the
+// section's score is the hit's.
+func sectionMenu(h search.Hit) *jsonx.Obj {
+	sec := h.Section
 	if sec == nil {
 		return jsonx.New()
 	}
 	heading := sec.Heading
 	if heading == "" {
-		heading = d.Title
+		heading = h.Doc.Title
 	}
 	return jsonx.New(
 		"heading", heading,
 		"section", sec.Slug,
 		"heading_path", sec.HeadingPath,
 		"section_summary", sections.Summary(*sec),
-		"section_score", score,
+		"section_score", hundredths(h.Score),
 	)
 }
 
@@ -82,13 +88,13 @@ func (k Keep) docs(all []*vault.Doc) []*vault.Doc {
 	return out
 }
 
-// FindSections is the ranked section menu over the vault's docs that keep
-// accepts.
+// FindSections is the BM25-ranked section menu over the vault's docs that
+// keep accepts.
 func FindSections(l *vault.Loader, query string, limit int, keep Keep) *jsonx.Obj {
 	idx := l.Index(false)
 	hits := []*jsonx.Obj{}
 	for _, h := range search.Rank(keep.docs(idx.WithArchived()), query, Clamp(limit, 1, maxLimit)) {
-		o := jsonx.New("score", h.Score).Merge(Hit(h.Doc)).Merge(SectionMenu(h.Doc, query))
+		o := jsonx.New("score", hundredths(h.Score)).Merge(Hit(h.Doc)).Merge(sectionMenu(h))
 		hits = append(hits, o)
 	}
 	return jsonx.New("query", query, "indexed_doc_count", len(idx.Docs), "hits", hits)
@@ -164,7 +170,7 @@ func QueryWords(query string, caseSensitive bool) []string {
 		if !caseSensitive {
 			w = strings.ToLower(w)
 		}
-		if search.IsStopword(strings.ToLower(w)) || slices.Contains(words, w) {
+		if search.IsTextStopword(strings.ToLower(w)) || slices.Contains(words, w) {
 			continue
 		}
 		words = append(words, w)
