@@ -171,6 +171,9 @@ fi
   # Built beside its place and renamed over it, so a session that starts
   # during the build runs the old binary, never a half-written one.
   'go build -trimpath -ldflags="-s -w" -o "$HOME/.local/bin/severino-vault-mcp.new" ./cmd/severino-vault-mcp && mv -f "$HOME/.local/bin/severino-vault-mcp.new" "$HOME/.local/bin/severino-vault-mcp"',
+  # Codex runs a copy of an installed plugin, so the copy is refreshed to
+  # carry this checkout's skill.
+  'if command -v codex >/dev/null 2>&1 && codex plugin list 2>/dev/null | grep -q "^severino-vault-mcp@severino-vault-mcp .*installed"; then codex plugin add severino-vault-mcp@severino-vault-mcp >/dev/null; fi',
   '"$HOME/.local/bin/severino-vault-mcp" --fingerprint',
 ]
 
