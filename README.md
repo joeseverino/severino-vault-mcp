@@ -91,7 +91,8 @@ go install github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp@l
 Or download the archive for your platform (darwin or linux, amd64 or arm64)
 from the [latest release](https://github.com/joeseverino/severino-vault-mcp/releases/latest),
 check it against `SHA256SUMS`, and put `severino-vault-mcp` on your `PATH`. To
-work on the code, clone the repo and run `go install ./cmd/severino-vault-mcp`.
+work on the code, clone the repo and run `mise run install`, which builds
+into `~/.local/bin` and prints the binary's `--fingerprint`.
 
 For Claude Code, register the binary as a server:
 
@@ -112,6 +113,17 @@ A server you already registered with the same command wins over the plugin's
 copy, so its tool names stay `mcp__severino-vault-mcp__*`; the plugin then only
 adds the skill. Without one, the plugin's tools are
 `mcp__plugin_severino-vault-mcp_severino-vault-mcp__*`.
+
+Codex installs the same plugin from the same marketplace:
+
+```bash
+codex plugin marketplace add joeseverino/severino-vault-mcp
+codex plugin add severino-vault-mcp@severino-vault-mcp
+```
+
+Codex runs its own copy of an installed plugin, so a newer skill reaches it
+when `codex plugin add` runs again; `mise run install` does that for a
+checkout.
 
 A running session moves to an upgraded binary on its own: at its next call
 the server execs the new binary in place, on the same connection, keeps the
