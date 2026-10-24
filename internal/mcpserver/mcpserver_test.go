@@ -21,7 +21,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
 
-var coreTools = []string{"find", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
+var coreTools = []string{"find", "log_entries", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
 
 // TestMain doubles as a fake vault provider when re-executed with
 // FAKE_PROVIDER set to the vault name it should serve, so the provider seam
@@ -105,14 +105,11 @@ func call(t *testing.T, s *mcp.ClientSession, name string, args map[string]any) 
 		t.Fatal(err)
 	}
 	text := res.Content[0].(*mcp.TextContent).Text
-	if res.IsError {
-		return jsonx.New("error", text), true
-	}
 	v, err := jsonx.Decode([]byte(text))
 	if err != nil {
 		t.Fatalf("%v: %s", err, text)
 	}
-	return v.(*jsonx.Obj), false
+	return v.(*jsonx.Obj), res.IsError
 }
 
 func labsOnly(t *testing.T) (*vaults.Registry, string) {

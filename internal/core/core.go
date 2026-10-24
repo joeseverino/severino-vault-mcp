@@ -1,6 +1,6 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, task_board and task_write, plus the
-// two resource renderers. Each
+// read_doc, set_frontmatter, write_doc, task_board, task_write and
+// log_entries, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
 // these functions.
@@ -236,10 +236,10 @@ var metaFields = typed("doc_id", tStr, "title", tStr, "doc_type", tStr, "system"
 var leanHit = mustMask(HitFields, "doc_id", "title", "heading_path", "section", "section_summary", "score")
 
 // findEnvelope is what a masked find keeps around its hits.
-var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match_count", "words", "recommended", "hits"}
+var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match_count", "words", "recommended", "hits", "next_steps"}
 
-// keep is the doc filter System and Project describe; nil when neither is set.
-func (a FindArgs) keep() query.Keep {
+// Keep is the doc filter System and Project describe; nil when neither is set.
+func (a FindArgs) Keep() query.Keep {
 	system := strings.ToLower(pystr.Strip(a.System))
 	project := strings.ToLower(pystr.Strip(a.Project))
 	if system == "" && project == "" {
@@ -271,9 +271,9 @@ func (a FindArgs) filters() *jsonx.Obj {
 func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 	m, err := a.selection(HitFields, leanHit)
 	if err != nil {
-		return fail(err.Error())
+		return failNext(err.Error(), withoutFields("find", "query", q))
 	}
-	keep := a.keep()
+	keep := a.Keep()
 	var resp *jsonx.Obj
 	switch a.By {
 	case "relevance":
@@ -282,7 +282,9 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 		resp.Set("match_count", len(hits.([]*jsonx.Obj)))
 	case "text":
 		resp = query.SearchBody(v.Loader, q, a.Limit, a.ContextLines, a.CaseSensitive, keep)
-		if !resp.Has("error") {
+		if resp.Has("error") {
+			resp = steer(jsonx.New("ok", false).Merge(resp), Call("find", "query", q, "by", "relevance")+" to match titles and sections instead")
+		} else {
 			// Rename in place, keeping the Python key order.
 			renamed := jsonx.New()
 			for _, k := range resp.Keys() {
@@ -309,13 +311,17 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 			}
 		}
 	default:
-		return jsonx.New("ok", false, "error", fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.By), strings.Join(FindModes, ", ")))
+		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.By), strings.Join(FindModes, ", ")),
+			Call("find", "query", q, "by", FindModes[0]))
 	}
 	out := jsonx.New("vault", v.Name, "mode", a.By)
 	if f := a.filters(); len(f.Keys()) > 0 {
 		out.Set("filters", f)
 	}
 	out.Merge(resp)
+	if n, _ := out.Get("match_count"); n == 0 {
+		steer(out, v.emptyFind(q, a)...)
+	}
 	if m == nil {
 		return out
 	}
@@ -354,14 +360,15 @@ func lookupDoc(v *Vault, identifier string) (*vault.Doc, *jsonx.Obj) {
 
 func notFound(v *Vault, identifier string) *jsonx.Obj {
 	if dups, ok := v.Loader.Index(false).DuplicateDocIDs[identifier]; ok {
-		return jsonx.New("doc_id", identifier, "found", false, "ambiguous", true,
-			"error", "duplicate doc_id "+pystr.Repr(identifier), "paths", slices.Clone(dups),
-			"guidance", "Resolve the duplicate frontmatter IDs before reading this document.")
+		return steer(jsonx.New("doc_id", identifier, "found", false, "ambiguous", true,
+			"error", "duplicate doc_id "+pystr.Repr(identifier), "paths", slices.Clone(dups)),
+			Call("task_write", "action", "add", "title", "Resolve duplicate doc_id "+identifier)+
+				" and tell the user; neither doc can be read until one file's doc_id changes")
 	}
-	return jsonx.New("doc_id", identifier, "found", false,
-		"guidance", "Call `find` to get a doc_id, then retry `read_doc` with it.",
+	return steer(jsonx.New("doc_id", identifier, "found", false,
 		"alias_hint", "For recurring local phrases, add an entry to the vault aliases "+
-			"file configured by `SVMC_ALIASES_PATH` or `[aliases].path`.")
+			"file configured by `SVMC_ALIASES_PATH` or `[aliases].path`."),
+		Call("find", "query", identifier)+" to get a doc_id, then retry read_doc with it")
 }
 
 func withheld(base *jsonx.Obj, result, message string) *jsonx.Obj {
@@ -370,7 +377,7 @@ func withheld(base *jsonx.Obj, result, message string) *jsonx.Obj {
 	if result != "" {
 		base.Set("unlock", jsonx.New("allowed", false, "result", result, "message", message))
 	}
-	return base
+	return steer(base, unlockSteps(base.Str("doc_id"), result)...)
 }
 
 // unlock asks 1Password, and so Joe's Touch ID, to release one restricted
@@ -407,8 +414,13 @@ func narrow(base *jsonx.Obj, d *vault.Doc, refs []string) *jsonx.Obj {
 	if len(missing) > 0 {
 		base.Set("body_released", false)
 		base.Set("section_error", fmt.Sprintf("no section %s in %s", strings.Join(reprs(missing), ", "), d.DocID))
-		base.Set("available_sections", query.AvailableSections(d))
-		return base
+		available := query.AvailableSections(d)
+		base.Set("available_sections", available)
+		if len(available) == 0 {
+			return steer(base, Call("read_doc", "doc_id", d.DocID)+" without sections; the doc has none")
+		}
+		return steer(base, Call("read_doc", "doc_id", d.DocID, "sections", []string{available[0].Str("section")})+
+			" or another section from available_sections")
 	}
 	base.Set("sections", found)
 	return base
@@ -442,16 +454,17 @@ var leanDoc = mustMask(DocFields, "doc_id", "title", "status", "last_reviewed", 
 // gateKeys always survive a mask: the sensitivity gate's answer, how the doc
 // was resolved, and the requested sections.
 var gateKeys = []string{"found", "resolved_from_alias", "body_released", "advisory", "unlock", "override_used",
-	"section_error", "available_sections", "sections"}
+	"section_error", "available_sections", "sections", "next_steps"}
 
 // ReadDoc reads a doc's body behind the sensitivity gate.
 func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
 	m, err := a.selection(DocFields, leanDoc)
 	if err != nil {
-		return fail(err.Error())
+		return failNext(err.Error(), withoutFields("read_doc", "doc_id", docID))
 	}
 	if a.Sections != nil && len(a.Sections) == 0 {
-		return fail("sections: give at least one section slug or heading path, or omit sections for the whole body")
+		return failNext("sections: give at least one section slug or heading path, or omit sections for the whole body",
+			Call("read_doc", "doc_id", docID, "fields", []string{"outline"})+" to list the sections")
 	}
 	o := jsonx.New("vault", v.Name).Merge(readDoc(v, docID, a))
 	if m == nil || !o.Bool("found") {
@@ -532,9 +545,9 @@ func RenderDoc(v *Vault, docID string) string {
 // SetFrontmatter creates or updates a doc's frontmatter.
 func SetFrontmatter(v *Vault, relativePath string, s write.Set) *jsonx.Obj {
 	if v.Profile == nil {
-		return jsonx.New("ok", false, "error", "vault "+pystr.Repr(v.Name)+" has no schema profile")
+		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
-	return write.SetFrontmatter(v.Loader, relativePath, s, v.Profile)
+	return guide(write.SetFrontmatter(v.Loader, relativePath, s, v.Profile), v.setSteps(relativePath, s.DocID))
 }
 
 // WriteDocModes are write_doc's modes; the first is the default.
@@ -555,70 +568,108 @@ type WriteDocArgs struct {
 // the frontmatter validated against v's profile either way.
 func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 	if v.Profile == nil {
-		return fail("vault " + pystr.Repr(v.Name) + " has no schema profile")
+		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
 	switch a.Mode {
 	case "create":
 		if a.RelativePath == "" {
-			return fail("mode 'create' requires relative_path")
+			name := a.New.Title
+			if name == "" {
+				name = "Doc Title"
+			}
+			return failNext("mode 'create' requires relative_path", v.writable(name+".md"))
 		}
 		if a.Heading != "" {
-			return fail("heading only applies to replace_section and append_section")
+			return failNext("heading only applies to replace_section and append_section",
+				Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" without heading",
+				Call("write_doc", "mode", "replace_section", "relative_path", a.RelativePath, "heading", a.Heading)+" to edit an existing doc")
 		}
-		return write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New, v.Profile)
+		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New, v.Profile), v.createSteps(a.RelativePath, a.New.DocID))
 	case "replace_section", "append_section":
 	default:
-		return fail(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")))
+		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")),
+			Call("write_doc", "mode", WriteDocModes[0])+" or another listed mode")
 	}
 	n := a.New
+	target := n.DocID
+	if target == "" {
+		target = a.RelativePath
+	}
 	if n.Title != "" || n.DocType != "" || n.System != "" || n.Environment != "" || n.Status != "" || n.Sensitivity != "" ||
 		n.LastReviewed != "" || n.Tags != nil || n.RelatedProjects != nil || n.RelatedAssets != nil {
-		return fail("frontmatter fields only apply to mode 'create'; change them with set_frontmatter")
+		return failNext("frontmatter fields only apply to mode 'create'; change them with set_frontmatter",
+			Call("set_frontmatter", "relative_path", pathOf(v, n.DocID, a.RelativePath))+" with the frontmatter fields",
+			Call("write_doc", "mode", a.Mode, "doc_id", target)+" with only heading and body")
 	}
 	if pystr.Strip(a.Heading) == "" {
-		return fail(fmt.Sprintf("mode %s requires heading", pystr.Repr(a.Mode)))
+		return failNext(fmt.Sprintf("mode %s requires heading", pystr.Repr(a.Mode)),
+			Call("read_doc", "doc_id", target, "fields", []string{"outline"})+" to list its headings")
 	}
-	d, err := registeredDoc(v, n.DocID, a.RelativePath)
+	d, err, steps := registeredDoc(v, n.DocID, a.RelativePath)
 	if err != "" {
-		return fail(err)
+		return failNext(err, steps...)
 	}
 	if d.Sensitivity == gate.Restricted {
+		retry := Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", a.Heading, "include_restricted", true)
 		if !a.IncludeRestricted {
-			return fail(d.DocID + " is restricted; rerun with include_restricted=True, which also needs a Touch ID approval through 1Password")
+			return failNext(d.DocID+" is restricted; rerun with include_restricted=True, which also needs a Touch ID approval through 1Password",
+				retry+" with the same body, from the main session, only if the user asked for this edit")
 		}
 		allowed, result, msg := unlock(v, d.DocID, d.Title)
 		gate.AuditUnlock(v.Config.RestrictedAuditLog, d.DocID, result)
 		if !allowed {
-			return fail(d.DocID + " is restricted and the unlock was refused: " + msg)
+			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+" with the same body, once the user has fixed the unlock")
 		}
 	}
-	return write.EditSection(v.Loader, d.RelativePath, a.Heading, a.Body, a.Mode == "append_section", v.Profile)
+	return guide(write.EditSection(v.Loader, d.RelativePath, a.Heading, a.Body, a.Mode == "append_section", v.Profile), v.sectionSteps(d, a.Mode))
 }
 
-// registeredDoc finds the indexed doc a section edit names by doc_id or path.
-func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string) {
+// noProfile is the step for a vault without a schema profile.
+var noProfile = Call("find", "query", "...", "vault", "labs") + " and write in a vault with a schema profile"
+
+// pathOf is the vault-relative path a doc_id or path names, for a step.
+func pathOf(v *Vault, docID, relativePath string) string {
+	if d, ok := v.Loader.Index(false).ByDocID[docID]; ok {
+		return d.RelativePath
+	}
+	if relativePath != "" {
+		return relativePath
+	}
+	return "..."
+}
+
+// registeredDoc finds the indexed doc an edit names by doc_id or path. A
+// failure comes with its next steps.
+func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []string) {
 	idx := v.Loader.Index(true)
 	switch {
 	case docID != "" && relativePath != "":
-		return nil, "pass doc_id or relative_path, not both"
+		return nil, "pass doc_id or relative_path, not both", []string{Call("write_doc", "doc_id", docID) + " without relative_path"}
 	case docID != "":
 		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-			return nil, fmt.Sprintf("duplicate doc_id %s at %s; resolve the duplicate first", pystr.Repr(docID), pystr.ReprList(dups))
+			return nil, fmt.Sprintf("duplicate doc_id %s at %s; resolve the duplicate first", pystr.Repr(docID), pystr.ReprList(dups)),
+				[]string{Call("task_write", "action", "add", "title", "Resolve duplicate doc_id "+docID) + " and tell the user"}
 		}
 		if d, ok := idx.ByDocID[docID]; ok {
-			return d, ""
+			return d, "", nil
 		}
-		return nil, "unknown doc_id " + pystr.Repr(docID) + "; call `find` to get one"
+		return nil, "unknown doc_id " + pystr.Repr(docID) + "; call `find` to get one",
+			[]string{Call("find", "query", docID) + " to get a doc_id, then retry with it"}
 	case relativePath != "":
 		clean := filepath.Clean(strings.TrimLeft(relativePath, "/"))
 		for _, d := range idx.Docs {
 			if d.RelativePath == clean {
-				return d, ""
+				return d, "", nil
 			}
 		}
-		return nil, "no registered doc at " + relativePath + "; create it with mode 'create', or register it with set_frontmatter"
+		msg := "no registered doc at " + relativePath + "; create it with mode 'create', or register it with set_frontmatter"
+		if v.outsideWritable(relativePath) {
+			return nil, msg, []string{v.writable(relativePath)}
+		}
+		return nil, msg, []string{Call("write_doc", "mode", "create", "relative_path", relativePath) + " to create it",
+			Call("set_frontmatter", "relative_path", relativePath) + " with doc_id, title, doc_type and system to register an existing file"}
 	}
-	return nil, "pass doc_id or relative_path"
+	return nil, "pass doc_id or relative_path", []string{Call("find", "query", "...") + " to get the doc's doc_id"}
 }
 
 // CheckDoc validates one file's frontmatter against v's profile with the rules
@@ -669,10 +720,10 @@ var leanTask = mustMask(TaskFields, "doc_id", "title", "status", "project", "pri
 func TaskBoard(v *Vault, f tasks.Filter, a BoardArgs) *jsonx.Obj {
 	m, err := a.selection(TaskFields, leanTask)
 	if err != nil {
-		return fail(err.Error())
+		return failNext(err.Error(), withoutFields("task_board"))
 	}
 	if a.Limit < 0 {
-		return fail("limit: give a positive number, or 0 for no limit")
+		return failNext("limit: give a positive number, or 0 for no limit", Call("task_board", "limit", 25))
 	}
 	board := tasks.List(v.Loader, f)
 	if all, _ := board.Get("tasks"); a.Limit > 0 && len(all.([]*jsonx.Obj)) > a.Limit {
@@ -721,36 +772,42 @@ func TaskWrite(v *Vault, a TaskWriteArgs) *jsonx.Obj {
 			}
 		}
 		if len(absent) > 0 {
-			return jsonx.New("ok", false, "error", fmt.Sprintf("action %s requires %s", pystr.Repr(a.Action), strings.Join(absent, ", ")))
+			args := []any{"action", a.Action}
+			for _, n := range names {
+				args = append(args, n, "...")
+			}
+			return failNext(fmt.Sprintf("action %s requires %s", pystr.Repr(a.Action), strings.Join(absent, ", ")), Call("task_write", args...))
 		}
 		return nil
 	}
+	guided := func(o *jsonx.Obj) *jsonx.Obj { return guide(o, taskSteps(a)) }
 	switch a.Action {
 	case "add":
 		if err := missing("title"); err != nil {
 			return err
 		}
-		return tasks.Add(v.Loader, tasks.New{
+		return guided(tasks.Add(v.Loader, tasks.New{
 			Title: a.Title, Project: a.Project, RelatedProjects: a.RelatedProjects,
 			Effort: a.Effort, Priority: a.Priority, Tags: a.Tags,
-		}, tasks.Sections{Problem: a.Problem, Fix: a.Fix, Principle: a.Principle, Source: a.Source})
+		}, tasks.Sections{Problem: a.Problem, Fix: a.Fix, Principle: a.Principle, Source: a.Source}))
 	case "status":
 		if err := missing("doc_id", "status"); err != nil {
 			return err
 		}
-		return tasks.SetStatus(v.Loader, a.DocID, a.Status)
+		return guided(tasks.SetStatus(v.Loader, a.DocID, a.Status))
 	case "promote":
 		if err := missing("note_path", "title"); err != nil {
 			return err
 		}
-		return tasks.Promote(v.Loader, a.NotePath, tasks.New{Title: a.Title, Project: a.Project, Effort: a.Effort, Priority: a.Priority})
+		return guided(tasks.Promote(v.Loader, a.NotePath, tasks.New{Title: a.Title, Project: a.Project, Effort: a.Effort, Priority: a.Priority}))
 	case "delete":
 		if err := missing("doc_id"); err != nil {
 			return err
 		}
-		return tasks.Delete(v.Loader, a.DocID)
+		return guided(tasks.Delete(v.Loader, a.DocID))
 	}
-	return jsonx.New("ok", false, "error", fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(TaskActions, ", ")))
+	return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(TaskActions, ", ")),
+		Call("task_write", "action", TaskActions[0], "title", "...")+" or another listed action")
 }
 
 // TaskActions are task_write's actions.
@@ -765,10 +822,11 @@ const MaxTaskItems = 50
 // item applied; failed lists the indexes of the ones that didn't.
 func TaskWrites(v *Vault, items []TaskWriteArgs) *jsonx.Obj {
 	if len(items) == 0 {
-		return fail("items: give at least one item, or call with a single action instead")
+		return failNext("items: give at least one item, or call with a single action instead", Call("task_write", "action", "...")+" for one change")
 	}
 	if len(items) > MaxTaskItems {
-		return fail(fmt.Sprintf("items: at most %d per call; split the batch", MaxTaskItems))
+		return failNext(fmt.Sprintf("items: at most %d per call; split the batch", MaxTaskItems),
+			Call("task_write", "items", []string{"..."})+fmt.Sprintf(" with at most %d items, once per batch", MaxTaskItems))
 	}
 	results := make([]*jsonx.Obj, 0, len(items))
 	failed := []int{}

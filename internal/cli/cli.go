@@ -516,6 +516,13 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 	}), p.Bool("pretty"))
 }
 
+func runLogEntries(c *Ctx, p Parsed) int {
+	return c.emit(core.LogEntries(c.labsVault(), p.Str("doc_id"), core.LogArgs{
+		Action: p.Str("action"), OpenOnly: !p.Bool("include_closed"), Contains: p.Str("contains"), Limit: p.Int("limit"),
+		Match: p.Str("match"), Resolution: p.Str("resolution"), View: view(p),
+	}), p.Bool("pretty"))
+}
+
 func runTaskReconcile(c *Ctx, p Parsed) int {
 	return c.emit(tasks.Reconcile(c.labs()), p.Bool("pretty"))
 }

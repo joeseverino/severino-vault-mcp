@@ -622,7 +622,8 @@ func TestReadDocAliasPreservesRestrictedGate(t *testing.T) {
 
 func TestReadDocMissingDocGuidesDiscovery(t *testing.T) {
 	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "not a doc", core.ReadArgs{})
-	if r.Bool("found") || !strings.Contains(r.Str("guidance"), "`find`") {
+	steps, _ := r.Get("next_steps")
+	if r.Bool("found") || len(steps.([]string)) != 1 || !strings.HasPrefix(steps.([]string)[0], `find(query="not a doc")`) {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

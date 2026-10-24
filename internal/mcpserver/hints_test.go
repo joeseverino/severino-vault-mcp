@@ -26,11 +26,12 @@ func TestCoreToolsCarryHonestAnnotations(t *testing.T) {
 		if a.ReadOnlyHint != readOnly {
 			t.Errorf("%s readOnlyHint %v", name, a.ReadOnlyHint)
 		}
-		if !readOnly && (a.DestructiveHint == nil || !*a.DestructiveHint) {
-			t.Errorf("%s writes over or deletes vault content but is not marked destructive", name)
+		destructive := slices.Contains([]string{"set_frontmatter", "write_doc", "task_write"}, name)
+		if !readOnly && (a.DestructiveHint == nil || *a.DestructiveHint != destructive) {
+			t.Errorf("%s destructiveHint %v, want %v", name, a.DestructiveHint, destructive)
 		}
 	}
-	for _, name := range []string{"write_doc", "task_write"} {
+	for _, name := range []string{"write_doc", "task_write", "log_entries"} {
 		if all[name].Annotations.IdempotentHint {
 			t.Errorf("%s appends or adds, so repeating it is not idempotent", name)
 		}
@@ -42,6 +43,7 @@ func TestCoreToolsCarryHonestAnnotations(t *testing.T) {
 func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 	reg, root := labsOnly(t)
 	tk.MultisectionDoc(t, root)
+	exampleLog(t, root)
 	s := connect(t, reg)
 	all := tools(t, s)
 	calls := []struct {
@@ -64,6 +66,9 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		{"task_board", map[string]any{"fields": []string{"stale", "age_days", "tags"}}},
 		{"set_frontmatter", map[string]any{"relative_path": "03 Runbooks/Missing.md"}},
 		{"write_doc", map[string]any{"body": "x", "mode": "append_section", "heading": "Nope", "doc_id": "rb-backup-ops"}},
+		{"log_entries", map[string]any{"doc_id": "infra-example-log", "fields": []string{"line", "text", "closed", "resolution"}, "open_only": false}},
+		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson", "resolution": "x"}},
+		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson one", "resolution": "x"}},
 	}
 	resolved := map[string]*jsonschema.Resolved{}
 	for _, name := range coreTools {
@@ -85,6 +90,26 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		}
 		if err := resolved[c.tool].Validate(res.StructuredContent); err != nil {
 			t.Errorf("%s %v: %v\n%s", c.tool, c.args, err, res.Content[0].(*mcp.TextContent).Text)
+		}
+	}
+}
+
+// Claude Code reads two _meta keys on a tools/list entry: anthropic/alwaysLoad
+// keeps a tool out of tool search, and anthropic/maxResultSizeChars moves the
+// point past which a result is saved to a file (default 50,000 characters,
+// ceiling 500,000).
+func TestToolsCarryClaudeCodeLoadingHints(t *testing.T) {
+	reg, _ := labsOnly(t)
+	all := tools(t, connect(t, reg))
+	for _, name := range coreTools {
+		meta := all[name].Meta
+		always := slices.Contains([]string{"find", "read_doc"}, name)
+		if got, _ := meta["anthropic/alwaysLoad"].(bool); got != always {
+			t.Errorf("%s alwaysLoad %v, want %v", name, meta["anthropic/alwaysLoad"], always)
+		}
+		size, sized := meta["anthropic/maxResultSizeChars"].(float64)
+		if want := slices.Contains([]string{"read_doc", "task_board"}, name); sized != want || (sized && (size <= 50_000 || size > 500_000)) {
+			t.Errorf("%s maxResultSizeChars %v", name, meta["anthropic/maxResultSizeChars"])
 		}
 	}
 }

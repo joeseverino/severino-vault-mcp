@@ -1,4 +1,5 @@
 find
+log_entries
 read_doc
 set_frontmatter
 task_board

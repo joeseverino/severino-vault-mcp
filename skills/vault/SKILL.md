@@ -36,6 +36,15 @@ adds an `advisory` to pass along). restricted bodies are withheld unless the
 user explicitly needs one; pass `include_restricted=True`, which also needs the
 user's Touch ID approval through 1Password, from the main session only.
 
+## When a call fails
+
+A failure is `{"ok": false, "error": ...}` with `next_steps`: the calls that
+recover from it, each naming a tool. A `find` with no hits carries them too.
+Take one of them before guessing.
+After the server binary is upgraded, restart Claude Code sessions (`/mcp`
+alone is not enough): `find` and `read_doc` load upfront and keep the schema
+they started with.
+
 ## Writes
 
 - `set_frontmatter` creates or updates a doc's frontmatter against that
@@ -47,6 +56,11 @@ user's Touch ID approval through 1Password, from the main session only.
   and the projects a task can go in; `task_write` adds, moves, promotes or
   deletes tasks, and `items=[...]` makes several changes in one call, each
   reported on its own.
+- `log_entries` works an append-only log note, one bullet per entry:
+  `action="list"` returns the open entries (`contains` narrows them, e.g. to
+  a repo), and `action="close"` with `match` and `resolution` appends
+  ` → <resolution>` to the one open entry `match` names. Use it instead of
+  reading or editing a log note whole.
 
 After a write, remind the user to run their vault sync.
 

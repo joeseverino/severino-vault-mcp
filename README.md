@@ -62,6 +62,13 @@ Shared, each taking `vault`:
 | `write_doc` | Create a registered doc, or replace or append one section of its body. |
 | `task_board` | Open tasks, best first (`limit`, default 25; `status`, `project` and `fields`), with the projects tasks can be filed in. |
 | `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`; `items=[...]` applies several in one call and reports each. |
+| `log_entries` | An append-only log note, one bullet per entry. `action="list"`: the open entries as `{line, text}` (`contains`, `limit`, `open_only`, `fields`). `action="close"`: append ` → <resolution>` to the one open entry `match` names. |
+
+A failure is `{"ok": false, "error": ...}` plus `next_steps`, the calls that
+recover from it, each naming one of these tools; a `find` with no hits carries
+them too. `find` and `read_doc` ask Claude Code to load them upfront
+(`anthropic/alwaysLoad`), and `read_doc` and `task_board` set
+`anthropic/maxResultSizeChars` so a long doc or a full lean board stays inline.
 
 Vault-specific: each provider's tools. The edu dataset is the CLI's
 `export education`.
@@ -94,6 +101,10 @@ Or load the repo as a Claude Code plugin, which declares the same server
 go install ./cmd/severino-vault-mcp
 claude --plugin-dir /path/to/severino-vault-mcp
 ```
+
+After upgrading the binary, restart Claude Code sessions, not just `/mcp`:
+`find` and `read_doc` load upfront (`anthropic/alwaysLoad`) and keep the
+schema they started with.
 
 Validate a vault before wiring it:
 

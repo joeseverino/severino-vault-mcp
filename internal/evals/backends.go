@@ -30,8 +30,8 @@ func OpenOurs(cfg config.Config) (Backend, error) {
 
 func (ours) Name() string { return "ours" }
 
-func (b ours) Find(query, mode string, limit int) (Found, error) {
-	resp := core.Find(b.v, query, core.FindArgs{By: mode, Limit: limit, ContextLines: 1})
+func (b ours) Find(query, mode string, fl Filter, limit int) (Found, error) {
+	resp := core.Find(b.v, query, core.FindArgs{By: mode, Limit: limit, ContextLines: 1, System: fl.System, Project: fl.Project})
 	if msg := resp.Str("error"); msg != "" {
 		return Found{}, errors.New(msg)
 	}
@@ -68,13 +68,14 @@ type grep struct {
 
 type grepFile struct {
 	rel, id, text, folded string
+	doc                   *vault.Doc // nil when unindexed
 }
 
 // OpenGrep builds the baseline over the vault's files.
 func OpenGrep(cfg config.Config) (Backend, error) {
-	byPath := map[string]string{}
+	byPath := map[string]*vault.Doc{}
 	for _, d := range vault.NewLoader(cfg).Index(false).Docs {
-		byPath[d.Path] = d.DocID
+		byPath[d.Path] = d
 	}
 	g := &grep{root: cfg.VaultPath}
 	err := filepath.WalkDir(cfg.VaultPath, func(p string, d fs.DirEntry, err error) error {
@@ -94,11 +95,12 @@ func OpenGrep(cfg config.Config) (Backend, error) {
 		rel, _ := filepath.Rel(cfg.VaultPath, p)
 		text := string(raw)
 		rel = filepath.ToSlash(rel)
-		id := byPath[p]
-		if id == "" {
-			id = "file:" + rel // unindexed: no doc_id names it, so it never counts as a hit
+		doc := byPath[p]
+		id := "file:" + rel // unindexed: no doc_id names it, so it never counts as a hit
+		if doc != nil {
+			id = doc.DocID
 		}
-		g.files = append(g.files, grepFile{rel: rel, id: id, text: text, folded: strings.ToLower(text)})
+		g.files = append(g.files, grepFile{rel: rel, id: id, text: text, folded: strings.ToLower(text), doc: doc})
 		return nil
 	})
 	return g, err
@@ -106,7 +108,10 @@ func OpenGrep(cfg config.Config) (Backend, error) {
 
 func (*grep) Name() string { return "grep" }
 
-func (g *grep) Find(query, _ string, limit int) (Found, error) {
+func (g *grep) Find(query, _ string, fl Filter, limit int) (Found, error) {
+	// A filter is frontmatter, which grep alone can't read; the baseline gets
+	// the same narrowing find applies so the two stay comparable.
+	keep := core.FindArgs{System: fl.System, Project: fl.Project}.Keep()
 	var words []string
 	for w := range search.QueryTokens(query) {
 		words = append(words, w)
@@ -118,6 +123,9 @@ func (g *grep) Find(query, _ string, limit int) (Found, error) {
 	var ms []match
 	for i := range g.files {
 		f := &g.files[i]
+		if keep != nil && (f.doc == nil || !keep(f.doc)) {
+			continue
+		}
 		m := match{f: f}
 		for _, w := range words {
 			if n := strings.Count(f.folded, w); n > 0 {

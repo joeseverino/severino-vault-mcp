@@ -27,7 +27,7 @@ var floors = struct {
 	hit1, hit3, mrr, zeroMax float64
 	findP90Max, readP90Max   int
 	sectP90Max               int
-}{hit1: 0.72, hit3: 0.83, mrr: 0.80, zeroMax: 0.05, findP90Max: 650, readP90Max: 620, sectP90Max: 150}
+}{hit1: 0.75, hit3: 0.83, mrr: 0.81, zeroMax: 0.05, findP90Max: 650, readP90Max: 620, sectP90Max: 150}
 
 func TestEvalFloors(t *testing.T) {
 	cases, root := fixture(t)
@@ -96,9 +96,11 @@ func TestSummarizeScoresRanksAndSizes(t *testing.T) {
 
 type fake struct{ ids []string }
 
-func (fake) Name() string                              { return "fake" }
-func (f fake) Find(string, string, int) (Found, error) { return Found{IDs: f.ids, Tokens: 5}, nil }
-func (fake) Read(string, string) (int, error)          { return 7, nil }
+func (fake) Name() string { return "fake" }
+func (f fake) Find(string, string, Filter, int) (Found, error) {
+	return Found{IDs: f.ids, Tokens: 5}, nil
+}
+func (fake) Read(string, string) (int, error) { return 7, nil }
 
 func TestRunRanksTheFirstWantedHit(t *testing.T) {
 	r, err := Run(fake{[]string{"a", "b", "c"}}, []Case{
@@ -151,7 +153,7 @@ func TestGrepBaselineSeesRestrictedBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, _ := g.Find("encrypted media signing session", "text", Limit)
+	f, _ := g.Find("encrypted media signing session", "text", Filter{}, Limit)
 	if len(f.IDs) == 0 || f.IDs[0] != "infra-local-pki" {
 		t.Fatalf("%v", f.IDs)
 	}
