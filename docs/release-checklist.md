@@ -40,19 +40,24 @@ severino-vault-mcp --help
 severino-vault-mcp --fingerprint
 ```
 
-Then confirm MCP client examples in `README.md` and `QUICKSTART.md` still match
+After a release is cut, the `release` workflow builds the darwin and linux
+(amd64, arm64) archives, uploads them with `SHA256SUMS`, and attests their
+provenance. Confirm the release page lists them, then confirm MCP client examples in `README.md` and `QUICKSTART.md` still match
 the installed command name.
 
-## Dependabot Pull Requests
+## Renovate Pull Requests
 
-Dependabot will open PRs for both `gomod` and `github-actions` updates. They
-arrive pre-pinned to the new SHA with the version comment updated, e.g.
-`uses: actions/checkout@<sha> # v6.0.2`.
+Renovate (`renovate.json`) opens PRs for `gomod`, GitHub Actions, the tools in
+`mise.toml` and the `cordon-spec` version in `scripts/check.sh`. It waits 7 days
+after a release before proposing it, and keeps the Actions pinned to a SHA with
+the version comment updated, e.g. `uses: actions/checkout@<sha> # v7.0.1`.
+The `codeql-action` steps arrive as one PR so init and analyze stay on one
+version.
 
 To merge:
 
-- Confirm all five required status checks are green in the PR. The branch
-  protection ruleset enforces this on every PR.
+- Confirm the one required status check, `cordon / gate`, is green. The
+  repository ruleset on `main` enforces it on every PR.
 - If the PR modifies anything under `.github/workflows/`, your local `gh`
   token needs the `workflow` scope. One-time fix:
 
@@ -60,18 +65,16 @@ To merge:
   gh auth refresh -s workflow
   ```
 
-- Admin-merge is permitted because the branch protection rule is configured
-  with `enforce_admins: false` specifically so the solo maintainer can land
-  passing-CI PRs without a self-review round-trip:
+- The ruleset lets the repository admin bypass it, so a passing PR from the
+  solo maintainer lands without a self-review round-trip:
 
   ```bash
   gh pr merge <num> --squash --delete-branch --admin
   ```
 
-If a PR proposes a major version jump (for example `v3 → v8`), skim the
-upstream release notes Dependabot includes in the PR body before merging.
-CI is the final safety net: a green gate (gofmt, vet, test, govulncheck) plus
-CodeQL is sufficient signal to merge.
+If a PR proposes a major version jump, skim the upstream release notes in the
+PR body before merging. A green gate (gofmt, vet, test, govulncheck, golden
+contracts) plus CodeQL is sufficient signal to merge.
 
 ## GitHub Release Notes
 

@@ -4,11 +4,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
@@ -21,8 +21,7 @@ import (
 func Call(tool string, args ...any) string {
 	parts := make([]string, 0, len(args)/2)
 	for i := 0; i+1 < len(args); i += 2 {
-		b, _ := jsonx.Encode(args[i+1], jsonx.Options{})
-		parts = append(parts, args[i].(string)+"="+string(b))
+		parts = append(parts, args[i].(string)+"="+jsonx.Compact(args[i+1]))
 	}
 	return tool + "(" + strings.Join(parts, ", ") + ")"
 }
@@ -35,7 +34,7 @@ func Unreadable(name string, l *vault.Loader) *jsonx.Obj {
 	if err == nil {
 		return nil
 	}
-	return failNext("vault "+pystr.Repr(name)+" is unreadable, so no doc can be said to exist or not: "+err.Error(),
+	return failNext("vault "+strconv.Quote(name)+" is unreadable, so no doc can be said to exist or not: "+err.Error(),
 		"check that the vault path in the config ("+l.Config.VaultPath+") exists and is a directory",
 		"check that this process may read it (on macOS, the app running the server needs access to the folder)",
 		"retry the same call once the vault is readable; the answer is not a missing doc")

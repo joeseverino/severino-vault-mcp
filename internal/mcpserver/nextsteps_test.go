@@ -149,7 +149,7 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		{"find", c{}, `find() with query set`},
 		{"find", c{"query": "wiki", "vault": "nope"}, `find(query="wiki") with vault `},
 		{"find", c{"query": "wiki", "sytem": "Example"}, `find(query="wiki", system="Example")`},
-		{"find", c{"query": "wiki", "zzzz": 1}, `find(query="wiki"): without ['zzzz']`},
+		{"find", c{"query": "wiki", "zzzz": 1}, `find(query="wiki"): without "zzzz"`},
 		{"read_doc", c{"doc_id": "rb-backup-ops", "section": "goal"}, `read_doc(doc_id="rb-backup-ops", sections=["goal"])`},
 		{"read_doc", c{"doc_id": "rb-backup-ops", "fields": "outline"}, ""},
 		{"set_frontmatter", c{"relative_path": "03 Runbooks/Backup Ops.md", "titel": "x"}, `set_frontmatter(relative_path="03 Runbooks/Backup Ops.md", title="x")`},

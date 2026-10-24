@@ -75,7 +75,7 @@ func TestDocumentSchemaValidatesComposableFieldRules(t *testing.T) {
 		t.Fatal(errs)
 	}
 	errs := domain.Validate(jsonx.New("category", "x", "renews", "someday", "notice", "999", "horizon", "soon"))
-	for _, want := range []string{"category 'x' not in ['a', 'b']", "ISO date", "at most 365", "does not match"} {
+	for _, want := range []string{"category \"x\" not in \"a\", \"b\"", "ISO date", "at most 365", "does not match"} {
 		if !slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, want) }) {
 			t.Fatalf("missing %q in %v", want, errs)
 		}
@@ -99,7 +99,7 @@ func TestAQueueNoteCarriesTheQueuePrefix(t *testing.T) {
 		t.Fatal(errs)
 	}
 	errs := Labs.Check(block("note-example"), "01 Projects/Example/Queue.md")
-	if !slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, "must start with one of ['queue-']") }) {
+	if !slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, "must start with one of \"queue-\"") }) {
 		t.Fatal(errs)
 	}
 }

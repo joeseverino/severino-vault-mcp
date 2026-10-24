@@ -18,7 +18,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -70,9 +69,9 @@ const (
 
 func (x ref) String() string {
 	if x.kind == refTask {
-		return pystr.Repr("mise run " + x.name)
+		return strconv.Quote("mise run " + x.name)
 	}
-	return pystr.Repr(x.name)
+	return strconv.Quote(x.name)
 }
 
 // check adds a warning naming each reference in a living part of the doc at
@@ -106,8 +105,8 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 			present = append(present, c)
 		} else if !c.told {
 			c.told = true
-			r.add(Finding{c.index, "warning", fmt.Sprintf("project_path %s is not a folder on this machine, so the code its docs name is not checked",
-				pystr.Repr(c.written)), ""})
+			r.add(Finding{c.index, "warning", fmt.Sprintf("project_path %q is not a folder on this machine, so the code its docs name is not checked",
+				c.written), ""})
 		}
 	}
 	if len(present) == 0 {
@@ -140,7 +139,7 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 	}
 	where := make([]string, len(present))
 	for i, c := range present {
-		where[i] = pystr.Repr(c.written)
+		where[i] = strconv.Quote(c.written)
 	}
 	r.add(Finding{rel, "warning", fmt.Sprintf("names code missing from %s: %s; point each at what the code has now, or drop it",
 		strings.Join(where, " or "), strings.Join(items, ", ")), ""})

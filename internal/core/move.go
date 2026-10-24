@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -107,12 +108,12 @@ func moveSource(v *Vault, a MoveArgs) (*vault.Doc, string, []string) {
 		return nil, "pass doc_id or relative_path, not both", []string{Call("move_doc", "doc_id", a.DocID, "to", a.To) + " without relative_path"}
 	case a.DocID != "":
 		if dups, ok := idx.DuplicateDocIDs[a.DocID]; ok {
-			return nil, fmt.Sprintf("duplicate doc_id %s at %s; move one by relative_path", pystr.Repr(a.DocID), pystr.ReprList(dups)),
+			return nil, fmt.Sprintf("duplicate doc_id %q at %s; move one by relative_path", a.DocID, pystr.Quoted(dups)),
 				[]string{Call("move_doc", "relative_path", dups[0], "to", a.To)}
 		}
 		d = idx.ByDocID[a.DocID]
 		if d == nil {
-			return nil, "unknown doc_id " + pystr.Repr(a.DocID), []string{Call("find", "query", a.DocID) + " to get a doc_id, then retry with it"}
+			return nil, "unknown doc_id " + strconv.Quote(a.DocID), []string{Call("find", "query", a.DocID) + " to get a doc_id, then retry with it"}
 		}
 	case a.RelativePath != "":
 		d = v.docAt(a.RelativePath)
@@ -124,7 +125,7 @@ func moveSource(v *Vault, a MoveArgs) (*vault.Doc, string, []string) {
 		return nil, "pass doc_id or relative_path", []string{Call("find", "query", "...") + " to get the doc's doc_id"}
 	}
 	if d.ReadOnlyDir != "" {
-		return nil, fmt.Sprintf("%s is in %s, a read-only folder: its notes keep their own place and frontmatter", d.RelativePath, pystr.Repr(d.ReadOnlyDir)),
+		return nil, fmt.Sprintf("%s is in %q, a read-only folder: its notes keep their own place and frontmatter", d.RelativePath, d.ReadOnlyDir),
 			[]string{Call("queue", "action", "add", "project", "...", "kind", "next", "text", d.Title) + " to track an inbox capture as work"}
 	}
 	return d, "", nil
@@ -153,11 +154,11 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 	if a.WithFolder {
 		dir := path.Dir(from)
 		if dir == "." || slices.Contains(v.Config.SearchDirs(), dir) || dir == v.Config.ArchiveDir {
-			return "", fmt.Sprintf("with_folder would move %s, a top-level folder; move the doc alone", pystr.Repr(dir)),
+			return "", fmt.Sprintf("with_folder would move %q, a top-level folder; move the doc alone", dir),
 				[]string{retry(to + "/")}
 		}
 		if others := siblingNotes(v, dir, from); len(others) > 0 {
-			return "", fmt.Sprintf("with_folder moves one doc's folder, and %s also holds %s; move each doc alone", dir, pystr.ReprList(others)),
+			return "", fmt.Sprintf("with_folder moves one doc's folder, and %s also holds %s; move each doc alone", dir, pystr.Quoted(others)),
 				[]string{retry(to + "/")}
 		}
 		to = path.Join(to, path.Base(dir), path.Base(from))
@@ -171,10 +172,10 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 	case to == from:
 		return "", from + " is already there", []string{retry(path.Dir(from)+"/"+d.Stem()+" (renamed).md") + " to rename it"}
 	case v.Config.ReadOnlyDir(to) != "":
-		return "", fmt.Sprintf("%s is in %s, and %s are read-only: their notes keep their own frontmatter", to,
-			pystr.Repr(v.Config.ReadOnlyDir(to)), pystr.ReprList(v.Config.ReadOnlyDirs)), []string{v.movable(d, from)}
+		return "", fmt.Sprintf("%s is in %q, and %s are read-only: their notes keep their own frontmatter", to,
+			v.Config.ReadOnlyDir(to), pystr.Quoted(v.Config.ReadOnlyDirs)), []string{v.movable(d, from)}
 	case !vault.IsDocPath(to, v.destinations()):
-		return "", "to must be a .md path under the indexed dirs " + pystr.ReprList(v.destinations()) + ": " + to, []string{v.movable(d, from)}
+		return "", fmt.Sprintf("to must be a .md path under the indexed dirs %s: %s", pystr.Quoted(v.destinations()), to), []string{v.movable(d, from)}
 	case v.exists(to):
 		return "", "destination exists: " + to, []string{retry(path.Dir(to) + "/" + d.Stem() + " (moved).md")}
 	case a.WithFolder && v.exists(path.Dir(to)):
@@ -183,8 +184,8 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 	stem := strings.TrimSuffix(path.Base(to), ".md")
 	for _, rel := range vault.Notes(v.Config.VaultPath) {
 		if rel != from && strings.EqualFold(strings.TrimSuffix(path.Base(rel), ".md"), stem) {
-			return "", fmt.Sprintf("%s already names %s: Obsidian resolves [[%s]] by unique file name, so a second one would change what links point to; give the doc a name no other note has",
-					pystr.Repr(stem), rel, stem),
+			return "", fmt.Sprintf("%q already names %s: Obsidian resolves [[%s]] by unique file name, so a second one would change what links point to; give the doc a name no other note has",
+					stem, rel, stem),
 				[]string{Call("move_doc", "doc_id", d.DocID, "to", path.Dir(from)+"/"+uniqueName(d, stem)) + " to rename it first, then move it"}
 		}
 	}

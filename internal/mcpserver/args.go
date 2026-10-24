@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,8 +22,7 @@ func object(props *jsonx.Obj, required []string) json.RawMessage {
 	if len(required) > 0 {
 		o.Set("required", required)
 	}
-	b, _ := jsonx.Encode(o, jsonx.Options{})
-	return b
+	return json.RawMessage(jsonx.Compact(o))
 }
 
 func str(desc string) *jsonx.Obj { return jsonx.New("type", "string", "description", desc) }
@@ -117,9 +117,9 @@ func unknownArgs(raw json.RawMessage, valid []string) error {
 	}
 	slices.Sort(unknown)
 	if len(valid) == 0 {
-		return argError{msg: fmt.Sprintf("unknown arguments %s; this tool takes none", pystr.ReprList(unknown)), unknown: unknown}
+		return argError{msg: fmt.Sprintf("unknown arguments %s; this tool takes none", pystr.Quoted(unknown)), unknown: unknown}
 	}
-	return argError{msg: fmt.Sprintf("unknown arguments %s; valid arguments are %s", pystr.ReprList(unknown), pystr.ReprList(valid)), unknown: unknown}
+	return argError{msg: fmt.Sprintf("unknown arguments %s; valid arguments are %s", pystr.Quoted(unknown), pystr.Quoted(valid)), unknown: unknown}
 }
 
 // argError is an argument the schema refuses. arg names the one at fault and
@@ -310,7 +310,7 @@ func (p *params) choice(name string, choices []string, def string) string {
 	if !slices.Contains(choices, s) {
 		var quoted []string
 		for _, c := range choices {
-			quoted = append(quoted, pystr.Repr(c))
+			quoted = append(quoted, strconv.Quote(c))
 		}
 		p.fail(argError{msg: fmt.Sprintf("%s: input should be %s", name, strings.Join(quoted, " or ")), arg: name})
 		return ""

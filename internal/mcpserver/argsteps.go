@@ -3,7 +3,9 @@ package mcpserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -95,7 +97,7 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 					v = []any{s}
 				}
 				given.Set(to, v)
-				renamed = append(renamed, pystr.Repr(u)+" is "+pystr.Repr(to))
+				renamed = append(renamed, strconv.Quote(u)+" is "+strconv.Quote(to))
 				continue
 			}
 			dropped = append(dropped, u)
@@ -105,7 +107,7 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 			notes = append(notes, strings.Join(renamed, ", "))
 		}
 		if len(dropped) > 0 {
-			notes = append(notes, "without "+pystr.ReprList(dropped))
+			notes = append(notes, fmt.Sprintf("without %s", pystr.Quoted(dropped)))
 		}
 		return []string{render(given) + ": " + strings.Join(notes, "; ")}
 	case e.arg == "":
@@ -125,7 +127,7 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 		}
 		given.Set(s, q)
 		return []string{render(given) + " to keep docs whose " + s + " matches; by is how query matches, " +
-			pystr.Repr(core.FindModes[0]) + " or " + pystr.Repr(core.FindModes[1])}
+			strconv.Quote(core.FindModes[0]) + " or " + strconv.Quote(core.FindModes[1])}
 	}
 	step := render(given) + " with " + e.arg + " " + want(props[e.arg], e.msg)
 	if !slices.Contains(required, e.arg) {

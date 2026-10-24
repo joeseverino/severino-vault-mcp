@@ -149,7 +149,7 @@ func (c Changes) undeclared(p *schema.Profile) string {
 	for _, name := range c.names() {
 		f, ok := p.Field(name)
 		if !ok {
-			return fmt.Sprintf("%s is not a field of the %s profile; it declares %s", pystr.Repr(name), p.Name, pystr.ReprList(settable))
+			return fmt.Sprintf("%q is not a field of the %s profile; it declares %s", name, p.Name, pystr.Quoted(settable))
 		}
 		_, isValue := c.Values[name]
 		_, isList := c.Lists[name]

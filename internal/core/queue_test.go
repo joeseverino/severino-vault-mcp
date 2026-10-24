@@ -322,7 +322,7 @@ func TestARepoTwoProjectsListIsRefusedNamingBoth(t *testing.T) {
 		"doc_id: project-example-docs\ntitle: Example Docs\ndoc_type: architecture_note\nsystem: Example\n"+
 			"environment: other\nstatus: active\nsensitivity: internal\nrepos: [example-site]", "# Example Docs\n")
 	r := core.Queue(v, core.QueueArgs{Action: "add", Repo: "example-site", Kind: "next", Text: new("Where?")})
-	if r.Bool("ok") || r.Str("error") != "projects ['example-docs', 'example-site'] each list repo 'example-site'; keep it in one index.md's repos" {
+	if r.Bool("ok") || r.Str("error") != "projects \"example-docs\", \"example-site\" each list repo \"example-site\"; keep it in one index.md's repos" {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -595,11 +595,11 @@ func TestABodyNamesADoc(t *testing.T) {
 	}
 
 	for want, a := range map[string]core.QueueArgs{
-		"body 'note-missing' names no doc in the vault": {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("note-missing")},
-		"body 'nope' must start with one of":            {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("nope")},
-		"blocked_by 'task-unknown' is not an item id":   {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), BlockedBy: []string{"task-unknown"}},
-		"id 'task-unknown' is not <prefix>-<number>":    {Action: "close", ID: "task-unknown", Resolution: "x"},
-		"no queue holds an item 'ex-99'":                {Action: "close", ID: "ex-99", Resolution: "x"},
+		"body \"note-missing\" names no doc in the vault": {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("note-missing")},
+		"body \"nope\" must start with one of":            {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("nope")},
+		"blocked_by \"task-unknown\" is not an item id":   {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), BlockedBy: []string{"task-unknown"}},
+		"id \"task-unknown\" is not <prefix>-<number>":    {Action: "close", ID: "task-unknown", Resolution: "x"},
+		"no queue holds an item \"ex-99\"":                {Action: "close", ID: "ex-99", Resolution: "x"},
 	} {
 		r := core.Queue(v, a)
 		if r.Bool("ok") || !strings.Contains(r.Str("error"), want) || !r.Has("next_steps") {

@@ -1,9 +1,10 @@
 {
   "name": "severino-vault-mcp",
-  "description": "The vault MCP server and the vault skill that says how to use it: find and read governed Obsidian docs, write docs and tasks against each vault's schema.",
+  "description": "The vault MCP server and the vault skill that says how to use it: find and read governed Obsidian docs, write docs against each vault's schema and keep a work queue.",
   "author": {
     "name": "Joe Severino"
   },
+  "homepage": "https://github.com/joeseverino/severino-vault-mcp",
   "repository": "https://github.com/joeseverino/severino-vault-mcp",
   "license": "MIT",
   "keywords": ["obsidian", "vault", "mcp", "runbooks"]

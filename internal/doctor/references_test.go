@@ -2,6 +2,7 @@ package doctor_test
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,13 +78,13 @@ func TestDoctorWarnsOnCodeALivingDocNamesThatItsCheckoutLacks(t *testing.T) {
 		t.Fatalf("want one warning for the doc, got %q", got)
 	}
 	msg := got[0]
-	for _, gone := range []string{"'internal/gone.go' (body line 5)", "'TestGone' (body line 5)", "'test_gone_python' (body line 5)",
-		"'mise run vanished' (body line 6)", "'docs/old'", "'" + repo + "'"} {
+	for _, gone := range []string{"\"internal/gone.go\" (body line 5)", "\"TestGone\" (body line 5)", "\"test_gone_python\" (body line 5)",
+		"\"mise run vanished\" (body line 6)", "\"docs/old\"", strconv.Quote(repo)} {
 		if !strings.Contains(msg, gone) {
 			t.Errorf("warning does not name %s: %s", gone, msg)
 		}
 	}
-	for _, there := range []string{"TestReal", "test_real", "'mise run check'", "'mise run ci'", "lint:go", "docs/guide.md", "'internal/real'",
+	for _, there := range []string{"TestReal", "test_real", "\"mise run check\"", "\"mise run ci\"", "lint:go", "docs/guide.md", "\"internal/real\"",
 		"prose", "TestProse", "example.com", "~/Code", "/etc", "Backlog", "stale", "images", "dist", "Sibling", "scripts", "nope", "fenced"} {
 		if strings.Contains(msg, there) {
 			t.Errorf("warning names %s, which is there or not a reference: %s", there, msg)

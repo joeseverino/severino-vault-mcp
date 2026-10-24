@@ -68,7 +68,7 @@ func TestReportsInvalidFrontmatterAndDuplicates(t *testing.T) {
 	for _, f := range r.Findings {
 		byFile[f.RelativePath] = append(byFile[f.RelativePath], f.Message)
 	}
-	if !has(byFile["03 Runbooks/Bad.md"], "doc_id 'nope' must start") || !has(byFile["03 Runbooks/Bad.md"], "doc_type 'made_up' not in") ||
+	if !has(byFile["03 Runbooks/Bad.md"], "doc_id \"nope\" must start") || !has(byFile["03 Runbooks/Bad.md"], "doc_type \"made_up\" not in") ||
 		!has(byFile["03 Runbooks/Duplicate.md"], "duplicate doc_id") {
 		t.Fatal(byFile)
 	}

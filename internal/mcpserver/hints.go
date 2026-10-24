@@ -132,6 +132,5 @@ func fieldProps(fs []core.Field) *jsonx.Obj {
 
 func outSchema(props *jsonx.Obj) json.RawMessage {
 	envelope := jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList()).Merge(props)
-	b, _ := jsonx.Encode(jsonx.New("type", "object", "properties", envelope), jsonx.Options{})
-	return b
+	return json.RawMessage(jsonx.Compact(jsonx.New("type", "object", "properties", envelope)))
 }

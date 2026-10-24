@@ -84,7 +84,7 @@ func (f Field) InScope(rel string) bool {
 
 // ScopeError is the refusal for a field set on a doc outside its scope.
 func (f Field) ScopeError(rel string) string {
-	return fmt.Sprintf("%s only applies to docs at %s, not %s", f.Name, pystr.Repr(f.Scope), rel)
+	return fmt.Sprintf("%s only applies to docs at %q, not %s", f.Name, f.Scope, rel)
 }
 
 // ForDocType reports whether a doc of docType may carry the field.
@@ -95,7 +95,7 @@ func (f Field) ForDocType(docType string) bool {
 // DocTypeError is the refusal for a field set on a doc of a doc_type that
 // may not carry it.
 func (f Field) DocTypeError(docType string) string {
-	return fmt.Sprintf("%s only applies to doc_type %s, not %s", f.Name, pystr.ReprList(Sorted(f.DocTypes)), pystr.Repr(docType))
+	return fmt.Sprintf("%s only applies to doc_type %s, not %q", f.Name, pystr.Quoted(Sorted(f.DocTypes)), docType)
 }
 
 // Validate checks one value against the rule.
@@ -175,19 +175,19 @@ func (f Field) valueRules(name string, value any, task bool) []string {
 		}
 	}
 	if len(f.Prefixes) > 0 && !slices.ContainsFunc(f.Prefixes, func(p string) bool { return strings.HasPrefix(text, p) }) {
-		errs = append(errs, fmt.Sprintf("%s %s must start with one of %s", name, pystr.Repr(text), pystr.ReprList(f.Prefixes)))
+		errs = append(errs, fmt.Sprintf("%s %q must start with one of %s", name, text, pystr.Quoted(f.Prefixes)))
 	}
 	if f.Pattern != "" {
 		if re, err := regexp.Compile(`\A(?:` + f.Pattern + `)\z`); err == nil && !re.MatchString(text) {
 			if f.Shape != "" {
-				errs = append(errs, fmt.Sprintf("%s %s must be %s", name, pystr.ReprAny(value), f.Shape))
+				errs = append(errs, fmt.Sprintf("%s %s must be %s", name, jsonx.Compact(value), f.Shape))
 			} else {
-				errs = append(errs, fmt.Sprintf("%s=%s does not match %s", name, pystr.ReprAny(value), pystr.Repr(f.Pattern)))
+				errs = append(errs, fmt.Sprintf("%s=%s does not match %q", name, jsonx.Compact(value), f.Pattern))
 			}
 		}
 	}
 	if slices.Contains(f.Reserved, text) {
-		errs = append(errs, fmt.Sprintf("%s %s is reserved; pick another", name, pystr.Repr(text)))
+		errs = append(errs, fmt.Sprintf("%s %q is reserved; pick another", name, text))
 	}
 	return errs
 }
@@ -320,10 +320,10 @@ func (p *Profile) PlacementProblems(docType, rel string) []string {
 		inside := slices.Contains(dirs, folder)
 		switch {
 		case t == docType && !inside:
-			errs = append(errs, fmt.Sprintf("a doc_type %s doc lives in a %s folder; move it into one", pystr.Repr(t), pystr.Repr(folder)))
+			errs = append(errs, fmt.Sprintf("a doc_type %q doc lives in a %q folder; move it into one", t, folder))
 		case t != docType && inside:
-			errs = append(errs, fmt.Sprintf("a %s folder holds only doc_type %s docs, not %s; move the doc out or make it a %s",
-				pystr.Repr(folder), pystr.Repr(t), pystr.Repr(docType), t))
+			errs = append(errs, fmt.Sprintf("a %q folder holds only doc_type %q docs, not %q; move the doc out or make it a %s",
+				folder, t, docType, t))
 		}
 	}
 	return errs
@@ -439,7 +439,7 @@ func NotIn(field, value string, allowed []string) string {
 	if slices.Contains(allowed, value) {
 		return ""
 	}
-	return fmt.Sprintf("%s %s not in %s", field, pystr.Repr(value), pystr.ReprList(allowed))
+	return fmt.Sprintf("%s %q not in %s", field, value, pystr.Quoted(allowed))
 }
 
 // taskDocType is the doc_type a task carries. Labs and edu track work in
@@ -556,9 +556,9 @@ func (p *Profile) ArchiveProblems(fm *jsonx.Obj, archive string) []string {
 		return nil
 	}
 	if p.IsTask(fm) {
-		return []string{fmt.Sprintf("a task in %s is closed (status %s), not %s", archive, strings.Join(ClosedTaskStatuses, " or "), pystr.Repr(fm.Text("status")))}
+		return []string{fmt.Sprintf("a task in %s is closed (status %s), not %q", archive, strings.Join(ClosedTaskStatuses, " or "), fm.Text("status"))}
 	}
-	return []string{fmt.Sprintf("a doc in %s has status: %s, not %s; set status %s in the same call", archive, ArchivedStatus, pystr.Repr(fm.Text("status")), ArchivedStatus)}
+	return []string{fmt.Sprintf("a doc in %s has status: %s, not %q; set status %s in the same call", archive, ArchivedStatus, fm.Text("status"), ArchivedStatus)}
 }
 
 // CheckArchived validates a block in the archive dir archive:
@@ -605,7 +605,7 @@ func (p *Profile) RefProblems(fm *jsonx.Obj, known func(docID string) bool) []st
 			id := pystr.Str(item)
 			switch {
 			case own != nil && id == pystr.Str(own):
-				errs = append(errs, fmt.Sprintf("%s %s names the doc itself", f.Name, pystr.Repr(id)))
+				errs = append(errs, fmt.Sprintf("%s %q names the doc itself", f.Name, id))
 			case !known(id):
 				errs = append(errs, NoDoc(f.Name, id))
 			}
@@ -620,7 +620,7 @@ const ProjectsField = "related_projects"
 // NoProject is the one wording of a related_projects entry that names no
 // project folder, with the folder names closest to it.
 func NoProject(entry string, closest []string) string {
-	return fmt.Sprintf("%s %s names no project folder (closest: %s)", ProjectsField, pystr.Repr(entry), strings.Join(closest, ", "))
+	return fmt.Sprintf("%s %q names no project folder (closest: %s)", ProjectsField, entry, strings.Join(closest, ", "))
 }
 
 // closestProjects are the n names of projects nearest entry by edit
@@ -662,7 +662,7 @@ func (p *Profile) ProjectProblems(fm *jsonx.Obj, projects []string) []string {
 
 // NoDoc is the one wording of a doc reference that names no doc.
 func NoDoc(name, docID string) string {
-	return fmt.Sprintf("%s %s names no doc in the vault", name, pystr.Repr(docID))
+	return fmt.Sprintf("%s %q names no doc in the vault", name, docID)
 }
 
 // DocRefProblems checks one doc reference outside a frontmatter block (a
@@ -734,8 +734,7 @@ func (p *Profile) ContractDict() *jsonx.Obj {
 
 // Fingerprint is the SHA-256 of the sorted, compact contract.
 func (p *Profile) Fingerprint() string {
-	b, _ := jsonx.Encode(p.ContractDict(), jsonx.Options{SortKeys: true, EnsureASCII: true})
-	sum := sha256.Sum256(b)
+	sum := sha256.Sum256([]byte(jsonx.Compact(jsonx.Sorted(p.ContractDict()))))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -801,10 +800,10 @@ func (p *Profile) CheckDocEnums(text string) []string {
 		}
 		var parts []string
 		if extra := diff(doc, canon); len(extra) > 0 {
-			parts = append(parts, "doc lists unknown "+pystr.ReprList(extra))
+			parts = append(parts, fmt.Sprintf("doc lists unknown %s", pystr.Quoted(extra)))
 		}
 		if missing := diff(canon, doc); len(missing) > 0 {
-			parts = append(parts, "doc is missing "+pystr.ReprList(missing))
+			parts = append(parts, fmt.Sprintf("doc is missing %s", pystr.Quoted(missing)))
 		}
 		out = append(out, f.name+": "+strings.Join(parts, "; "))
 	}
@@ -1079,7 +1078,7 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				ds.Fields[name] = field
 			}
 			if !p.HasDocType(docType) {
-				return nil, fmt.Errorf("document schemas reference unknown doc_types: ['%s']", docType)
+				return nil, fmt.Errorf("document schemas reference unknown doc_types: %q", docType)
 			}
 			p.DocumentSchemas[docType] = ds
 		}
@@ -1096,7 +1095,7 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				return nil, fmt.Errorf("doc_type_required_fields.%s must be a list of strings", docType)
 			}
 			if !p.HasDocType(docType) {
-				return nil, fmt.Errorf("doc_type_required_fields references unknown doc_types: ['%s']", docType)
+				return nil, fmt.Errorf("doc_type_required_fields references unknown doc_types: %q", docType)
 			}
 			ds := p.DocumentSchemas[docType]
 			ds.RequiredFields = names
@@ -1116,7 +1115,7 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				return nil, fmt.Errorf("doc_type_folders.%s must be one folder name", docType)
 			}
 			if !p.HasDocType(docType) {
-				return nil, fmt.Errorf("doc_type_folders references unknown doc_types: ['%s']", docType)
+				return nil, fmt.Errorf("doc_type_folders references unknown doc_types: %q", docType)
 			}
 			p.DocTypeFolders[docType] = folder
 		}

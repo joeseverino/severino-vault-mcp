@@ -37,7 +37,7 @@ func TestMoveDocIntoTheArchiveTakesOnlyArchivedDocs(t *testing.T) {
 	v := tk.Vault(root)
 
 	refused := core.MoveDoc(v, core.MoveArgs{DocID: "rb-rotate-widget-keys", To: "99 Archive/"})
-	if refused.Bool("ok") || !strings.Contains(refused.Str("error"), "status 'active'") {
+	if refused.Bool("ok") || !strings.Contains(refused.Str("error"), "status \"active\"") {
 		t.Fatal(jsonx.Compact(refused))
 	}
 	if steps := nextSteps(refused); len(steps) < 2 || !strings.Contains(steps[0], "archive=true") || !strings.Contains(steps[1], "set_frontmatter") {

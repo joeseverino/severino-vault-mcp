@@ -19,7 +19,7 @@ func TestSchemaEmitsEachVaultsJSONSchema(t *testing.T) {
 			t.Fatalf("%s: %d %.200s", vault, code, out)
 		}
 	}
-	if code, _, errOut := run(t, root, "", "schema", "--json-schema", "--vault", "nope"); code != 2 || !strings.Contains(errOut, "'nope' not in ['edu', 'labs']") {
+	if code, _, errOut := run(t, root, "", "schema", "--json-schema", "--vault", "nope"); code != 2 || !strings.Contains(errOut, "\"nope\" not in \"edu\", \"labs\"") {
 		t.Fatalf("%d %s", code, errOut)
 	}
 }

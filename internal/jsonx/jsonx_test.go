@@ -1,9 +1,6 @@
 package jsonx
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestCompactKeepsInsertionOrder(t *testing.T) {
 	if got := Compact(New("b", 1, "a", 2)); got != `{"b":1,"a":2}` {
@@ -11,7 +8,7 @@ func TestCompactKeepsInsertionOrder(t *testing.T) {
 	}
 }
 
-func TestPrettyIndentsLikePython(t *testing.T) {
+func TestPrettyIndentsByTwo(t *testing.T) {
 	got := Pretty(New("a", 1, "b", []any{1, 2}, "c", New(), "d", []any{}))
 	want := "{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {},\n  \"d\": []\n}"
 	if got != want {
@@ -19,15 +16,23 @@ func TestPrettyIndentsLikePython(t *testing.T) {
 	}
 }
 
-func TestCanonicalSortsKeys(t *testing.T) {
-	got := Canonical(New("b", 1, "a", 2))
-	if strings.Index(got, `"a"`) > strings.Index(got, `"b"`) || !strings.Contains(got, "\n") {
+func TestSortedSortsKeysAtEveryLevel(t *testing.T) {
+	got := Compact(Sorted(New("b", 1, "a", New("z", []any{New("y", 1, "x", 2)}, "m", 3))))
+	if got != `{"a":{"m":3,"z":[{"x":2,"y":1}]},"b":1}` {
 		t.Fatal(got)
 	}
 }
 
-func TestEnsureASCIIEscapesLikePython(t *testing.T) {
-	if got := Compact("— é 😀 <&> \u0001 \"q\" \\"); got != `"\u2014 \u00e9 \ud83d\ude00 <&> \u0001 \"q\" \\"` {
+func TestStringsKeepTheirText(t *testing.T) {
+	if got := Compact(New("s", "— é 😀 <&> \u0001 \"q\" \\")); got != `{"s":"— é 😀 <&> \u0001 \"q\" \\"}` {
+		t.Fatal(got)
+	}
+}
+
+func TestANilListIsEmpty(t *testing.T) {
+	var none []string
+	var objs []*Obj
+	if got := Compact(New("a", none, "b", []any{objs}, "c", (*Obj)(nil))); got != `{"a":[],"b":[[]],"c":null}` {
 		t.Fatal(got)
 	}
 }

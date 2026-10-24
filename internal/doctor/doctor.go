@@ -87,7 +87,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 			r.IndexedDocs++
 			id := pystr.Str(idv)
 			if first, dup := seen[id]; dup {
-				r.add(Finding{rel, "error", fmt.Sprintf("duplicate doc_id %s; already used by %s", pystr.Repr(id), first), ""})
+				r.add(Finding{rel, "error", fmt.Sprintf("duplicate doc_id %q; already used by %s", id, first), ""})
 			} else {
 				seen[id] = rel
 			}
@@ -106,8 +106,8 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 // file.
 func (r *Report) body(rel, body string, files *links.Files) {
 	for _, target := range links.Dangling(body, filepath.ToSlash(rel), files) {
-		r.add(Finding{rel, "error", fmt.Sprintf("path wikilink %s names no file in the vault; point it at the note's current path",
-			pystr.Repr("[["+target+"]]")), ""})
+		r.add(Finding{rel, "error", fmt.Sprintf("path wikilink %q names no file in the vault; point it at the note's current path",
+			"[["+target+"]]"), ""})
 	}
 }
 
@@ -144,8 +144,8 @@ func supersession(fm *jsonx.Obj, idx *vault.Index) []string {
 		return nil
 	}
 	if d, ok := idx.ByDocID[pystr.Str(next)]; ok && (d.Status == "deprecated" || d.Status == schema.ArchivedStatus) {
-		return []string{fmt.Sprintf("superseded_by %s is %s, not live; point it at the current report (%s)",
-			pystr.Repr(d.DocID), d.Status, d.RelativePath)}
+		return []string{fmt.Sprintf("superseded_by %q is %s, not live; point it at the current report (%s)",
+			d.DocID, d.Status, d.RelativePath)}
 	}
 	return nil
 }

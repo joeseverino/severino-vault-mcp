@@ -37,7 +37,7 @@ func TestSchemaMatchesTheCommittedHQContract(t *testing.T) {
 
 func TestSchemaContractAndFingerprint(t *testing.T) {
 	_, out, _ := run(t, tk.Dir(t), "", "schema", "--contract")
-	if strings.TrimSpace(out) != jsonx.Canonical(schema.Labs.ContractDict()) {
+	if strings.TrimSpace(out) != jsonx.Pretty(jsonx.Sorted(schema.Labs.ContractDict())) {
 		t.Fatal(out)
 	}
 	_, out, _ = run(t, tk.Dir(t), "", "schema", "--fingerprint")

@@ -17,14 +17,14 @@ func TestADocReferenceTakesTheDocIDPrefixesAndNamesADocThatExists(t *testing.T) 
 		return jsonx.New("doc_id", "report-old", "title", "Old", "doc_type", "decision_record", "system", "x",
 			"environment", "other", "status", "deprecated", "sensitivity", "internal", "superseded_by", next)
 	}
-	if e := Labs.Check(fm("example-new"), at); !has(e, "superseded_by 'example-new' must start with one of") {
+	if e := Labs.Check(fm("example-new"), at); !has(e, "superseded_by \"example-new\" must start with one of") {
 		t.Fatal(e)
 	}
 	known := func(id string) bool { return id == "report-new" }
 	for next, want := range map[string]string{
 		"report-new":  "",
-		"report-gone": "superseded_by 'report-gone' names no doc in the vault",
-		"report-old":  "superseded_by 'report-old' names the doc itself",
+		"report-gone": "superseded_by \"report-gone\" names no doc in the vault",
+		"report-old":  "superseded_by \"report-old\" names the doc itself",
 	} {
 		got := Labs.RefProblems(fm(next), known)
 		if (want == "" && len(got) != 0) || (want != "" && !slices.Equal(got, []string{want})) {
@@ -53,7 +53,7 @@ func TestProjectProblemsNameTheClosestFolders(t *testing.T) {
 		t.Fatalf("valid entries: %v", got)
 	}
 	got := Labs.ProjectProblems(fm([]any{"Example-Wiki", "tool"}), projects)
-	if len(got) != 2 || !strings.Contains(got[0], "'Example-Wiki' names no project folder (closest: example-wiki,") ||
+	if len(got) != 2 || !strings.Contains(got[0], "\"Example-Wiki\" names no project folder (closest: example-wiki,") ||
 		!strings.Contains(got[1], "(closest: tools,") {
 		t.Fatalf("invalid entries: %v", got)
 	}
