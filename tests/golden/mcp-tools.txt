@@ -1,10 +1,6 @@
-daily_progress
-education_dataset
 find
 read_doc
-recent_changes
 set_frontmatter
 task_board
 task_write
-update_link
 write_doc

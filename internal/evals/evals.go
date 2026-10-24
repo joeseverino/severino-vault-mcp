@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -249,22 +248,16 @@ func JSON(reports []Report) *jsonx.Obj {
 // no aliases beyond the fixture's own and no restricted unlock. The index
 // is cached for the run, since nothing writes to the fixture.
 func FixtureConfig(root string) config.Config {
-	return config.Load("", config.Env{
-		"HOME":                             os.Getenv("HOME"),
-		"SVMC_CONFIG":                      filepath.Join(root, "absent.toml"),
-		"SVMC_VAULT_PATH":                  root,
-		"SVMC_CACHE_SECONDS":               "300",
-		"SVMC_ALLOW_RESTRICTED_UNLOCK":     "0",
-		"SVMC_RESTRICTED_UNLOCK_HASH_FILE": filepath.Join(root, ".no-unlock-hash"),
-	})
+	env := config.Hermetic(root)
+	env["SVMC_CACHE_SECONDS"] = "300"
+	return config.Load("", env)
 }
 
 // RealConfig is the operator's own config pointed at path, with restricted
 // unlock off so a run never prompts and never releases a restricted body.
 func RealConfig(path string) config.Config {
-	env := config.OSEnv()
+	env := config.Locked(config.OSEnv())
 	env["SVMC_VAULT_PATH"] = path
-	env["SVMC_ALLOW_RESTRICTED_UNLOCK"] = "0"
 	return config.Load("", env)
 }
 

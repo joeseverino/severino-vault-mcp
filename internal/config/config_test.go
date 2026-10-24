@@ -77,9 +77,34 @@ func TestReadOnlyDefaultsFollowTheDefaultIndexedDirs(t *testing.T) {
 
 func TestDefaultsAndUnlockSettings(t *testing.T) {
 	t.Setenv("HOME", "/home/x")
-	c := Load("/nonexistent.toml", Env{"SVMC_ALLOW_RESTRICTED_UNLOCK": "yes"})
-	if c.VaultPath != "/home/x/Documents/vault" || !slices.Equal(c.IndexedDirs, DefaultIndexedDirs) || c.CacheSeconds != 30 || !c.AllowRestrictedUnlock ||
+	c := Load("/nonexistent.toml", Env{})
+	if c.VaultPath != "/home/x/Documents/vault" || !slices.Equal(c.IndexedDirs, DefaultIndexedDirs) || c.CacheSeconds != 30 || c.RestrictedUnlockRef != "" ||
 		c.AliasesPath != "/home/x/Documents/vault/.svmc/aliases.toml" || c.RestrictedAuditLog != "/home/x/.local/state/severino-vault-mcp/audit.log" {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestUnlockRefComesFromTheFileAndTheEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	write(t, path, "[restricted]\nunlock_ref = \"op://Private-Vault/Unlock-Item/password\"\n")
+	if c := Load(path, Env{}); c.RestrictedUnlockRef != "op://Private-Vault/Unlock-Item/password" {
+		t.Fatalf("%+v", c)
+	}
+	if c := Load(path, Env{UnlockRefVar: "op://Other/Item/field"}); c.RestrictedUnlockRef != "op://Other/Item/field" {
+		t.Fatalf("%+v", c)
+	}
+	if c := Load(path, Locked(Env{UnlockRefVar: "op://Other/Item/field"})); c.RestrictedUnlockRef != "" {
+		t.Fatalf("locked env still unlocks: %+v", c)
+	}
+	if c := Load("", Hermetic(t.TempDir())); c.RestrictedUnlockRef != "" {
+		t.Fatalf("hermetic env unlocks: %+v", c)
+	}
+}
+
+func TestLegacySecretAdjacentSectionIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	write(t, path, "[secret_adjacent]\nunlock_ref = \"op://Private-Vault/Unlock-Item/password\"\naudit_log = \"/tmp/a.log\"\n")
+	if c := Load(path, Env{}); c.RestrictedUnlockRef != "" || c.RestrictedAuditLog == "/tmp/a.log" {
 		t.Fatalf("%+v", c)
 	}
 }

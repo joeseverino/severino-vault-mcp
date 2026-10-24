@@ -5,17 +5,13 @@ package write
 
 import (
 	"fmt"
-	"net/url"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/clock"
-	"github.com/joeseverino/severino-vault-mcp/internal/contracts"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
@@ -54,66 +50,6 @@ func strList(v []string) []any {
 		out[i] = s
 	}
 	return out
-}
-
-// UpdateLink replaces one exact Markdown link in an indexed, non-restricted doc.
-func UpdateLink(l *vault.Loader, docID, label, expectedHref, replacementHref string) *jsonx.Obj {
-	idx := l.Index(true)
-	d, ok := idx.ByDocID[pystr.Strip(docID)]
-	if !ok {
-		return fail("unknown doc_id: " + pystr.Repr(docID))
-	}
-	if d.Sensitivity == gate.Restricted {
-		return fail("restricted document bodies cannot be mutated")
-	}
-	if refused := readOnly(l, d.RelativePath); refused != nil {
-		return refused
-	}
-	if pystr.Strip(label) == "" {
-		return fail("link label required")
-	}
-	for _, pair := range [][2]string{{"expected_href", expectedHref}, {"replacement_href", replacementHref}} {
-		u, err := url.Parse(pair[1])
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fail(pair[0] + " must be an absolute HTTP(S) URL")
-		}
-	}
-	v, err := fsx.OpenVault(l.Config.VaultPath)
-	if err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	defer v.Close()
-	text, err := v.ReadText(d.Path)
-	if err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	fm, _, _ := frontmatter.Split(text)
-	if fm == nil {
-		return fail("document has no frontmatter")
-	}
-	cut := frontmatter.BodyOffset(text)
-	head, body := text[:cut], text[cut:]
-	pattern := regexp.MustCompile(`\[` + regexp.QuoteMeta(label) + `\]\(` + regexp.QuoteMeta(expectedHref) + `(?:\s+"[^"]*")?\)`)
-	found := pattern.FindAllStringIndex(body, -1)
-	if len(found) != 1 {
-		return fail(fmt.Sprintf("expected exactly one matching link; found %d", len(found)))
-	}
-	newBody := body[:found[0][0]] + "[" + label + "](" + replacementHref + ")" + body[found[0][1]:]
-	if err := v.AtomicWrite(d.Path, head+newBody); err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	l.Index(true)
-	receipt := contracts.Receipt{
-		Operation:           "document.link.update",
-		EntityType:          "document",
-		EntityID:            d.DocID,
-		ChangedFields:       []string{"body.link"},
-		AfterFingerprint:    contracts.Fingerprint(jsonx.New("doc_id", d.DocID, "href", replacementHref)),
-		AffectedProjections: []string{"vault_index"},
-		Metadata:            jsonx.New("label", label),
-	}.AsDict()
-	return jsonx.New("ok", true, "doc_id", d.DocID, "relative_path", d.RelativePath, "label", label,
-		"old_href", expectedHref, "new_href", replacementHref, "receipt", receipt)
 }
 
 func fieldErrors(p *schema.Profile, task bool, checks ...[2]string) []string {

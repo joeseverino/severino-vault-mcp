@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "severino-vault-mcp": {
+      "command": "severino-vault-mcp",
+      "args": ["serve"]
+    }
+  }
+}

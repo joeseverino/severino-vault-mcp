@@ -30,7 +30,7 @@ In an MCP client, verify:
   `rb-generate-internal-cert` first.
 - `vault://labs/doc/infra-offline-ca` withholds the body by default.
 - `read_doc("infra-offline-ca", include_restricted=True)` still requires
-  local unlock.
+  a Touch ID approval through 1Password.
 
 ## Packaging
 

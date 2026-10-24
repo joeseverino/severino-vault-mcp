@@ -29,7 +29,7 @@ web URL.
 - Keep the server local-first. Do not add a network listener unless it is
   explicitly optional and documented with a clear security model.
 - Keep write tools narrow and schema-validated.
-- Do not log markdown body content, unlock phrases, or secrets.
+- Do not log markdown body content, the unlock item's value, or secrets.
 - Do not broaden `restricted` release paths. `include_restricted=True` must
   remain insufficient without local unlock approval.
 - Prefer the standard library; add a dependency only when it clearly improves

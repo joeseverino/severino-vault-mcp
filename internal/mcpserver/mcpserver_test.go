@@ -21,7 +21,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
 
-var coreTools = []string{"daily_progress", "find", "read_doc", "recent_changes", "set_frontmatter", "task_board", "task_write", "update_link", "write_doc"}
+var coreTools = []string{"find", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
 
 // TestMain doubles as a fake vault provider when re-executed with
 // FAKE_PROVIDER set to the vault name it should serve, so the provider seam
@@ -140,11 +140,13 @@ func eduConfig(t *testing.T, root string) string {
 	return cfg
 }
 
-func TestEduVaultAndDatasetRegisterWhenItsConfigExists(t *testing.T) {
+// The edu vault is reached through the shared tools; it registers none of
+// its own.
+func TestEduVaultRegistersWhenItsConfigExists(t *testing.T) {
 	root := tk.FakeVault(t)
 	env := tk.Env(root, "SVMC_EDU_CONFIG", eduConfig(t, root))
 	got := tools(t, connect(t, vaults.Build(context.Background(), env, io.Discard)))
-	if _, ok := got["education_dataset"]; !ok {
+	if !slices.Equal(names(got), coreTools) {
 		t.Fatal(names(got))
 	}
 	if vp := vaultProp(t, got["find"]); !slices.Equal(toStrings(vp["enum"]), []string{"labs", "edu"}) || vp["default"] != "labs" {
@@ -181,7 +183,13 @@ func TestToolCallsRouteAndValidate(t *testing.T) {
 	if r, isErr := call(t, s, "find", map[string]any{"query": "x", "vault": "example"}); !isErr || !strings.Contains(r.Str("error"), "unknown vault 'example'") {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if r, isErr := call(t, s, "find", map[string]any{"query": "x", "by": "fuzzy"}); !isErr || !strings.Contains(r.Str("error"), "by: input should be") {
+	for _, by := range []string{"fuzzy", "system", "project"} {
+		if r, isErr := call(t, s, "find", map[string]any{"query": "x", "by": by}); !isErr || !strings.Contains(r.Str("error"), "by: input should be 'relevance' or 'text'") {
+			t.Fatal(jsonx.Compact(r))
+		}
+	}
+	if r, isErr := call(t, s, "find", map[string]any{"query": "nginx proxy", "system": "no such system"}); isErr || len(tk.Hits(r, "hits")) != 0 ||
+		tk.Get(r, "filters.system") != "no such system" {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if r, isErr := call(t, s, "find", map[string]any{}); !isErr || !strings.Contains(r.Str("error"), "query: field required") {
@@ -263,7 +271,7 @@ func TestProviderToolsProfileAndInstructionsAreReexported(t *testing.T) {
 	}
 }
 
-// Every registered tool, core, edu or provider, refuses an argument its schema
+// Every registered tool, core or provider, refuses an argument its schema
 // doesn't declare, naming it and the valid ones, so no tool can ship open.
 func TestEveryToolRejectsUnknownArguments(t *testing.T) {
 	root := tk.FakeVault(t)
@@ -273,7 +281,7 @@ func TestEveryToolRejectsUnknownArguments(t *testing.T) {
 	t.Cleanup(reg.Close)
 	s := connect(t, reg)
 	all := tools(t, s)
-	for _, want := range []string{"set_frontmatter", "education_dataset", "example_lookup"} {
+	for _, want := range []string{"set_frontmatter", "example_lookup"} {
 		if _, ok := all[want]; !ok {
 			t.Fatalf("%s not registered: %v", want, names(all))
 		}

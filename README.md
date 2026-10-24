@@ -10,7 +10,7 @@
 One local MCP server for every Obsidian vault I keep: labs (homelab
 infrastructure and runbooks), edu (coursework), and any private vault a
 provider adds. It answers from the vault instead of model memory, withholds
-`restricted` docs unless they're unlocked locally, and validates every write
+`restricted` docs unless Touch ID unlocks them, and validates every write
 against that vault's schema. It is one static Go binary that runs over stdio,
 reads local files only, and has no HTTP listener.
 
@@ -24,7 +24,7 @@ call to that vault; search, the gate and validation never cross vaults.
 | Vault | Config | Profile | Own tools |
 |---|---|---|---|
 | `labs` (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml` | labs (built in) | none |
-| `edu` | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml`; off when the file is missing | education (built in) | `education_dataset` |
+| `edu` | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml`; off when the file is missing | education (built in) | none |
 | each provider | its `[[providers]]` entry's `config` | from the provider | from the provider |
 
 A private vault brings its own domain through a **provider**: a separate stdio
@@ -56,16 +56,19 @@ Shared, each taking `vault`:
 
 | Tool | Does |
 |---|---|
-| `find` | Search one vault. `by`: `relevance` (ranked sections, default), `system`, `project` (`related_projects`), `text` (ripgrep over bodies; restricted docs never searched). |
-| `read_doc` | A doc's body, or one section of it. Restricted bodies need `include_restricted=True` plus a local unlock. |
+| `find` | Search one vault. `by`: `relevance` (ranked sections, default) or `text` (body search; restricted docs never searched). `system` and `project` narrow either mode to docs whose `system` field, or a `related_projects` entry, contains the value. |
+| `read_doc` | A doc's body, or one section of it. Restricted bodies need `include_restricted=True` plus a Touch ID approval through 1Password. |
 | `set_frontmatter` | Create a frontmatter block, or update one in place. `doc_id` never changes. |
-| `update_link` | Replace one exact Markdown link in a doc. |
+| `write_doc` | Create a registered doc, or replace or append one section of its body. |
 | `task_board` | Open tasks, with the projects tasks can be filed in. |
 | `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`. |
-| `recent_changes` | Recent vault commits in the indexed folders. |
-| `daily_progress` | A daily note, for "what did I do Friday?". |
 
-Vault-specific: `education_dataset` (edu), plus each provider's tools.
+Vault-specific: each provider's tools. The edu dataset is the CLI's
+`export education`.
+
+How an agent should use them (find before prose, answer in the doc's words,
+the sensitivity rules, writes) is the `vault` skill, `skills/vault/SKILL.md`;
+the server's instructions point to it.
 
 Resources: `vault://{vault}/quick-index` and `vault://{vault}/doc/{doc_id}`.
 
@@ -84,6 +87,14 @@ go install ./cmd/severino-vault-mcp
 claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
+Or load the repo as a Claude Code plugin, which declares the same server
+(`.mcp.json`, the binary on `PATH`) and adds the `vault` skill:
+
+```bash
+go install ./cmd/severino-vault-mcp
+claude --plugin-dir /path/to/severino-vault-mcp
+```
+
 Validate a vault before wiring it:
 
 ```bash
@@ -97,10 +108,9 @@ SVMC_VAULT_PATH=/path/to/vault severino-vault-mcp doctor --propose
 
 With no subcommand (or `serve`) the binary serves MCP. Subcommands run one
 governed call against the labs vault and print JSON: `doctor`, `find`, `read`,
-`brief`, `task-*`, `promote-note`, `update-frontmatter`, `update-doc-link`,
+`brief`, `task-*`, `promote-note`, `update-frontmatter`,
 `touch-reviewed`, `backfill-aliases`, `daily-write`, `schema`, `hq-manifest`,
-`describe`, `unlock-hash` (the argon2id hash for the restricted unlock), and
-`export education` (the dataset jseverino.com and
+`describe`, and `export education` (the dataset jseverino.com and
 resume-engine read). `describe` emits the surface as a
 [Cordon](https://github.com/joeseverino/cordon) contract, generated from the
 same command table that parses arguments.
@@ -121,8 +131,7 @@ override the labs config:
 | `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks:07 Backlog` | Folders the loader indexes |
 | `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Phrase to `doc_id` aliases |
 | `SVMC_CACHE_SECONDS` | `30` | How long the index stays warm |
-| `SVMC_ALLOW_RESTRICTED_UNLOCK` | `false` | Allows the local unlock prompt for restricted reads |
-| `SVMC_RESTRICTED_UNLOCK_HASH_FILE` | `~/.config/severino-vault-mcp/restricted-unlock.phc` | argon2id unlock hash from `unlock-hash` (Keychain is preferred) |
+| `SVMC_RESTRICTED_UNLOCK_REF` | unset | `op://` reference to the 1Password unlock item; unset keeps restricted bodies withheld |
 | `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Unlock attempts; never bodies |
 
 edu and providers read only their own TOML; labs overrides never leak into them.
@@ -133,7 +142,7 @@ edu and providers read only their own TOML; labs overrides never leak into them.
 |---|---|
 | `public`, `internal` | The body. |
 | `sensitive` | The body plus an advisory. |
-| `restricted` | Metadata only. The body needs `include_restricted=True`, `SVMC_ALLOW_RESTRICTED_UNLOCK=1`, an argon2id hash from `unlock-hash`, and a successful local hidden-input prompt, for one read. |
+| `restricted` | Metadata only. The body needs `include_restricted=True`, a configured `unlock_ref`, and a 1Password read of it approved with Touch ID, for one read. A server with `OP_SERVICE_ACCOUNT_TOKEN` in its environment never unlocks. |
 
 When in doubt, mark a doc `restricted`. The gate limits what reaches AI context
 through this server; it is not a sandbox, and a client with direct file access

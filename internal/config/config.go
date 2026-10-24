@@ -4,6 +4,7 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,19 +40,15 @@ func (e Env) Lookup(k string) (string, bool) {
 
 // Config is one vault's immutable configuration.
 type Config struct {
-	VaultPath                 string
-	IndexedDirs               []string
-	ReadOnlyDirs              []string
-	DailyNotesDir             string
-	AliasesPath               string
-	MetadataURL               string
-	CacheSeconds              int
-	AllowRestrictedUnlock     bool
-	RestrictedUnlockHash      string // "" when unset
-	RestrictedUnlockHashFile  string
-	RestrictedKeychainService string
-	RestrictedKeychainAccount string
-	RestrictedAuditLog        string
+	VaultPath           string
+	IndexedDirs         []string
+	ReadOnlyDirs        []string
+	DailyNotesDir       string
+	AliasesPath         string
+	MetadataURL         string
+	CacheSeconds        int
+	RestrictedUnlockRef string // op:// reference to the unlock item; "" keeps restricted bodies withheld
+	RestrictedAuditLog  string
 }
 
 // DefaultIndexedDirs are the labs vault's indexed folders: searched, read,
@@ -130,18 +127,6 @@ func SplitColon(v string) []string {
 	return out
 }
 
-func envBool(env Env, name string, def bool) bool {
-	v, ok := env.Lookup(name)
-	if !ok {
-		return def
-	}
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
-
 // ReadTOML parses a TOML file into a map; missing or invalid files are empty.
 func ReadTOML(path string) map[string]any {
 	data := map[string]any{}
@@ -199,6 +184,30 @@ func tomlList(v any, def []string) ([]string, bool) {
 	return slices.Clone(def), false
 }
 
+// UnlockRefVar overrides [restricted].unlock_ref.
+const UnlockRefVar = "SVMC_RESTRICTED_UNLOCK_REF"
+
+// Locked returns env with restricted unlock unconfigured, whatever the
+// config file says, so nothing loaded from it can release a restricted body.
+func Locked(env Env) Env {
+	out := maps.Clone(env)
+	if out == nil {
+		out = Env{}
+	}
+	out[UnlockRefVar] = ""
+	return out
+}
+
+// Hermetic is a locked environment over the vault at root: no config file,
+// so nothing on this machine leaks into what it loads.
+func Hermetic(root string) Env {
+	return Locked(Env{
+		"HOME":            os.Getenv("HOME"),
+		"SVMC_CONFIG":     filepath.Join(root, "absent.toml"),
+		"SVMC_VAULT_PATH": root,
+	})
+}
+
 // Load builds a Config. path "" means SVMC_CONFIG, then DefaultPath.
 func Load(path string, env Env) Config {
 	if env == nil {
@@ -213,9 +222,6 @@ func Load(path string, env Env) Config {
 	metadata := Section(data, "metadata")
 	cache := Section(data, "cache")
 	unlock := Section(data, "restricted")
-	if len(unlock) == 0 {
-		unlock = Section(data, "secret_adjacent")
-	}
 
 	indexed, indexedSet := tomlList(vault["indexed_dirs"], DefaultIndexedDirs)
 	_, indexedEnv := env.Lookup("SVMC_INDEXED_DIRS")
@@ -246,26 +252,9 @@ func Load(path string, env Env) Config {
 		cacheSeconds = 30
 	}
 
-	allowDefault := false
-	if v, ok := unlock["allow_unlock"].(bool); ok {
-		allowDefault = v
-	}
-	allow := envBool(env, "SVMC_ALLOW_RESTRICTED_UNLOCK",
-		envBool(env, "SVMC_ALLOW_SECRET_ADJACENT_UNLOCK", allowDefault))
-
-	hash := strValue(unlock, "hash", "")
-	if v, ok := env.Lookup("SVMC_SECRET_ADJACENT_UNLOCK_HASH"); ok {
-		hash = v
-	}
-	if v, ok := env.Lookup("SVMC_RESTRICTED_UNLOCK_HASH"); ok {
-		hash = v
-	}
-
-	legacy := func(name, def string) string {
-		if v, ok := env.Lookup(name); ok {
-			return v
-		}
-		return def
+	unlockRef := strValue(unlock, "unlock_ref", "")
+	if v, ok := env.Lookup(UnlockRefVar); ok {
+		unlockRef = v
 	}
 
 	return Config{
@@ -277,19 +266,8 @@ func Load(path string, env Env) Config {
 		MetadataURL:   metadataURL,
 		CacheSeconds:  cacheSeconds,
 
-		AllowRestrictedUnlock: allow,
-		RestrictedUnlockHash:  hash,
-		RestrictedUnlockHashFile: envPath(env, "SVMC_RESTRICTED_UNLOCK_HASH_FILE",
-			legacy("SVMC_SECRET_ADJACENT_UNLOCK_HASH_FILE",
-				strValue(unlock, "hash_file", "~/.config/severino-vault-mcp/restricted-unlock.phc"))),
-		RestrictedKeychainService: legacy("SVMC_RESTRICTED_UNLOCK_KEYCHAIN_SERVICE",
-			legacy("SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_SERVICE",
-				strValue(unlock, "keychain_service", "severino-vault-mcp"))),
-		RestrictedKeychainAccount: legacy("SVMC_RESTRICTED_UNLOCK_KEYCHAIN_ACCOUNT",
-			legacy("SVMC_SECRET_ADJACENT_UNLOCK_KEYCHAIN_ACCOUNT",
-				strValue(unlock, "keychain_account", "restricted-unlock"))),
+		RestrictedUnlockRef: strings.TrimSpace(unlockRef),
 		RestrictedAuditLog: envPath(env, "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG",
-			legacy("SVMC_SECRET_ADJACENT_UNLOCK_AUDIT_LOG",
-				strValue(unlock, "audit_log", "~/.local/state/severino-vault-mcp/audit.log"))),
+			strValue(unlock, "audit_log", "~/.local/state/severino-vault-mcp/audit.log")),
 	}
 }

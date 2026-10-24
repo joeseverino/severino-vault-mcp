@@ -66,8 +66,6 @@ func configured(t *testing.T, indexed string) (string, *vault.Loader) {
 	return root, vault.NewLoader(config.Load("", config.Env{"SVMC_CONFIG": cfg, "SVMC_CACHE_SECONDS": "0"}))
 }
 
-const docFM = "---\ndoc_id: note-%s\ntitle: N\ndoc_type: runbook\nsystem: x\nenvironment: other\nstatus: active\nsensitivity: internal\n%s---\n\n# N\n"
-
 func TestUnconsumedKeysLandInExtra(t *testing.T) {
 	root, l := configured(t, `["Notes"]`)
 	tk.Write(t, filepath.Join(root, "Notes", "a.md"), "---\ndoc_id: note-a\ntitle: A\ndoc_type: runbook\nsystem: x\n"+

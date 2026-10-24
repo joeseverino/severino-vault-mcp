@@ -51,19 +51,14 @@ func Dir(t testing.TB) string {
 	return d
 }
 
-// Env is a hermetic environment pointing at root.
+// Env is a hermetic environment pointing at root, built on
+// config.Hermetic so restricted unlock stays off unless a test sets it.
 func Env(root string, extra ...string) config.Env {
-	env := config.Env{
-		"HOME":                             os.Getenv("HOME"),
-		"PATH":                             os.Getenv("PATH"),
-		"SVMC_CONFIG":                      filepath.Join(root, "absent.toml"),
-		"SVMC_VAULT_PATH":                  root,
-		"SVMC_CACHE_SECONDS":               "0",
-		"SVMC_ALLOW_RESTRICTED_UNLOCK":     "0",
-		"SVMC_RESTRICTED_UNLOCK_AUDIT_LOG": filepath.Join(root, ".audit.log"),
-		"SVMC_RESTRICTED_UNLOCK_HASH_FILE": filepath.Join(root, ".no-unlock-hash"),
-		"SVMC_EDU_CONFIG":                  filepath.Join(root, "no-edu.toml"),
-	}
+	env := config.Hermetic(root)
+	env["PATH"] = os.Getenv("PATH")
+	env["SVMC_CACHE_SECONDS"] = "0"
+	env["SVMC_RESTRICTED_UNLOCK_AUDIT_LOG"] = filepath.Join(root, ".audit.log")
+	env["SVMC_EDU_CONFIG"] = filepath.Join(root, "no-edu.toml")
 	for i := 0; i+1 < len(extra); i += 2 {
 		env[extra[i]] = extra[i+1]
 	}

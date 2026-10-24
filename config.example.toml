@@ -23,10 +23,11 @@ seconds = 30
 url = ""
 
 [restricted]
-allow_unlock = false
-hash_file = "~/.config/severino-vault-mcp/restricted-unlock.phc"
-keychain_service = "severino-vault-mcp"
-keychain_account = "restricted-unlock"
+# op:// reference to a dedicated 1Password item in a vault no service account
+# can read. include_restricted releases a body only when `op read` of it
+# succeeds through the desktop app, which asks for Touch ID. Leave it unset
+# and restricted bodies are always withheld.
+# unlock_ref = "op://Private-Vault/Unlock-Item/password"
 audit_log = "~/.local/state/severino-vault-mcp/audit.log"
 
 # Vault providers: separate stdio MCP servers that each add one vault with its

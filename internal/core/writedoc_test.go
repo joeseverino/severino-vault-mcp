@@ -184,7 +184,7 @@ func TestWriteDocSectionRefusals(t *testing.T) {
 		"no registered doc at 01 Projects/untagged.md":                      {Mode: "replace_section", Heading: "Untagged", Body: "x", RelativePath: "01 Projects/untagged.md"},
 		"unknown mode 'rewrite'":                                            {Mode: "rewrite", Body: "x"},
 		"infra-local-pki is restricted; rerun with include_restricted=True": {Mode: "replace_section", Heading: "Local PKI", Body: "x", New: write.NewDoc{DocID: "infra-local-pki"}},
-		"infra-local-pki is restricted and the unlock was refused: Interactive unlock is disabled": {Mode: "replace_section", Heading: "Local PKI", Body: "x", IncludeRestricted: true, New: write.NewDoc{DocID: "infra-local-pki"}},
+		"infra-local-pki is restricted and the unlock was refused: Restricted unlock is not configured": {Mode: "replace_section", Heading: "Local PKI", Body: "x", IncludeRestricted: true, New: write.NewDoc{DocID: "infra-local-pki"}},
 	} {
 		r := core.WriteDoc(v, a)
 		if r.Bool("ok") || !strings.Contains(r.Str("error"), want) {
