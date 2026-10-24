@@ -29,6 +29,25 @@ const nextStep = "run any downstream vault metadata sync if your workflow uses o
 
 func fail(msg string) *jsonx.Obj { return fsx.Fail(msg) }
 
+// readOnly refuses a write into a read-only folder, or returns nil.
+func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
+	dir := l.Config.ReadOnlyDir(strings.TrimLeft(relativePath, "/"))
+	if dir == "" {
+		return nil
+	}
+	return fail(fmt.Sprintf("%s is in %s, and %s are read-only: find and read_doc serve them, "+
+		"but their notes keep their own frontmatter (inbox captures, site content), so set_frontmatter and write_doc leave them alone",
+		relativePath, pystr.Repr(dir), pystr.ReprList(l.Config.ReadOnlyDirs)))
+}
+
+// indexedPath is fsx.IndexedPath behind the read-only refusal.
+func indexedPath(l *vault.Loader, relativePath string) (*fsx.Vault, string, *jsonx.Obj) {
+	if refused := readOnly(l, relativePath); refused != nil {
+		return nil, "", refused
+	}
+	return fsx.IndexedPath(l.Config, relativePath)
+}
+
 func strList(v []string) []any {
 	out := make([]any, len(v))
 	for i, s := range v {
@@ -46,6 +65,9 @@ func UpdateLink(l *vault.Loader, docID, label, expectedHref, replacementHref str
 	}
 	if d.Sensitivity == gate.Restricted {
 		return fail("restricted document bodies cannot be mutated")
+	}
+	if refused := readOnly(l, d.RelativePath); refused != nil {
+		return refused
 	}
 	if pystr.Strip(label) == "" {
 		return fail("link label required")
@@ -157,7 +179,7 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 	if len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
-	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
@@ -220,6 +242,8 @@ func applyListOp(current []string, op ListOp) []string {
 
 // Update holds the optional fields of an update; nil pointers are unchanged.
 type Update struct {
+	// Register gives a block that has no doc_id its first one.
+	Register                                                 *string
 	TouchLastReviewed                                        bool
 	LastReviewed                                             *string
 	Title, DocType, System, Environment, Status, Sensitivity *string
@@ -261,7 +285,7 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 	if errs := fieldErrors(p, false, checks...); len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
-	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
@@ -277,6 +301,11 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 		return fail("file has no frontmatter; add a block first.")
 	}
 	changed := map[string]bool{}
+	if u.Register != nil {
+		fm.Delete("doc_id")
+		fm = jsonx.New("doc_id", *u.Register).Merge(fm)
+		changed["doc_id"] = true
+	}
 	for _, f := range []struct {
 		key string
 		val *string
@@ -353,7 +382,7 @@ func strOr(p *string, def string) string {
 
 // SetFrontmatter creates the block when absent, else updates it.
 func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profile) *jsonx.Obj {
-	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
@@ -396,13 +425,25 @@ func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profi
 			strOr(s.Environment, "other"), strOr(s.Status, "active"), strOr(s.Sensitivity, "internal"),
 			tags, projects, assets, hasTags, hasProjects, hasAssets, reviewed, p)
 	}
+	var register *string
 	if s.DocID != nil {
 		cur, _ := existing.Get("doc_id")
-		if c, ok := cur.(string); !ok || c != *s.DocID {
-			return fail(fmt.Sprintf("doc_id is immutable (file has %s, got %s)", pystr.ReprAny(cur), pystr.Repr(*s.DocID)))
+		if c, _ := cur.(string); c != "" {
+			if c != *s.DocID {
+				return fail(fmt.Sprintf("doc_id is immutable (file has %s, got %s)", pystr.Repr(c), pystr.Repr(*s.DocID)))
+			}
+		} else {
+			if errs := fieldErrors(p, false, [2]string{"doc_id", *s.DocID}); len(errs) > 0 {
+				return fail(strings.Join(errs, "; "))
+			}
+			if taken := docIDTaken(l.Index(false), *s.DocID); taken != nil {
+				return taken
+			}
+			register = s.DocID
 		}
 	}
 	return UpdateFrontmatter(l, relativePath, Update{
+		Register:          register,
 		TouchLastReviewed: s.TouchLastReviewed,
 		LastReviewed:      s.LastReviewed,
 		Title:             s.Title, DocType: s.DocType, System: s.System,
@@ -413,7 +454,7 @@ func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profi
 
 // TouchReviewed sets last_reviewed to today without rebuilding the index.
 func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
-	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
@@ -453,7 +494,7 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 	updated := []string{}
 	skipped := 0
 	for _, d := range idx.Docs {
-		if !strings.HasSuffix(d.RelativePath, "/index.md") {
+		if !strings.HasSuffix(d.RelativePath, "/index.md") || d.ReadOnlyDir != "" {
 			continue
 		}
 		full := filepath.Join(root, d.RelativePath)

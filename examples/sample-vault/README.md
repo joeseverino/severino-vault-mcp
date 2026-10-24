@@ -28,23 +28,24 @@ in the testing/CI doc.
 The folders mirror a real vault's top-level shape:
 
 ```
-00 Inbox/           unprocessed captures (untagged), promoted into structured docs
+00 Inbox/           unprocessed captures, promoted into structured docs   ── read-only
 00 Templates/       the skeletons every operational doc is created from
 01 Projects/        index notes that tie work together          ┐
-02 Infrastructure/  system-of-record notes (one folder/system) ├─ indexed + validated
-03 Runbooks/        the procedures + the Quick Index hub        ┘
-04 Reference/       background primers (lighter frontmatter)
-05 Writeups/        public articles — the site's CMS (separate frontmatter)
-06 Pages/           static-site pages sourced from the vault
+02 Infrastructure/  system-of-record notes (one folder/system) │
+03 Runbooks/        the procedures + the Quick Index hub        ├─ indexed + validated
+04 Reference/       background primers                          ┘
+05 Writeups/        public articles — the site's CMS (separate frontmatter) ┐ read-only
+06 Pages/           static-site pages sourced from the vault                ┘
 99 Archive/         superseded docs, kept for history
 .svmc/aliases.toml  query → doc_id aliases for fuzzy lookups
 ```
 
-Only `01 Projects`, `02 Infrastructure`, and `03 Runbooks` are indexed and
-frontmatter-validated by default (`indexed_dirs`). The rest illustrate how a real
-vault is organized end to end: capture (`00 Inbox`), the templates everything is
-built from (`00 Templates`), background reference (`04 Reference`), the publishing
-pipeline (`05 Writeups`, `06 Pages`), and archive (`99 Archive`).
+`01 Projects` through `04 Reference` (and `07 Backlog`, when present) are indexed
+and frontmatter-validated by default (`indexed_dirs`). `00 Inbox`, `05 Writeups`
+and `06 Pages` are read-only (`read_only_dirs`): `find` and `read_doc` serve them,
+while writes and `validate` leave their own frontmatter alone. A writeup or page
+without a `doc_id` is known as `writeup-<slug>` or `page-<slug>`. The templates
+(`00 Templates`) and the archive (`99 Archive`) are never indexed.
 
 ### Indexed operational docs
 

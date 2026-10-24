@@ -45,14 +45,12 @@ func slimEntry(fm *jsonx.Obj, relativePath, kind string) *jsonx.Obj {
 	_, rest, _ := strings.Cut(relativePath, "/")
 	slug, _, _ := strings.Cut(rest, "/")
 	published := pystr.Truthy(get(fm, "published"))
-	var docID any
+	docID := firstTruthy(get(fm, "doc_id"), kind+"-"+slug)
 	var contentType, externalURL string
 	if kind == "writeup" {
-		docID = firstTruthy(get(fm, "doc_id"), "writeup-"+slug)
 		contentType = "portfolio_article"
 		externalURL = "https://jseverino.com/portfolio/" + slug + "/"
 	} else {
-		docID = firstTruthy(get(fm, "doc_id"), "page-"+slug)
 		contentType = "page"
 		pagePath := firstTruthy(get(fm, "path"), "/"+slug+"/")
 		externalURL = "https://jseverino.com" + pystr.Str(pagePath)
@@ -128,10 +126,8 @@ func Build(vaultPath string, subdirs []string) *jsonx.Obj {
 		top, _, _ := strings.Cut(rel, "/")
 		var entry *jsonx.Obj
 		switch {
-		case top == WriteupDir && filepath.Base(path) == "index.md":
-			entry = slimEntry(fm, rel, "writeup")
-		case top == PageDir && filepath.Base(path) == "index.md":
-			entry = slimEntry(fm, rel, "page")
+		case vault.SiteContentPrefixes[top] != "" && filepath.Base(path) == "index.md":
+			entry = slimEntry(fm, rel, vault.SiteContentPrefixes[top])
 		case !pystr.Truthy(get(fm, "doc_id")):
 			missingFM = append(missingFM, rel)
 			continue

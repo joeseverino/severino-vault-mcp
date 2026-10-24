@@ -174,6 +174,7 @@ type Doc struct {
 	RelatedAssets   []string
 	Path            string // absolute
 	RelativePath    string // vault-root relative
+	ReadOnlyDir     string // the read-only folder holding it, or ""
 	Body            string
 	BodyStartLine   int
 	Sections        []sections.Section
@@ -281,9 +282,26 @@ func (l *Loader) Index(force bool) *Index {
 	return l.index
 }
 
+// SiteContentPrefixes are the doc_id prefixes of the site's content folders,
+// whose `<folder>/<slug>/index.md` notes carry no doc_id of their own. They
+// are also the ids the HQ manifest gives the same notes.
+var SiteContentPrefixes = map[string]string{"05 Writeups": "writeup", "06 Pages": "page"}
+
+// siteContentID is the doc_id a site content note is known by, or "".
+func siteContentID(rel string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 3 || parts[2] != "index.md" {
+		return ""
+	}
+	if prefix, ok := SiteContentPrefixes[parts[0]]; ok {
+		return prefix + "-" + parts[1]
+	}
+	return ""
+}
+
 func (l *Loader) build() *Index {
 	idx := newIndex()
-	for _, p := range MarkdownFiles(l.Config.VaultPath, l.Config.IndexedDirs) {
+	for _, p := range MarkdownFiles(l.Config.VaultPath, l.Config.SearchDirs()) {
 		text, err := pystr.ReadText(p)
 		if err != nil {
 			continue
@@ -292,22 +310,25 @@ func (l *Loader) build() *Index {
 		if fm == nil || fm.Len() == 0 {
 			continue
 		}
+		rel, err := filepath.Rel(l.Config.VaultPath, p)
+		if err != nil {
+			rel = p
+		}
 		if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
-			typ, _ := fm.Get("type")
-			if strings.ToLower(pystr.Strip(strOr(fm, "type", ""))) != "reference" || typ == nil {
-				continue
-			}
-			base := filepath.Base(p)
-			slug := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(strings.TrimSuffix(base, filepath.Ext(base))), " ", "-"), "_", "-")
-			fm.Set("doc_id", "ref-"+slug)
-			if !fm.Has("doc_type") {
-				fm.Set("doc_type", "reference")
-			}
-			if !fm.Has("sensitivity") {
-				fm.Set("sensitivity", "public")
+			if sid := siteContentID(rel); sid != "" {
+				fm.Set("doc_id", sid)
+				if !fm.Has("doc_type") {
+					fm.Set("doc_type", "public_article_draft")
+				}
+				if published, _ := fm.Get("published"); !fm.Has("sensitivity") {
+					fm.Set("sensitivity", map[bool]string{true: "public", false: "internal"}[pystr.Truthy(published)])
+				}
 			}
 		}
-		idx.add(l.makeDoc(p, fm, body, start))
+		if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
+			continue
+		}
+		idx.add(l.makeDoc(p, rel, fm, body, start))
 	}
 	idx.Aliases, idx.InvalidAliases = l.loadAliases(idx)
 	return idx
@@ -354,7 +375,17 @@ func tomlStr(v any) string {
 	return ""
 }
 
-func (l *Loader) makeDoc(p string, fm *jsonx.Obj, body string, start int) *Doc {
+// fileTitle names a doc without a title by its file, or its folder for an
+// index.md.
+func fileTitle(rel string) string {
+	base := filepath.Base(rel)
+	if base == "index.md" {
+		return filepath.Base(filepath.Dir(rel))
+	}
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+func (l *Loader) makeDoc(p, rel string, fm *jsonx.Obj, body string, start int) *Doc {
 	extra := jsonx.New()
 	for _, k := range fm.Keys() {
 		if !coreKeys[k] {
@@ -373,13 +404,9 @@ func (l *Loader) makeDoc(p string, fm *jsonx.Obj, body string, start int) *Doc {
 	tags, _ := fm.Get("tags")
 	rp, _ := fm.Get("related_projects")
 	ra, _ := fm.Get("related_assets")
-	rel, err := filepath.Rel(l.Config.VaultPath, p)
-	if err != nil {
-		rel = p
-	}
 	return &Doc{
 		DocID:           docID,
-		Title:           strOr(fm, "title", docID),
+		Title:           strOr(fm, "title", fileTitle(rel)),
 		DocType:         strOr(fm, "doc_type", "runbook"),
 		System:          strOr(fm, "system", ""),
 		Environment:     strOr(fm, "environment", "other"),
@@ -392,6 +419,7 @@ func (l *Loader) makeDoc(p string, fm *jsonx.Obj, body string, start int) *Doc {
 		RelatedAssets:   CoerceList(ra),
 		Path:            p,
 		RelativePath:    rel,
+		ReadOnlyDir:     l.Config.ReadOnlyDir(rel),
 		Body:            body,
 		BodyStartLine:   start,
 		Sections:        sections.Parse(body, start),

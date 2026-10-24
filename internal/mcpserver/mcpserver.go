@@ -39,7 +39,7 @@ adds below. Every shared tool takes ` + "`vault`" + ` (default labs).
    ` + "`read_doc`" + ` on the Quick Index doc), then read the target doc.
 4. Progress or log questions ("what did I do Friday?"): ` + "`daily_progress`" + `.
 5. ` + "`find(by=...)`" + `: relevance (default), system (the ` + "`system:`" + ` field),
-   project (` + "`related_projects`" + `), text (full-text body search).
+   project (` + "`related_projects`" + `), text (body search: all words, any order).
 
 Sensitivity: public, internal and sensitive bodies come back from
 ` + "`read_doc`" + ` (sensitive adds an ` + "`advisory`" + ` to pass along). restricted bodies
@@ -753,8 +753,10 @@ call ` + "`read_doc`" + ` on the best hit and answer from the doc's own text.
 by: relevance (ranked title/system/tag/section match, the default),
 system (docs whose system, title or doc_id contains the query),
 project (docs listing the query in related_projects), or
-text (ripgrep over doc bodies; hits carry line snippets, and
-restricted bodies are never searched).`
+text (body search: several words match docs holding all of them in any
+order, ranked by doc with the best section as the hit; a single token or a
+regex is a ripgrep pattern; zero hits fall back to relevance and say
+"fallback": "relevance"; restricted bodies are never searched).`
 
 const descReadDoc = `Read a vault doc's markdown body, gated by its sensitivity.
 
@@ -762,7 +764,7 @@ public, internal and sensitive bodies are released (sensitive ones carry an
 ` + "`advisory`" + ` to pass along). restricted bodies are withheld unless
 ` + "`include_restricted=True`" + ` and the local unlock on the Mac succeeds.`
 
-const descRecent = `Recent commits touching a vault's indexed folders (metadata only, no diffs).`
+const descRecent = `Recent commits touching a vault's indexed and read-only folders (metadata only, no diffs).`
 
 const descDaily = `Read the daily note a progress question refers to ("what did I do Friday?").
 

@@ -51,6 +51,30 @@ func TestExplicitPathWinsOverEnvConfigPath(t *testing.T) {
 	}
 }
 
+// A vault that names its own indexed dirs gets no read-only defaults: the
+// labs folder names would mean nothing there.
+func TestReadOnlyDefaultsFollowTheDefaultIndexedDirs(t *testing.T) {
+	tmp := t.TempDir()
+	def := Load("/nonexistent.toml", Env{})
+	if !slices.Equal(def.ReadOnlyDirs, DefaultReadOnlyDirs) || def.ReadOnlyDir("05 Writeups/a/index.md") != "05 Writeups" ||
+		def.ReadOnlyDir("04 Reference/a.md") != "" || !slices.Contains(def.SearchDirs(), "00 Inbox") {
+		t.Fatalf("%+v", def)
+	}
+	own := filepath.Join(tmp, "own.toml")
+	write(t, own, "[vault]\nindexed_dirs = [\"Docs\"]\n")
+	if c := Load(own, Env{}); len(c.ReadOnlyDirs) != 0 {
+		t.Fatalf("%+v", c)
+	}
+	if c := Load("/nonexistent.toml", Env{"SVMC_INDEXED_DIRS": "Docs"}); len(c.ReadOnlyDirs) != 0 {
+		t.Fatalf("%+v", c)
+	}
+	both := filepath.Join(tmp, "both.toml")
+	write(t, both, "[vault]\nindexed_dirs = [\"Docs\"]\nread_only_dirs = [\"Site\"]\n")
+	if c := Load(both, Env{}); !slices.Equal(c.SearchDirs(), []string{"Docs", "Site"}) {
+		t.Fatalf("%+v", c)
+	}
+}
+
 func TestDefaultsAndUnlockSettings(t *testing.T) {
 	t.Setenv("HOME", "/home/x")
 	c := Load("/nonexistent.toml", Env{"SVMC_ALLOW_RESTRICTED_UNLOCK": "yes"})

@@ -234,8 +234,8 @@ func init() {
 			Run:  runExport},
 		{Name: "validate", Effect: "read",
 			Summary: "Check vault docs' frontmatter with the rules set_frontmatter writes by, without the MCP server: one " +
-				"`<relative_path>: <problem>` line per problem, exit 1 on any. Paths outside the labs and edu vaults' indexed dirs, " +
-				"or not markdown, are ignored. Run by the vault-guard hook on every edited path.",
+				"`<relative_path>: <problem>` line per problem, exit 1 on any. Paths outside the labs and edu vaults' indexed dirs " +
+				"(read-only folders such as 00 Inbox, 05 Writeups and 06 Pages included), or not markdown, are ignored. Run by the vault-guard hook on every edited path.",
 			Args: []Arg{
 				{Name: "path", Multi: true, Help: "Doc path, absolute or relative to a vault root."},
 				{Name: "--json", Help: `Print {"ok": ..., "problems": [{"relative_path", "problem"}]} instead of lines.`},

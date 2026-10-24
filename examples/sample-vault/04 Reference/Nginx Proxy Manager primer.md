@@ -1,7 +1,18 @@
 ---
-type: reference
-tags: [nginx, proxy, tls]
-created: 2026-05-15
+doc_id: note-nginx-proxy-manager-primer
+title: Nginx Proxy Manager — primer
+doc_type: architecture_note
+system: Nginx Proxy Manager
+environment: other
+status: active
+sensitivity: public
+last_reviewed: 2026-05-15
+related_projects: []
+related_assets: []
+tags:
+  - nginx
+  - proxy
+  - tls
 ---
 
 # Nginx Proxy Manager — primer
@@ -20,5 +31,5 @@ runbook `rb-add-nginx-proxy-host`.
 
 ## Notes
 
-- Reference notes use a lighter frontmatter (`type: reference`) and live outside
-  the indexed operational dirs — background reading, not procedures.
+- Reference notes are background reading, not procedures. They are indexed and
+  validated like the operational docs.

@@ -134,13 +134,13 @@ func ReadSection(l *vault.Loader, docID, section string) *jsonx.Obj {
 	return base
 }
 
-// RecentChanges lists commits touching the indexed dirs (metadata only).
+// RecentChanges lists commits touching the indexed and read-only dirs (metadata only).
 func RecentChanges(l *vault.Loader, days, limit int) *jsonx.Obj {
 	days = Clamp(days, 1, 365)
 	limit = Clamp(limit, 1, 500)
 	args := []string{"log", fmt.Sprintf("--since=%d.days.ago", days), fmt.Sprintf("-n%d", limit),
 		"--pretty=format:%H|%cI|%s", "--"}
-	args = append(args, l.Config.IndexedDirs...)
+	args = append(args, l.Config.SearchDirs()...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // fixed program; arguments follow "--" or are numeric
@@ -181,12 +181,38 @@ type snippet struct {
 	text string
 }
 
-// SearchBody greps indexed doc bodies with ripgrep. Matches inside
-// frontmatter are dropped and restricted bodies are never searched.
+// regexMeta are the characters that make a query a regex rather than words.
+const regexMeta = `.*+?()[]{}|^$\`
+
+// QueryWords splits a natural-language query into its distinct non-filler
+// words; nil for a single token or a regex, which ripgrep matches as given.
+func QueryWords(query string, caseSensitive bool) []string {
+	if !strings.ContainsFunc(query, pystr.IsSpace) || strings.ContainsAny(query, regexMeta) {
+		return nil
+	}
+	var words []string
+	for _, w := range strings.FieldsFunc(query, pystr.IsSpace) {
+		if !caseSensitive {
+			w = strings.ToLower(w)
+		}
+		if search.IsStopword(strings.ToLower(w)) || slices.Contains(words, w) {
+			continue
+		}
+		words = append(words, w)
+	}
+	return words
+}
+
+// SearchBody searches indexed doc bodies: a multi-word query matches docs
+// whose body holds every word, anything else is a ripgrep pattern. Matches
+// inside frontmatter are dropped and restricted bodies are never searched.
 func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSensitive bool) *jsonx.Obj {
 	query = pystr.Strip(query)
 	if query == "" {
 		return emptySearch(query)
+	}
+	if words := QueryWords(query, caseSensitive); len(words) > 0 {
+		return searchWords(l, query, words, limit, caseSensitive)
 	}
 	rg, err := exec.LookPath("rg")
 	if err != nil {
@@ -195,7 +221,7 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	idx := l.Index(false)
 	root := fsx.Resolve(l.Config.VaultPath)
 	var roots []string
-	for _, sub := range l.Config.IndexedDirs {
+	for _, sub := range l.Config.SearchDirs() {
 		r := filepath.Join(root, sub)
 		if info, err := os.Stat(r); err == nil && info.IsDir() {
 			roots = append(roots, r)
@@ -342,4 +368,124 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 		"excluded", jsonx.New("restricted_skipped", restricted, "secret_adjacent_skipped", restricted, "unindexed_skipped", unindexed),
 		"hits_by_doc", out2,
 	)
+}
+
+const maxWordSnippets = 5
+
+// searchWords ranks the docs whose body holds every word, in any order. A
+// doc's score is its best section's: the words that section covers, then
+// their occurrences per thousand words, so a short section about the query
+// beats a long doc that mentions each word once.
+func searchWords(l *vault.Loader, query string, words []string, limit int, caseSensitive bool) *jsonx.Obj {
+	fold := func(s string) string {
+		if caseSensitive {
+			return s
+		}
+		return strings.ToLower(s)
+	}
+	type docHits struct {
+		hit          *jsonx.Obj
+		score, count int
+		lr, title    string
+	}
+	var hits []docHits
+	restricted := 0
+	for _, d := range l.Index(false).Docs {
+		if !search.Searchable(d) {
+			restricted++
+			continue
+		}
+		body := fold(d.Body)
+		count := 0
+		for _, w := range words {
+			n := strings.Count(body, w)
+			if n == 0 {
+				count = 0
+				break
+			}
+			count += n
+		}
+		if count == 0 {
+			continue
+		}
+		hit := Hit(d).Set("match_count", count)
+		score := 0
+		if sec, sc := bestWordSection(d.Sections, words, fold); sec != nil {
+			score = sc
+			heading := sec.Heading
+			if heading == "" {
+				heading = d.Title
+			}
+			hit.Set("heading", heading).Set("section", sec.Slug).Set("heading_path", sec.HeadingPath).
+				Set("snippets", wordSnippets(sec, words, fold))
+		}
+		if d.Sensitivity == gate.Sensitive {
+			hit.Set("advisory", gate.Advisory(d.Sensitivity, false))
+		}
+		hits = append(hits, docHits{jsonx.New("score", score).Merge(hit), score, count, d.LastReviewed, d.Title})
+	}
+	slices.SortStableFunc(hits, func(a, b docHits) int {
+		if a.score != b.score {
+			return b.score - a.score
+		}
+		if a.count != b.count {
+			return b.count - a.count
+		}
+		if c := strings.Compare(b.lr, a.lr); c != 0 {
+			return c
+		}
+		return strings.Compare(b.title, a.title)
+	})
+	out := []*jsonx.Obj{}
+	total := 0
+	for _, h := range hits[:min(len(hits), Clamp(limit, 1, 50))] {
+		out = append(out, h.hit)
+		total += h.count
+	}
+	return jsonx.New(
+		"query", query,
+		"words", slices.Clone(words),
+		"doc_count", len(out),
+		"total_match_count", total,
+		"excluded", jsonx.New("restricted_skipped", restricted, "secret_adjacent_skipped", restricted, "unindexed_skipped", 0),
+		"hits_by_doc", out,
+	)
+}
+
+func bestWordSection(secs []sections.Section, words []string, fold func(string) string) (*sections.Section, int) {
+	var best *sections.Section
+	bestScore := 0
+	for i := range secs {
+		body := fold(secs[i].Body)
+		covered, occ := 0, 0
+		for _, w := range words {
+			if n := strings.Count(body, w); n > 0 {
+				covered++
+				occ += n
+			}
+		}
+		if covered == 0 {
+			continue
+		}
+		density := min(999, occ*1000/max(1, len(strings.FieldsFunc(body, pystr.IsSpace))))
+		if sc := covered*1000 + density; sc > bestScore {
+			best, bestScore = &secs[i], sc
+		}
+	}
+	return best, bestScore
+}
+
+func wordSnippets(sec *sections.Section, words []string, fold func(string) string) []*jsonx.Obj {
+	out := []*jsonx.Obj{}
+	for i, line := range strings.Split(sec.Body, "\n") {
+		folded := fold(line)
+		if !slices.ContainsFunc(words, func(w string) bool { return strings.Contains(folded, w) }) {
+			continue
+		}
+		out = append(out, jsonx.New("line_number", sec.StartLine+i, "kind", "match", "text", line))
+		if len(out) == maxWordSnippets {
+			break
+		}
+	}
+	return out
 }

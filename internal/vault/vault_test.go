@@ -25,8 +25,28 @@ func ids(idx *vault.Index) []string {
 
 func TestLoaderIndexesOnlyTaggedDocs(t *testing.T) {
 	idx := tk.Loader(tk.FakeVault(t)).Index(false)
-	if got := ids(idx); !slices.Equal(got, []string{"infra-local-pki", "rb-add-nginx-proxy-host", "report-playbook-mcp-index"}) {
+	if got := ids(idx); !slices.Equal(got, []string{"daily-20260619", "infra-local-pki", "rb-add-nginx-proxy-host", "report-playbook-mcp-index"}) {
 		t.Fatal(got)
+	}
+}
+
+func TestReadOnlyFoldersAreIndexedAndMarked(t *testing.T) {
+	root := tk.FakeVault(t)
+	tk.Write(t, filepath.Join(root, "05 Writeups", "example-article", "index.md"),
+		"---\ntitle: An Example Article\npublished: true\n---\n\n# An Example Article\n\nbody\n")
+	tk.Write(t, filepath.Join(root, "00 Inbox", "Rotate the example key.md"),
+		"---\ndoc_id: inbox-20260101-120000\ncreated: 2026-01-01 12:00:00\n---\n\nRotate it.\n")
+	idx := tk.Loader(root).Index(false)
+	w, ok := idx.ByDocID["writeup-example-article"]
+	if !ok || w.ReadOnlyDir != "05 Writeups" || w.Title != "An Example Article" || w.Sensitivity != "public" {
+		t.Fatalf("%+v", w)
+	}
+	n := idx.ByDocID["inbox-20260101-120000"]
+	if n == nil || n.ReadOnlyDir != "00 Inbox" || n.Title != "Rotate the example key" {
+		t.Fatalf("%+v", n)
+	}
+	if idx.ByDocID["rb-add-nginx-proxy-host"].ReadOnlyDir != "" {
+		t.Fatal("an indexed doc marked read-only")
 	}
 }
 
@@ -85,12 +105,12 @@ func TestDotIndexesVaultRootNonRecursively(t *testing.T) {
 	}
 }
 
-func TestReferenceDocsGetASynthesizedID(t *testing.T) {
+func TestABlockWithoutDocIDIsNotIndexed(t *testing.T) {
 	root, l := configured(t, `["Notes"]`)
 	tk.Write(t, filepath.Join(root, "Notes", "My Ref_Doc.md"), "---\ntype: reference\ntags: [x]\n---\n\nbody\n")
-	d, ok := l.Index(false).ByDocID["ref-my-ref-doc"]
-	if !ok || d.DocType != "reference" || d.Sensitivity != "public" {
-		t.Fatalf("%+v", d)
+	tk.Write(t, filepath.Join(root, "Notes", "ok.md"), "---\ndoc_id: note-ok\n---\n")
+	if got := ids(l.Index(false)); !slices.Equal(got, []string{"note-ok"}) {
+		t.Fatal(got)
 	}
 }
 

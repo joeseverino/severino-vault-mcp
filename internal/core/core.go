@@ -299,6 +299,13 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 			renamed.Set("hits", hits)
 			renamed.Set("match_count", count)
 			resp = renamed
+			if count == 0 {
+				excluded, _ := resp.Get("excluded")
+				resp = jsonx.New("fallback", "relevance").Merge(findRelevance(v, q, a.Limit))
+				hits, _ := resp.Get("hits")
+				resp.Set("match_count", len(hits.([]*jsonx.Obj)))
+				resp.Set("excluded", excluded)
+			}
 		}
 	default:
 		return jsonx.New("ok", false, "error", fmt.Sprintf("unknown mode %s; one of relevance, system, project, text", pystr.Repr(a.By)))
