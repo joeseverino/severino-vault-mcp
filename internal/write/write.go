@@ -146,10 +146,11 @@ func newFrontmatter(c Changes, p *schema.Profile) *jsonx.Obj {
 }
 
 // held is the problem with a unique field's values: another doc that may
-// carry the field already holds one, compared case-insensitively. "" when
-// every value is free. self is the doc being written.
+// carry the field already holds one, archived docs included, compared
+// case-insensitively. "" when every value is free. self is the doc being
+// written.
 func held(idx *vault.Index, f schema.Field, values []string, self string) string {
-	for _, d := range idx.Docs {
+	for _, d := range idx.WithArchived() {
 		if d.RelativePath == self || d.Frontmatter == nil || !f.InScope(d.RelativePath) {
 			continue
 		}
