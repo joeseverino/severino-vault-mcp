@@ -78,6 +78,7 @@ func TestEveryDeclaredFieldIsSettableThroughTheServer(t *testing.T) {
 		v := reg.Lookup(c.vault)
 		full := filepath.Join(v.Config.VaultPath, c.rel)
 		tk.Write(t, full, "---\ntitle: Example\n---\n\n# Example\n")
+		tk.RefTargets(t, v.Config.VaultPath, "03 Runbooks", c.profile)
 		for _, f := range c.profile.Settable() {
 			want := tk.Sample(f)
 			r, isErr := call(t, s, "set_frontmatter", map[string]any{"vault": c.vault, "relative_path": c.rel, f.Name: want})

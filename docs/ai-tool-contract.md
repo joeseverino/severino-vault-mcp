@@ -22,6 +22,8 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
+| Move or rename a doc | `move_doc(doc_id, to)` | Fix the links `wikilinks` lists with `write_doc`; never move a vault file with the shell. |
+| A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
 | Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
 | Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
 | Work to track: next, delegated, a decision, a follow-up | `queue(action="add", cwd=..., kind=..., text=...)` | `queue(action="list", cwd=...)` to see it; `set`, `close`, `promote` by `id` (or `agent`). Never keep it in scratch files. |
@@ -59,6 +61,8 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 | Some sections or a whole body | `severino-vault-mcp read <doc_id> [--sections <slug> ...] [--fields outline]` |
 | Open log entries, or close one | `severino-vault-mcp log-entries list <doc_id> [--contains <text>]`, `log-entries close <doc_id> --match <text> --resolution <text>` |
 | A project's work queue | `severino-vault-mcp queue <list\|add\|set\|close\|promote> [id] --cwd <dir> ...` (see [Work queue](#work-queue)) |
+| Move or rename a doc | `severino-vault-mcp move-doc <to> --doc-id <id> [--with-folder]` |
+| The frontmatter rules as JSON Schema | `severino-vault-mcp schema --json-schema [--vault labs\|edu]` (see [Frontmatter as JSON Schema](#frontmatter-as-json-schema)) |
 | The edu dataset | `severino-vault-mcp export education` |
 
 `describe` is generated from the CLI's command table and emits a
@@ -110,6 +114,68 @@ declared field present in a block. Declaring a field in the profile is the
 whole change that makes it settable; a field the chosen vault does not
 declare is refused. `schema --contract` carries the declarations under
 `fields`.
+
+### Frontmatter as JSON Schema
+
+`severino-vault-mcp schema --json-schema [--vault labs|edu]` emits a vault's
+frontmatter rules as a [JSON Schema](https://json-schema.org) (draft
+2020-12), derived from the same declarations, so an off-the-shelf validator
+or an editor checks a block without this server:
+
+```bash
+severino-vault-mcp schema --json-schema > labs.schema.json
+check-jsonschema --schemafile labs.schema.json note-frontmatter.json
+```
+
+- Required fields, enums, ISO dates, doc_id prefixes as a `pattern`, list
+  item patterns, integer and boolean kinds. A value the profile treats as
+  absent (`null`, `""`, `[]`) passes for an optional field and fails a
+  required one.
+- A task (`doc_type: task`) is held to the task's required fields and
+  lifecycle through `if`/`then`/`else`; a doc to the doc's.
+- Numbers stay text in the frontmatter parser, so an integer field also takes
+  digits as a string.
+- What a schema can't check is in the field's `description` and stays with
+  `validate`: a field's path scope, uniqueness across docs, and whether a doc
+  reference names a doc that exists.
+
+A test holds `schema.Profile.Check` and a JSON Schema validator to the same
+verdict on every fixture doc; `tests/golden/labs.schema.json` pins the labs
+schema. `schema --json` (the enum sets HQ commits) is a separate, frozen
+shape.
+
+### Moving a doc
+
+`move_doc` (CLI `move-doc`) moves or renames a registered doc by `doc_id` or
+`relative_path`. `to` is a vault-relative `.md` path, or a folder ending in
+`/` that keeps the file name. The doc_id and frontmatter don't change.
+Refused, each with `next_steps`:
+
+- a destination that exists, or one outside the indexed folders or inside a
+  read-only one (and a doc in a read-only folder);
+- a file name another note anywhere in the vault already has, compared
+  case-insensitively: Obsidian resolves `[[Name]]` by unique file name, so a
+  second one would change what links point to. A rename in the same folder is
+  how a shared name like `Audit.md` gets a unique one;
+- a move that takes a path-scoped field out of its scope.
+
+`with_folder=true` moves the doc's whole folder into `to` (a folder), for a
+report folder with evidence files; the folder may hold no other doc. The move
+holds both notes' locks and never replaces a file. The result is
+`{ok, doc_id, from, to, wikilinks}`: `wikilinks` lists each note whose
+`[[links]]` reached the old location and won't reach the new one, with a
+count; restricted notes are not read and are listed in `skipped_restricted`.
+Other notes are never rewritten.
+
+### Superseded reports
+
+`superseded_by` holds the doc_id of the doc that replaces this one. When a
+newer report of a series is written, the old one gets `superseded_by` (the
+new doc_id) and `status: deprecated`. `validate` and `doctor` refuse a
+`superseded_by` that names no doc in the vault, and `set_frontmatter` won't
+write one. `doctor` warns on a deprecated doc with a date (YYYY-MM-DD) in its
+title and no `superseded_by`, and on a `superseded_by` that names a doc that
+is itself deprecated.
 
 A call names its queue by `project` (the folder name, or `backlog`), `repo`,
 or `cwd`. A `cwd` is tried folder by folder from itself up; a folder whose

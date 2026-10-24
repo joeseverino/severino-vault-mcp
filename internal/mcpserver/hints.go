@@ -22,7 +22,10 @@ var annotations = map[string]*mcp.ToolAnnotations{
 	"task_board":      {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},
 	"set_frontmatter": {DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: closedWorld},
 	"write_doc":       {DestructiveHint: new(true), OpenWorldHint: closedWorld},
-	"task_write":      {DestructiveHint: new(true), OpenWorldHint: closedWorld},
+	// A move keeps every byte and never replaces a file; repeating it finds
+	// the doc already there.
+	"move_doc":   {DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: closedWorld},
+	"task_write": {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// Closing an entry appends to its line and never removes text.
 	"log_entries": {DestructiveHint: new(false), OpenWorldHint: closedWorld},
 	// set replaces an item's text, owner and links.
@@ -94,6 +97,13 @@ var outputSchemas = map[string]json.RawMessage{
 	)),
 	"set_frontmatter": outSchema(jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList())),
 	"write_doc":       outSchema(jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList())),
+	"move_doc": outSchema(jsonx.New(
+		"ok", ty("boolean"), "error", ty("string"), "doc_id", ty("string"), "from", ty("string"), "to", ty("string"),
+		"folder", jsonx.New("type", "object", "properties", jsonx.New("from", ty("string"), "to", ty("string"))),
+		"wikilinks", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
+			jsonx.New("relative_path", ty("string"), "count", ty("integer")))),
+		"skipped_restricted", textList(), "next_steps", textList(),
+	)),
 }
 
 func ty(t any) *jsonx.Obj { return jsonx.New("type", t) }

@@ -30,6 +30,9 @@ check() {
 # 1. Canonical frontmatter schema (HQ commits + validates this).
 check "schema --json" "$GOLDEN/schema.json" "${CLI[@]}" schema --json
 
+# 1b. The labs frontmatter as JSON Schema (editors and off-the-shelf validators).
+check "schema --json-schema" "$GOLDEN/labs.schema.json" "${CLI[@]}" schema --json-schema
+
 # 2. Cordon CLI command surface (help/completions/effect ladder).
 check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe
 

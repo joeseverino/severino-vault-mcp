@@ -30,7 +30,7 @@ internal/cli             command table -> parsing, --help, describe; one runner 
 internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
-internal/core            the 8 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/core            the 9 shared tools, transport-free (the MCP adapter and tests both call these)
 internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
@@ -65,8 +65,11 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   instructions only point to it. Adding or cutting a tool changes the skill
   too (`TestTheVaultSkillNamesEveryRegisteredTool`). The repo root is a Claude
   Code plugin (`.claude-plugin/plugin.json`, `.mcp.json`).
-- `tests/golden/`: `schema.json`, `cli-describe.json`, `mcp-tools.txt`. A diff
-  there is a deliberate contract change; regenerate with the binary.
+- `tests/golden/`: `schema.json`, `labs.schema.json` (`schema --json-schema`,
+  the interface for off-the-shelf validators and editors), `cli-describe.json`,
+  `mcp-tools.txt`. A diff there is a deliberate contract change; regenerate
+  with the binary. The JSON Schema derives from `Profile.Settable`; a test
+  holds it to `Profile.Check`'s verdict on every fixture doc.
 - The note lock (`fsx.LockPath`, documented for outside writers in
   `docs/ai-tool-contract.md`): any process that writes a vault note, such as
   an append-only hook, takes an exclusive `flock` on
@@ -86,7 +89,7 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 - Writes are schema-specific: validate against the vault's profile, keep
   `doc_id` immutable, serialize with `frontmatter.Serialize`, and change an
   existing note only through `fsx.Vault.Update` (`AtomicCreate` for a new
-  one). Update holds the note lock from read to rename and re-reads before
+  one, `Move` to relocate one, under both notes' locks). Update holds the note lock from read to rename and re-reads before
   the rename, re-running the edit if a writer that skipped the lock appended,
   so its edit function may run more than once. Everything is confined to the
   vault by `os.Root`. Never write vault files any other way:

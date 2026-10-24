@@ -153,6 +153,32 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 	return out
 }
 
+// Notes is every markdown file Obsidian sees in the vault, indexed or not, as
+// sorted vault-relative paths: the set its [[links]] resolve against. Hidden
+// trees (.obsidian, .trash, the note locks) are skipped.
+func Notes(vaultPath string) []string {
+	var out []string
+	_ = filepath.WalkDir(vaultPath, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if p != vaultPath && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
+			if rel, err := filepath.Rel(vaultPath, p); err == nil {
+				out = append(out, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	sortPaths(out)
+	return out
+}
+
 func globEscape(p string) string {
 	r := strings.NewReplacer(`*`, `\*`, `?`, `\?`, `[`, `\[`)
 	return r.Replace(p)
@@ -239,6 +265,13 @@ type Index struct {
 	InvalidAliases  map[string]string
 	DuplicateDocIDs map[string][]string
 	loadedAt        time.Time
+}
+
+// Has reports whether some indexed doc carries docID, one doc or several.
+func (idx *Index) Has(docID string) bool {
+	_, one := idx.ByDocID[docID]
+	_, several := idx.DuplicateDocIDs[docID]
+	return one || several
 }
 
 func newIndex() *Index {

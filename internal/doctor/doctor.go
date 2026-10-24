@@ -11,6 +11,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -48,10 +49,12 @@ func relative(p, root string) string {
 }
 
 // Validate checks every vault-doc file under the indexed dirs: the field rules
-// are schema.Profile.Check; doctor adds the whole-vault ones (unreadable
-// files, a missing block, duplicate doc_ids).
+// are schema.Profile.Check and RefProblems; doctor adds the whole-vault ones
+// (unreadable files, a missing block, duplicate doc_ids) and warns on a
+// superseded report the vault can't follow to its successor.
 func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	r := &Report{VaultPath: cfg.VaultPath}
+	idx := vault.NewLoader(cfg).Index(false)
 	seen := map[string]string{}
 	for _, path := range vault.MarkdownFiles(cfg.VaultPath, cfg.IndexedDirs) {
 		r.CheckedFiles++
@@ -79,11 +82,41 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 				seen[id] = rel
 			}
 		}
-		for _, msg := range p.Check(fm, rel) {
+		for _, msg := range append(p.Check(fm, rel), p.RefProblems(fm, idx.Has)...) {
 			r.add(Finding{rel, "error", msg, ""})
+		}
+		for _, msg := range supersession(fm, rel, idx) {
+			r.add(Finding{rel, "warning", msg, ""})
 		}
 	}
 	return r
+}
+
+// dated matches a date in a title, the mark of one report in a series.
+var dated = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+
+// supersession is what keeps a reader from following a superseded report to
+// the current one: a deprecated report of a dated series that names no
+// successor, or a successor that is itself deprecated.
+func supersession(fm *jsonx.Obj, rel string, idx *vault.Index) []string {
+	status, _ := fm.Get("status")
+	next, _ := fm.Get("superseded_by")
+	if !pystr.Truthy(next) {
+		title, _ := fm.Get("title")
+		name := pystr.Str(title)
+		if !pystr.Truthy(title) {
+			name = strings.TrimSuffix(filepath.Base(rel), ".md")
+		}
+		if pystr.Str(status) == "deprecated" && !schema.IsTask(fm) && dated.MatchString(name) {
+			return []string{"deprecated dated report names no superseded_by; set it to the doc_id of the report that replaces this one"}
+		}
+		return nil
+	}
+	if d, ok := idx.ByDocID[pystr.Str(next)]; ok && d.Status == "deprecated" {
+		return []string{fmt.Sprintf("superseded_by %s is itself deprecated; point it at the current report (%s)",
+			pystr.Repr(d.DocID), d.RelativePath)}
+	}
+	return nil
 }
 
 // Run prints a report and returns the exit code.

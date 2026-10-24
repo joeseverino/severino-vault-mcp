@@ -2,6 +2,7 @@
 package testkit
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -240,6 +241,21 @@ Run the daily job to keep things current.
 
 Check the resolver logs first when latency spikes.
 `)
+}
+
+// RefTargets writes, in dir under root, a doc for each doc reference p
+// declares to name: the doc_id Sample gives that field, so the sample value
+// names a doc that exists.
+func RefTargets(t testing.TB, root, dir string, p *schema.Profile) {
+	t.Helper()
+	for _, f := range p.Settable() {
+		if !f.DocRef {
+			continue
+		}
+		id := fmt.Sprint(Sample(f))
+		Doc(t, filepath.Join(root, dir, id+".md"), "doc_id: "+id+"\ntitle: "+id+"\ndoc_type: "+p.DocTypes[0]+
+			"\nsystem: example\nenvironment: "+p.Environments[0]+"\nstatus: "+p.Statuses[0]+"\nsensitivity: "+p.Sensitivities[0], "# "+id+"\n")
+	}
 }
 
 // Sample is a value a declared field accepts, from its own declaration: its

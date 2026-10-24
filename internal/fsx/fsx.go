@@ -132,17 +132,57 @@ func (v *Vault) Remove(p string) error {
 	return v.root.Remove(rel)
 }
 
-// Rename moves oldPath to newPath, both inside the vault.
-func (v *Vault) Rename(oldPath, newPath string) error {
-	from, err := v.Rel(oldPath)
+// Move moves the note at from to to, the one way this server relocates a
+// file. With folder, the note's whole folder moves instead, to the folder
+// that holds to, so files beside the note go with it. It holds both notes'
+// locks (taken in path order, so two moves never wait on each other), creates
+// the destination's missing parents, and never replaces anything: a
+// destination that exists is ErrExists. A note moves by hard link then unlink,
+// so a crash between the two leaves two copies, never none.
+func (v *Vault) Move(from, to string, folder bool) error {
+	src, err := v.Rel(from)
 	if err != nil {
 		return err
 	}
-	to, err := v.Rel(newPath)
+	dst, err := v.Rel(to)
 	if err != nil {
 		return err
 	}
-	return v.root.Rename(from, to)
+	notes := []string{src, dst}
+	switch {
+	case LockPath(dst) == LockPath(src):
+		notes = notes[:1]
+	case LockPath(dst) < LockPath(src):
+		notes = []string{dst, src}
+	}
+	for _, n := range notes {
+		unlock, err := v.Lock(n)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
+	if folder {
+		src, dst = filepath.Dir(src), filepath.Dir(dst)
+	}
+	if _, err := v.root.Lstat(dst); err == nil {
+		return fmt.Errorf("%w: %s", ErrExists, dst)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := v.root.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if folder {
+		return v.root.Rename(src, dst)
+	}
+	if err := v.root.Link(src, dst); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%w: %s", ErrExists, dst)
+		}
+		return err
+	}
+	return v.root.Remove(src)
 }
 
 var tempSeq = func() func() string {

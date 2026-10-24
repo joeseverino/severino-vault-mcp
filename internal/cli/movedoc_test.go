@@ -1,0 +1,25 @@
+package cli
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+)
+
+func TestMoveDocMovesThroughTheCLIAndExitsOneOnARefusal(t *testing.T) {
+	root := tk.FakeVault(t)
+	code, out, _ := run(t, root, "", "move-doc", "02 Infrastructure/", "--doc-id", "rb-add-nginx-proxy-host")
+	if code != 0 || !strings.Contains(out, `"to":"02 Infrastructure/Add Nginx Proxy Host.md"`) {
+		t.Fatalf("%d %s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "02 Infrastructure", "Add Nginx Proxy Host.md")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = run(t, root, "", "move-doc", "03 Runbooks/Local PKI.md", "--relative-path", "02 Infrastructure/Add Nginx Proxy Host.md")
+	if code != 1 || !strings.Contains(out, "already names") || !strings.Contains(out, "next_steps") {
+		t.Fatalf("%d %s", code, out)
+	}
+}

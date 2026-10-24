@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "labs frontmatter",
+  "description": "The frontmatter block of a doc in a labs vault. Fields it does not declare are allowed.",
+  "type": "object",
+  "$defs": {
+    "absent": {
+      "description": "A value Check treats as not given.",
+      "enum": [
+        null,
+        "",
+        []
+      ]
+    }
+  },
+  "properties": {
+    "doc_id": {
+      "description": "Stable id; required to create, and fixed once set. Unique across docs.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:rb-|infra-|report-|project-|note-|task-|queue-)"
+        }
+      ]
+    },
+    "title": {
+      "description": "The doc's title.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "doc_type": {
+      "description": "What kind of doc this is.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "architecture_note",
+            "decision_record",
+            "deployment_guide",
+            "public_article_draft",
+            "recovery_procedure",
+            "runbook",
+            "task",
+            "troubleshooting_guide"
+          ]
+        }
+      ]
+    },
+    "last_reviewed": {
+      "description": "When the doc was last checked against reality.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      ]
+    },
+    "tags": {
+      "description": "Tags.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "array",
+          "items": {}
+        }
+      ]
+    },
+    "related_projects": {
+      "description": "Projects the doc belongs to, as folder names under the projects folder.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "array",
+          "items": {}
+        }
+      ]
+    },
+    "related_assets": {
+      "description": "Assets the doc touches.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "array",
+          "items": {}
+        }
+      ]
+    },
+    "aliases": {
+      "description": "Other names Obsidian resolves links by.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "array",
+          "items": {}
+        }
+      ]
+    },
+    "effort": {
+      "description": "A task's size.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "L",
+            "M",
+            "S"
+          ]
+        }
+      ]
+    },
+    "priority": {
+      "description": "A task's priority.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "high",
+            "low",
+            "med"
+          ]
+        }
+      ]
+    },
+    "created": {
+      "description": "When a task was filed.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      ]
+    },
+    "closed": {
+      "description": "When a task was finished.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      ]
+    },
+    "project_path": {
+      "description": "Where the project's working copy lives on this machine. Only on docs at 01 Projects/*/index.md.",
+      "examples": [
+        "~/Code/Projects/example"
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:/|~/)"
+        }
+      ]
+    },
+    "repos": {
+      "description": "Repository directory names whose sessions use this project's work queue (see the queue tool). Only on docs at 01 Projects/*/index.md. Unique across docs.",
+      "examples": [
+        [
+          "example-repo"
+        ]
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "array",
+          "items": {
+            "pattern": "^(?:[^/\\\\]+)$"
+          }
+        }
+      ]
+    },
+    "queue_prefix": {
+      "description": "The id prefix of this project's work queue items. Only on docs at 01 Projects/*/index.md. Unique across docs.",
+      "examples": [
+        "hq"
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[a-z][a-z0-9]{0,11})$",
+          "not": {
+            "enum": [
+              "backlog"
+            ]
+          }
+        }
+      ]
+    },
+    "superseded_by": {
+      "description": "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated. Names the doc_id of another doc in the vault.",
+      "examples": [
+        "report-example-audit-2026-10-01"
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:rb-|infra-|report-|project-|note-|task-|queue-)"
+        }
+      ]
+    }
+  },
+  "if": {
+    "properties": {
+      "doc_type": {
+        "const": "task"
+      }
+    },
+    "required": [
+      "doc_type"
+    ]
+  },
+  "then": {
+    "properties": {
+      "status": {
+        "description": "The doc's lifecycle state (a task's own lifecycle for tasks).",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/absent"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "active",
+              "done",
+              "open",
+              "parked",
+              "wontfix"
+            ]
+          }
+        ]
+      }
+    },
+    "required": [
+      "doc_id",
+      "title",
+      "doc_type",
+      "status"
+    ],
+    "allOf": [
+      {
+        "properties": {
+          "doc_id": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "title": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "doc_type": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "status": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "else": {
+    "properties": {
+      "system": {
+        "description": "The system the doc is about.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/absent"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "environment": {
+        "description": "Where that system runs.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/absent"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "adguard",
+              "cloudflare",
+              "homelab",
+              "local_mac",
+              "other",
+              "tailscale",
+              "unifi",
+              "vps",
+              "wordpress"
+            ]
+          }
+        ]
+      },
+      "status": {
+        "description": "The doc's lifecycle state (a task's own lifecycle for tasks).",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/absent"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived",
+              "deprecated",
+              "draft"
+            ]
+          }
+        ]
+      },
+      "sensitivity": {
+        "description": "Who may read the body.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/absent"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "internal",
+              "public",
+              "restricted",
+              "sensitive"
+            ]
+          }
+        ]
+      }
+    },
+    "required": [
+      "doc_id",
+      "title",
+      "doc_type",
+      "system",
+      "environment",
+      "status",
+      "sensitivity"
+    ],
+    "allOf": [
+      {
+        "properties": {
+          "doc_id": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "title": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "doc_type": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "system": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "environment": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "status": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          },
+          "sensitivity": {
+            "not": {
+              "$ref": "#/$defs/absent"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

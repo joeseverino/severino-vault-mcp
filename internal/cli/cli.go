@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"slices"
@@ -501,6 +502,12 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 	}), p.Bool("pretty"))
 }
 
+func runMoveDoc(c *Ctx, p Parsed) int {
+	return c.emit(core.MoveDoc(c.labsVault(), core.MoveArgs{
+		DocID: p.Str("doc_id"), RelativePath: p.Str("relative_path"), To: p.Str("to"), WithFolder: p.Bool("with_folder"),
+	}), p.Bool("pretty"))
+}
+
 func runLogEntries(c *Ctx, p Parsed) int {
 	return c.emit(core.LogEntries(c.labsVault(), p.Str("doc_id"), core.LogArgs{
 		Action: p.Str("action"), OpenOnly: !p.Bool("include_closed"), Contains: p.Str("contains"), Limit: p.Int("limit"),
@@ -597,6 +604,13 @@ func runSchema(c *Ctx, p Parsed) int {
 		return 0
 	}
 	switch {
+	case p.Bool("json_schema"):
+		profile, ok := schema.Builtin[p.Str("vault")]
+		if !ok {
+			fmt.Fprintf(c.Stderr, "%s: %s\n", toolName, schema.NotIn("--vault", p.Str("vault"), slices.Sorted(maps.Keys(schema.Builtin))))
+			return 2
+		}
+		fmt.Fprintln(c.Stdout, jsonx.Pretty(profile.JSONSchema()))
 	case p.Bool("schema_fingerprint"):
 		fmt.Fprintln(c.Stdout, schema.Labs.Fingerprint())
 	case p.Bool("contract"):

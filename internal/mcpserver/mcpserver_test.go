@@ -21,7 +21,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
 
-var coreTools = []string{"find", "log_entries", "queue", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
+var coreTools = []string{"find", "log_entries", "move_doc", "queue", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
 
 // TestMain doubles as a fake vault provider when re-executed with
 // FAKE_PROVIDER set to the vault name it should serve, so the provider seam

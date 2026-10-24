@@ -1,5 +1,5 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, task_board, task_write,
+// read_doc, set_frontmatter, write_doc, move_doc, task_board, task_write,
 // log_entries and queue, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
@@ -702,7 +702,7 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	if fm == nil {
 		return rel, []string{"missing YAML frontmatter"}, true
 	}
-	return rel, v.Profile.Check(fm, rel), true
+	return rel, append(v.Profile.Check(fm, rel), v.Profile.RefProblems(fm, v.Loader.Index(false).Has)...), true
 }
 
 // BoardArgs are task_board's options beyond the filter. Limit caps the tasks

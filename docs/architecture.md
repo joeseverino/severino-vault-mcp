@@ -135,6 +135,7 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 | `read_doc` | One doc or one section, by `doc_id` or alias, with sensitivity enforced. |
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
 | `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's profile. |
+| `move_doc` | Move or rename a registered doc, keeping its frontmatter; a file name another note has is refused. |
 | `task_board`, `task_write` | The task ledger. |
 | `log_entries` | An append-only log note's entries: list the open ones, or close one with its resolution. |
 | `queue` | A project's work queue: add, list, set or claim, close and promote one-line items in its `Queue.md`. |

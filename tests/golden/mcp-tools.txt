@@ -1,5 +1,6 @@
 find
 log_entries
+move_doc
 queue
 read_doc
 set_frontmatter

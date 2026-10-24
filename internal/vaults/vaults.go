@@ -52,7 +52,7 @@ func EduConfigPath(env config.Env) string {
 
 // Edu is the edu vault.
 func Edu(env config.Env) *core.Vault {
-	return core.NewVault("edu", config.Load(EduConfigPath(env), ScopedEnv(env)), schema.Education)
+	return core.NewVault("edu", config.Load(EduConfigPath(env), ScopedEnv(env)), schema.Builtin["edu"])
 }
 
 func isFile(p string) bool {

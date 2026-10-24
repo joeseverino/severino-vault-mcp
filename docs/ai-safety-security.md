@@ -141,6 +141,7 @@ file" or "run this command" capability.
 |---|---|
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block when none exists (doc_id, title, doc_type, system required) or updates allowed fields in place. `doc_id` is immutable. |
 | `write_doc` | One registered doc under the named vault's root and indexed folders: create it (refuses an existing file), or replace or append one section. Frontmatter validates against that vault's schema; restricted docs need a Touch ID approval through 1Password. |
+| `move_doc` | One registered doc, or its folder with `with_folder`, moved to a new path under the named vault's indexed folders, outside the read-only ones, under both notes' locks. Never replaces a file and never rewrites another note; the bytes of the doc don't change. |
 | `task_write` | Task files in the named vault: add, status, promote an inbox note, delete. |
 | `log_entries` | One registered log note: `close` appends ` → <resolution>` to one open entry's line, through `write_doc`'s validated atomic write. Restricted notes are refused; notes in read-only folders can be listed but not closed. |
 | `queue` | One project's `Queue.md` (or `07 Backlog/Queue.md`): a new note through `write_doc`'s create, then each change rewrites item lines under the note's lock, through the validated body write. A body doc through the same create. Restricted queues are refused and skipped by `list`. |
