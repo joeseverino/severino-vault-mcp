@@ -30,7 +30,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/queue"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
@@ -443,7 +442,7 @@ func runDoctor(c *Ctx, p Parsed) int {
 }
 
 func runTouchReviewed(c *Ctx, p Parsed) int {
-	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj { return write.TouchReviewed(l, p.Str("relative_path")) })
+	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj { return write.TouchReviewed(l, p.Str("relative_path"), schema.Labs) })
 }
 
 func runBackfillAliases(c *Ctx, p Parsed) int {
@@ -477,23 +476,6 @@ func runFind(c *Ctx, p Parsed) int {
 func runRead(c *Ctx, p Parsed) int {
 	r := core.ReadDoc(c.labsVault(), p.Str("doc_id"), core.ReadArgs{Sections: p.List("sections"), View: view(p)})
 	return c.emit(okUnlessRefused(r, r.Bool("found") && !r.Has("section_error")), p.Bool("pretty"))
-}
-
-func runTaskList(c *Ctx, p Parsed) int {
-	return c.emit(core.TaskBoard(c.labsVault(), tasks.Filter{
-		Status: p.Str("status"), Project: p.Str("project"), StaleOnly: p.Bool("stale_only"),
-		IncludeAll: p.Bool("include_all"), StaleDays: p.Int("stale_days"),
-	}, core.BoardArgs{Limit: p.Int("limit"), IncludeQueue: p.Bool("include_queue"), View: view(p)}), p.Bool("pretty"))
-}
-
-func runPromoteNote(c *Ctx, p Parsed) int {
-	if !p.Has("title") {
-		return usageError(c, toolName+" promote-note", commandUsage(commands[slices.IndexFunc(commands, func(cmd Command) bool { return cmd.Name == "promote-note" })]),
-			"the following arguments are required: --title")
-	}
-	return c.emit(tasks.Promote(c.labs(), p.Str("source"), tasks.New{
-		Title: p.Str("title"), Project: p.Str("project"), Effort: p.Str("effort"), Priority: p.Str("priority"),
-	}), p.Bool("pretty"))
 }
 
 func optStr(p Parsed, k string) *string {
@@ -564,27 +546,6 @@ func runQueue(c *Ctx, p Parsed) int {
 		}
 	}
 	return c.emit(core.Queue(c.labsVault(), q), p.Bool("pretty"))
-}
-
-func runTaskReconcile(c *Ctx, p Parsed) int {
-	return c.emit(tasks.Reconcile(c.labs()), p.Bool("pretty"))
-}
-
-func runTaskProjects(c *Ctx, p Parsed) int { return c.emit(tasks.Projects(c.labs()), p.Bool("pretty")) }
-
-func runTaskAdd(c *Ctx, p Parsed) int {
-	return c.emit(tasks.Add(c.labs(), tasks.New{
-		Title: p.Str("title"), Project: p.Str("project"), RelatedProjects: p.List("related_projects"),
-		Effort: p.Str("effort"), Priority: p.Str("priority"), Tags: p.List("tags"),
-	}, tasks.Sections{}), p.Bool("pretty"))
-}
-
-func runTaskMove(c *Ctx, p Parsed) int {
-	return c.emit(tasks.SetStatus(c.labs(), p.Str("doc_id"), p.Str("status")), p.Bool("pretty"))
-}
-
-func runTaskDelete(c *Ctx, p Parsed) int {
-	return c.emit(tasks.Delete(c.labs(), p.Str("doc_id")), p.Bool("pretty"))
 }
 
 func runDescribe(c *Ctx, p Parsed) int { return c.emit(Describe(), p.Bool("pretty")) }

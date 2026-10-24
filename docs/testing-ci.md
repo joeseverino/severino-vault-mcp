@@ -67,7 +67,7 @@ versioned by tag).
   symlinks that leave the vault rejected by every entry point that takes a path.
 - Provider child processes ending on handshake timeout and on context
   cancellation.
-- The task ledger: add, status, promote, delete, reconcile.
+- The work queue: add, list, set, claim, close, and its line grammar.
 - Daily notes, the brief, `doctor`, the edu dataset, the HQ manifest.
 - The CLI: parsing, exit codes, `describe`, every subcommand.
 - The MCP server: vault composition (labs only, labs+edu, with a provider),

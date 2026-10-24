@@ -18,7 +18,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/queue"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -164,11 +163,11 @@ func openQueues(v *Vault) (*queueStore, error) {
 		links: newNoteLinks(func() *vault.Index { return v.Loader.Index(false) })}
 	for _, name := range vault.ProjectFolders(v.Config.VaultPath) {
 		// The root check keeps a folder whose symlink leaves the vault out.
-		if dir := path.Join(tasks.ProjectsDir, name); root.IsDir(dir) {
+		if dir := path.Join(vault.ProjectsDir, name); root.IsDir(dir) {
 			s.projects = append(s.projects, s.readProject(name, dir))
 		}
 	}
-	s.projects = append(s.projects, s.readProject(backlogProject, tasks.BacklogDir))
+	s.projects = append(s.projects, s.readProject(backlogProject, vault.BacklogDir))
 	return s, nil
 }
 
@@ -362,7 +361,7 @@ func (s *queueStore) byRepo(a QueueArgs, candidates []string, repo, what string)
 		return queueProject{}, "", ambiguous(hits, "list repo "+pystr.Repr(repo), "keep it in one index.md's repos")
 	}
 	unmapped := fmt.Sprintf("no project's index.md lists %s under repos", what)
-	mapIt := Call("set_frontmatter", "relative_path", path.Join(tasks.ProjectsDir, "<project>", "index.md"), "add_repos", []string{repo}) +
+	mapIt := Call("set_frontmatter", "relative_path", path.Join(vault.ProjectsDir, "<project>", "index.md"), "add_repos", []string{repo}) +
 		" on the project that owns " + pystr.Repr(repo)
 	if a.Action == "list" {
 		return s.backlog(), unmapped + "; these are the backlog's items, not this repo's. Map it: " + mapIt, nil
@@ -1302,21 +1301,6 @@ func land(it *queue.Item, status, resolution string, partial bool) *jsonx.Obj {
 func recorded(resolution, given string) bool {
 	have := queue.SplitList(resolution)
 	return !slices.ContainsFunc(queue.SplitList(given), func(e string) bool { return !slices.Contains(have, e) })
-}
-
-// boardQueue is the open and returned items of every queue, or of project's
-// when it names one, as task_board shows them.
-func boardQueue(v *Vault, project string) []*jsonx.Obj {
-	r := Queue(v, QueueArgs{Action: "list", All: true, Fields: []string{"id", "project", "kind", "status", "owner", "text"}})
-	raw, _ := r.Get("items")
-	items, _ := raw.([]*jsonx.Obj)
-	out := []*jsonx.Obj{}
-	for _, it := range items {
-		if project == "" || sameProject(it.Str("project"), project) {
-			out = append(out, it)
-		}
-	}
-	return out
 }
 
 // linksMatch reports whether an item carries each wanted link exactly; a

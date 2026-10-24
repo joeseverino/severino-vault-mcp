@@ -81,12 +81,12 @@ related_projects: []
 effort: S
 priority: med
 created: 2026-09-01`, "# Fix the widget\n")
-	v := tk.Vault(root)
+	v := tk.TaskVault(root)
 	r := core.MoveDoc(v, core.MoveArgs{DocID: "task-fix-the-widget", To: "99 Archive/", Archive: true})
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "close it") {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if steps := nextSteps(r); len(steps) == 0 || !strings.Contains(steps[0], "task_write") {
+	if steps := nextSteps(r); len(steps) == 0 || !strings.Contains(steps[0], "set_frontmatter") {
 		t.Fatalf("the refusal should offer closing the task: %v", steps)
 	}
 }

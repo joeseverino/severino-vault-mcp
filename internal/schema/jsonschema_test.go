@@ -148,24 +148,29 @@ func brokenBlocks() []block {
 // schema.Profile.Check and an off-the-shelf validator running the emitted
 // JSON Schema agree on every block: the schema is the profile's rules, not a
 // second copy that drifts.
+// Labs declares no tasks, so its task blocks are refused by both; the task
+// profile, declared as a provider declares one, holds them to the task
+// branch.
 func TestTheJSONSchemaAgreesWithCheck(t *testing.T) {
-	r := resolve(t, schema.Labs)
-	blocks := append(fixtureBlocks(t), brokenBlocks()...)
-	var valid, invalid int
-	for _, b := range blocks {
-		problems := schema.Labs.Check(b.fm, b.rel)
-		err := r.Validate(instance(t, b.fm))
-		if (len(problems) == 0) != (err == nil) {
-			t.Errorf("%s: Check %v, JSON Schema %v\n%s", b.name, problems, err, jsonx.Compact(b.fm))
+	for _, p := range []*schema.Profile{schema.Labs, tk.TaskProfile()} {
+		r := resolve(t, p)
+		blocks := append(fixtureBlocks(t), brokenBlocks()...)
+		var valid, invalid int
+		for _, b := range blocks {
+			problems := p.Check(b.fm, b.rel)
+			err := r.Validate(instance(t, b.fm))
+			if (len(problems) == 0) != (err == nil) {
+				t.Errorf("%s with %s: Check %v, JSON Schema %v\n%s", b.name, p.Name, problems, err, jsonx.Compact(b.fm))
+			}
+			if err == nil {
+				valid++
+			} else {
+				invalid++
+			}
 		}
-		if err == nil {
-			valid++
-		} else {
-			invalid++
+		if valid < 5 || invalid < 5 {
+			t.Fatalf("%d valid and %d invalid blocks; both verdicts need cases", valid, invalid)
 		}
-	}
-	if valid < 5 || invalid < 5 {
-		t.Fatalf("%d valid and %d invalid blocks; both verdicts need cases", valid, invalid)
 	}
 }
 

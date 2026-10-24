@@ -2,6 +2,8 @@ package fsx
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,19 +15,51 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
 
-// LockDir is the vault-relative directory that holds one lock file per note.
-// It is hidden, and its files are not .md, so no index or validate run lists
-// them.
-const LockDir = ".locks"
+// StateDir is the per-user state directory: $XDG_STATE_HOME/severino-vault-mcp,
+// else ~/.local/state/severino-vault-mcp (where the restricted-unlock audit
+// log defaults to, so there is one).
+func StateDir() (string, error) {
+	if x := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
+		return filepath.Join(x, "severino-vault-mcp"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", "severino-vault-mcp"), nil
+}
 
-// LockPath is the vault-relative lock file for the note at the vault-relative
-// path rel: LockDir/<rel with every "/" replaced by "%">.lock. Any process can
+// LockDir is the absolute directory that holds one lock file per note of the
+// vault at root: <StateDir>/locks/<id>, where id is the first 16 hex
+// characters of the SHA-256 of the vault root's absolute path with symlinks
+// resolved. The locks live outside the vault so a synced vault never uploads
+// them.
+func LockDir(root string) (string, error) {
+	state, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(Resolve(root)))
+	return filepath.Join(state, "locks", hex.EncodeToString(sum[:])[:16]), nil
+}
+
+// LockName is the lock file name for the note at the vault-relative path rel:
+// rel cleaned, every "/" replaced by "%", plus ".lock". Any process can
 // compute it from the note's path alone. Two notes whose paths map to the same
 // name (a "%" in a file name) only share a lock, which costs some waiting and
 // never a lost write.
-func LockPath(rel string) string {
+func LockName(rel string) string {
 	rel = filepath.ToSlash(filepath.Clean(rel))
-	return filepath.Join(LockDir, strings.ReplaceAll(rel, "/", "%")+".lock")
+	return strings.ReplaceAll(rel, "/", "%") + ".lock"
+}
+
+// LockFile is the absolute lock file for the note at rel in the vault at root.
+func LockFile(root, rel string) (string, error) {
+	dir, err := LockDir(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LockName(rel)), nil
 }
 
 // ErrLocked reports a note whose lock stayed held past LockWait.
@@ -56,10 +90,14 @@ func (v *Vault) Lock(p string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := v.root.MkdirAll(LockDir, 0o755); err != nil {
+	path, err := LockFile(v.bases[0], rel)
+	if err != nil {
 		return nil, err
 	}
-	f, err := v.root.OpenFile(LockPath(rel), os.O_RDWR|os.O_CREATE, 0o644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // a lock file in the state dir
 	if err != nil {
 		return nil, err
 	}

@@ -346,7 +346,8 @@ func (p *Profile) HasPrefix(docID string) bool {
 	return false
 }
 
-// Task effort and priority values.
+// Task effort and priority values, for a profile that declares doc_type
+// task (a provider's).
 var (
 	Efforts    = []string{"L", "M", "S"}
 	Priorities = []string{"high", "low", "med"}
@@ -355,7 +356,7 @@ var (
 // shared are the fields every profile carries, their enums taken from the
 // profile's sets.
 func (p *Profile) shared() []Field {
-	return []Field{
+	fields := []Field{
 		{Name: "doc_id", Kind: KindString, Prefixes: p.DocIDPrefixes, Unique: true, Immutable: true,
 			Help: "Stable id; required to create, and fixed once set."},
 		{Name: "title", Kind: KindString, Help: "The doc's title."},
@@ -370,11 +371,16 @@ func (p *Profile) shared() []Field {
 		{Name: "related_projects", Kind: KindList, Help: "Projects the doc belongs to, as folder names under the projects folder."},
 		{Name: "related_assets", Kind: KindList, Help: "Assets the doc touches."},
 		{Name: "aliases", Kind: KindList, Help: "Other names Obsidian resolves links by."},
-		{Name: "effort", Kind: KindEnum, Choices: Efforts, Help: "A task's size."},
-		{Name: "priority", Kind: KindEnum, Choices: Priorities, Help: "A task's priority."},
-		{Name: "created", Kind: KindDate, Help: "When a task was filed."},
-		{Name: "closed", Kind: KindDate, Help: "When a task was finished."},
 	}
+	if !p.HasDocType(taskDocType) {
+		return fields
+	}
+	return append(fields,
+		Field{Name: "effort", Kind: KindEnum, Choices: Efforts, Help: "A task's size."},
+		Field{Name: "priority", Kind: KindEnum, Choices: Priorities, Help: "A task's priority."},
+		Field{Name: "created", Kind: KindDate, Help: "When a task was filed."},
+		Field{Name: "closed", Kind: KindDate, Help: "When a task was finished."},
+	)
 }
 
 // Settable is every frontmatter field the profile declares, in order: the
@@ -436,10 +442,19 @@ func NotIn(field, value string, allowed []string) string {
 	return fmt.Sprintf("%s %s not in %s", field, pystr.Repr(value), pystr.ReprList(allowed))
 }
 
-// IsTask reports a doc_type: task block.
-func IsTask(fm *jsonx.Obj) bool {
+// taskDocType is the doc_type a task carries. Labs and edu track work in
+// the queue instead; a provider's profile may still declare tasks, with
+// their own lifecycle (TaskStatuses) and fields (TaskFields).
+const taskDocType = "task"
+
+// IsTask reports a doc_type: task block in a profile that declares tasks;
+// in any other profile the block is a doc with an unknown doc_type.
+func (p *Profile) IsTask(fm *jsonx.Obj) bool {
+	if !p.HasDocType(taskDocType) {
+		return false
+	}
 	dt, _ := fm.Get("doc_type")
-	return pystr.Str(orEmpty(dt)) == "task"
+	return pystr.Str(orEmpty(dt)) == taskDocType
 }
 
 // docOnly reports a field a doc requires and a task does not carry, which a
@@ -452,7 +467,7 @@ func (p *Profile) docOnly(name string) bool {
 // set for tasks, the doc_type's own where its document schema names one,
 // and the profile's otherwise.
 func (p *Profile) RequiredFor(docType string) []string {
-	if docType == "task" {
+	if docType == taskDocType && p.HasDocType(taskDocType) {
 		return p.TaskRequiredFields
 	}
 	if ds, ok := p.DocumentSchemas[docType]; ok && len(ds.RequiredFields) > 0 {
@@ -486,7 +501,7 @@ func (p *Profile) ownRequired() []string {
 // skips the doc-only fields), the per-doc-type field rules, and the doc's
 // placement (PlacementProblems).
 func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
-	task := IsTask(fm)
+	task := p.IsTask(fm)
 	dt, _ := fm.Get("doc_type")
 	docType := pystr.Str(orEmpty(dt))
 	var errs []string
@@ -526,9 +541,9 @@ var ArchiveRequiredFields = []string{"doc_id", "title", "doc_type", "status"}
 
 // Archivable reports whether a block may stand in the archive: status:
 // archived, or a closed task.
-func Archivable(fm *jsonx.Obj) bool {
+func (p *Profile) Archivable(fm *jsonx.Obj) bool {
 	status := fm.Text("status")
-	if IsTask(fm) {
+	if p.IsTask(fm) {
 		return slices.Contains(ClosedTaskStatuses, status)
 	}
 	return status == ArchivedStatus
@@ -536,11 +551,11 @@ func Archivable(fm *jsonx.Obj) bool {
 
 // ArchiveProblems are the problem with a block that may not stand in the
 // archive dir archive, none when it may.
-func ArchiveProblems(fm *jsonx.Obj, archive string) []string {
-	if Archivable(fm) {
+func (p *Profile) ArchiveProblems(fm *jsonx.Obj, archive string) []string {
+	if p.Archivable(fm) {
 		return nil
 	}
-	if IsTask(fm) {
+	if p.IsTask(fm) {
 		return []string{fmt.Sprintf("a task in %s is closed (status %s), not %s", archive, strings.Join(ClosedTaskStatuses, " or "), pystr.Repr(fm.Text("status")))}
 	}
 	return []string{fmt.Sprintf("a doc in %s has status: %s, not %s; set status %s in the same call", archive, ArchivedStatus, pystr.Repr(fm.Text("status")), ArchivedStatus)}
@@ -551,7 +566,7 @@ func ArchiveProblems(fm *jsonx.Obj, archive string) []string {
 // (a doc keeps the fields it carried where it lived), the per-doc-type
 // field rules, and Archivable.
 func (p *Profile) CheckArchived(fm *jsonx.Obj, archive string) []string {
-	task := IsTask(fm)
+	task := p.IsTask(fm)
 	var errs []string
 	for _, name := range ArchiveRequiredFields {
 		if v, _ := fm.Get(name); missing(v) {
@@ -566,7 +581,7 @@ func (p *Profile) CheckArchived(fm *jsonx.Obj, archive string) []string {
 		f.Required = false
 		errs = append(errs, f.check(f.Name, v, task)...)
 	}
-	errs = append(errs, ArchiveProblems(fm, archive)...)
+	errs = append(errs, p.ArchiveProblems(fm, archive)...)
 	return append(errs, p.ValidateDocument(fm)...)
 }
 
@@ -827,8 +842,6 @@ func diff(a, b map[string]bool) []string {
 	return out
 }
 
-var universalTaskStatuses = []string{"open", "active", "parked", "done", "wontfix"}
-
 // projectIndex is where a labs project's index note lives.
 const projectIndex = "01 Projects/*/index.md"
 
@@ -836,15 +849,12 @@ const projectIndex = "01 Projects/*/index.md"
 var Labs = &Profile{
 	Name: "labs",
 	DocTypes: []string{"runbook", "architecture_note", "deployment_guide", "troubleshooting_guide",
-		"recovery_procedure", "public_article_draft", "decision_record", "task", QueueDocType, ReportDocType},
-	Environments:       []string{"homelab", "vps", "wordpress", "cloudflare", "tailscale", "adguard", "unifi", "local_mac", "other"},
-	Statuses:           []string{"draft", "active", "deprecated", "archived"},
-	Sensitivities:      []string{"public", "internal", "sensitive", "restricted"},
-	DocIDPrefixes:      []string{"rb-", "infra-", "report-", "project-", "note-", "task-", QueueDocIDPrefix},
-	RequiredFields:     []string{"doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity"},
-	TaskStatuses:       universalTaskStatuses,
-	TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"},
-	TaskFields:         []string{"status", "related_projects", "effort", "priority", "created", "closed"},
+		"recovery_procedure", "public_article_draft", "decision_record", QueueDocType, ReportDocType},
+	Environments:   []string{"homelab", "vps", "wordpress", "cloudflare", "tailscale", "adguard", "unifi", "local_mac", "other"},
+	Statuses:       []string{"draft", "active", "deprecated", "archived"},
+	Sensitivities:  []string{"public", "internal", "sensitive", "restricted"},
+	DocIDPrefixes:  []string{"rb-", "infra-", "report-", "project-", "note-", "task-", QueueDocIDPrefix},
+	RequiredFields: []string{"doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity"},
 	Fields: []Field{
 		{Name: "project_path", Kind: KindPath, Scope: projectIndex, Example: "~/Code/Projects/example",
 			Help: "Where the project's working copy lives on this machine."},
@@ -898,16 +908,13 @@ var ReportKinds = []string{"audit", "review", "research", "pass", "session_log",
 
 // Education is the coursework profile.
 var Education = &Profile{
-	Name:               "education",
-	DocTypes:           []string{"course", "course_note", "assignment", "resource", "task"},
-	Environments:       []string{"gatech", "cert", "other"},
-	Statuses:           []string{"upcoming", "active", "completed", "dropped", "draft", "archived"},
-	Sensitivities:      []string{"public", "internal"},
-	DocIDPrefixes:      []string{"course-", "cnote-", "asg-", "res-", "task-"},
-	RequiredFields:     []string{"doc_id", "title", "doc_type", "status"},
-	TaskStatuses:       universalTaskStatuses,
-	TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"},
-	TaskFields:         []string{"status", "related_projects", "effort", "priority", "created", "closed"},
+	Name:           "education",
+	DocTypes:       []string{"course", "course_note", "assignment", "resource"},
+	Environments:   []string{"gatech", "cert", "other"},
+	Statuses:       []string{"upcoming", "active", "completed", "dropped", "draft", "archived"},
+	Sensitivities:  []string{"public", "internal"},
+	DocIDPrefixes:  []string{"course-", "cnote-", "asg-", "res-"},
+	RequiredFields: []string{"doc_id", "title", "doc_type", "status"},
 	Fields: []Field{
 		{Name: "course", Kind: KindString, Example: "CS6035", Help: "The course code a note, assignment or resource belongs to."},
 		{Name: "code", Kind: KindString, Example: "CS6035", Help: "A course's own code."},

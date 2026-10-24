@@ -243,9 +243,9 @@ func (v *Vault) notesUnder(dir string) ([]string, error) {
 func (v *Vault) lockAll(notes []string, src, dst string) (func(), error) {
 	seen := map[string]string{}
 	for _, n := range notes {
-		seen[LockPath(n)] = n
+		seen[LockName(n)] = n
 		moved := dst + strings.TrimPrefix(n, src)
-		seen[LockPath(moved)] = moved
+		seen[LockName(moved)] = moved
 	}
 	order := slices.Sorted(maps.Keys(seen))
 	var held []func()

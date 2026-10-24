@@ -35,7 +35,7 @@ func TestReportsMissingFrontmatterAndProposesAFix(t *testing.T) {
 	t.Fatal("no finding for the untagged file")
 }
 
-// The note locks under .locks/ are neither checked by validate nor indexed.
+// The note locks live outside the vault, so validate and the index never see them.
 func TestNoteLocksAreNotVaultFiles(t *testing.T) {
 	root := tk.FakeVault(t)
 	cfg := config.Load("", tk.Env(root))
@@ -44,8 +44,8 @@ func TestNoteLocksAreNotVaultFiles(t *testing.T) {
 	for _, rel := range []string{"03 Runbooks/Duplicate.md", "01 Projects/untagged.md", "Root note.md"} {
 		tk.HoldLock(t, root, rel)()
 	}
-	if _, err := os.Stat(filepath.Join(root, ".locks")); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(root, ".locks")); !os.IsNotExist(err) {
+		t.Fatalf("the vault holds a lock folder: %v", err)
 	}
 	after := doctor.Validate(cfg, schema.Labs, false)
 	if after.CheckedFiles != before.CheckedFiles || len(after.Findings) != len(before.Findings) {

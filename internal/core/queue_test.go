@@ -14,7 +14,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
 
@@ -470,8 +469,8 @@ func TestAMultiRepoItemClosesWhenEveryRepoHasLanded(t *testing.T) {
 }
 
 // A queue note is doc_type queue: find leaves it out unless doc_type asks for
-// it, and task_board shows its items only when include_queue asks.
-func TestQueueNotesStayOutOfFindAndTheBoardUnlessAskedFor(t *testing.T) {
+// it.
+func TestQueueNotesStayOutOfFindUnlessAskedFor(t *testing.T) {
 	root, v := queueVault(t)
 	add(t, v, "Example Tracker", "next", "Zanzibar quokka")
 	if note := tk.Read(t, filepath.Join(root, trackerQueue)); !strings.Contains(note, "doc_type: queue\n") {
@@ -491,16 +490,6 @@ func TestQueueNotesStayOutOfFindAndTheBoardUnlessAskedFor(t *testing.T) {
 	}
 	if got := found(core.FindArgs{DocType: "queue"}); !slices.Equal(got, []string{"queue-example-tracker"}) {
 		t.Fatalf("doc_type queue: %v", got)
-	}
-	if board := core.TaskBoard(v, tasks.Filter{}, core.BoardArgs{}); board.Has("queue") {
-		t.Fatal(jsonx.Compact(board))
-	}
-	board := core.TaskBoard(v, tasks.Filter{}, core.BoardArgs{IncludeQueue: true})
-	if tk.Get(board, "queue.0.id") != "ex-1" || tk.Get(board, "queue.0.project") != "Example Tracker" {
-		t.Fatal(jsonx.Compact(board))
-	}
-	if other := core.TaskBoard(v, tasks.Filter{Project: "example-site"}, core.BoardArgs{IncludeQueue: true}); tk.Get(other, "queue.0") != nil {
-		t.Fatal(jsonx.Compact(other))
 	}
 }
 

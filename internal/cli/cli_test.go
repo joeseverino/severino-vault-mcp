@@ -118,9 +118,6 @@ func TestFieldsNarrowTheCLIThroughTheSameMask(t *testing.T) {
 	if code, out, _ = run(t, root, "", "find", "nginx", "--fields", "zzcanary"); code != 1 || strings.Contains(out, "zzcanary") {
 		t.Fatal(code, out)
 	}
-	if code, out, _ = run(t, root, "", "task-list"); code != 0 || !strings.Contains(out, `"counts":`) {
-		t.Fatal("task-list must keep printing the whole board", out)
-	}
 }
 
 func TestReadExitsOneWhenNotOK(t *testing.T) {
@@ -140,18 +137,6 @@ func TestArgumentErrorsExitTwo(t *testing.T) {
 
 func TestLongOptionPrefixesResolve(t *testing.T) {
 	if code, out, _ := run(t, tk.FakeVault(t), "", "find", "nginx", "--lim", "1", "--pre"); code != 0 || !strings.Contains(out, "\n  \"ok\": true") {
-		t.Fatal(out)
-	}
-}
-
-func TestTaskAddAndMoveRoundTrip(t *testing.T) {
-	root := tk.Dir(t)
-	os.MkdirAll(filepath.Join(root, "07 Backlog"), 0o755)
-	code, out, _ := run(t, root, "", "task-add", "Ship the port", "--tags", "go", "port")
-	if code != 0 || !strings.Contains(out, `"doc_id":"task-ship-the-port"`) {
-		t.Fatal(out)
-	}
-	if code, out, _ := run(t, root, "", "task-move", "ship-the-port", "done"); code != 0 || !strings.Contains(out, `"status":"done"`) {
 		t.Fatal(out)
 	}
 }

@@ -57,7 +57,7 @@ func TestTheVaultSkillNamesEveryRegisteredTool(t *testing.T) {
 	if problems := skillProblems(text, registered); len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	if got := skillProblems(strings.ReplaceAll(text, "`task_board`", "the board"), registered); !slices.Equal(got, []string{"skill does not name task_board"}) {
+	if got := skillProblems(strings.ReplaceAll(text, "`log_entries`", "the log tool"), registered); !slices.Equal(got, []string{"skill does not name log_entries"}) {
 		t.Fatalf("a skill missing a tool must fail: %v", got)
 	}
 }

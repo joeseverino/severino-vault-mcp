@@ -15,7 +15,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -92,7 +91,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 	if len(skipped) > 0 {
 		out.Set("skipped_restricted", skipped)
 	}
-	if path.Dir(from) == tasks.ProjectsDir && path.Dir(to) == tasks.ProjectsDir {
+	if path.Dir(from) == vault.ProjectsDir && path.Dir(to) == vault.ProjectsDir {
 		project, more := renameProject(v, root, path.Base(from), path.Base(to), to)
 		out.Set("project", project)
 		failed = append(failed, more...)
@@ -142,7 +141,7 @@ func folderTarget(v *Vault, a FolderArgs) (from, to, msg string, steps []string)
 		return "", "", "no folder at " + from, []string{Call("find", "query", path.Base(from)) + " to find where it lives"}
 	case v.Config.ReadOnlyDir(from+"/") != "":
 		return "", "", fmt.Sprintf("%s is in %s, a read-only folder: its notes keep their own place", from, pystr.Repr(v.Config.ReadOnlyDir(from+"/"))),
-			[]string{Call("task_write", "action", "promote", "note_path", "...", "title", "...") + " to turn an inbox capture into a task"}
+			[]string{Call("queue", "action", "add", "project", "...", "kind", "next", "text", "...") + " to track an inbox capture as work"}
 	case home(from) == "":
 		return "", "", fmt.Sprintf("from must be a folder inside one of %s, not one of them: %s", pystr.ReprList(homes), from),
 			[]string{Call("move_doc", "doc_id", "...", "to", "...") + " to move one doc"}

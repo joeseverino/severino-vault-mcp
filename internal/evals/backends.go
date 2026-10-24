@@ -2,6 +2,7 @@ package evals
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -71,7 +72,11 @@ type grepFile struct {
 // OpenGrep builds the baseline over the vault's files.
 func OpenGrep(cfg config.Config) (Backend, error) {
 	byPath := map[string]*vault.Doc{}
-	for _, d := range vault.NewLoader(cfg).Index(false).Docs {
+	idx := vault.NewLoader(cfg).Index(false)
+	if idx.Err != nil {
+		return nil, fmt.Errorf("vault %s is unreadable: %w", cfg.VaultPath, idx.Err)
+	}
+	for _, d := range idx.Docs {
 		byPath[d.Path] = d
 	}
 	g := &grep{root: cfg.VaultPath}

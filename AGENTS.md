@@ -39,10 +39,10 @@ internal/cli             command table -> parsing, --help, describe; one runner 
 internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
-internal/core            the 10 shared tools, transport-free (the MCP adapter and tests both call these)
-internal/{vault,sections,links,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
+internal/core            the 8 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/{vault,sections,links,search,query,frontmatter,schema,gate,write,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
-internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
+internal/{config,fsx,jsonx,pystr,clock,tabular}  shared plumbing
 internal/evals           the retrieval eval behind scripts/evals.sh
 internal/testkit         throwaway vaults for tests; internal/fuzzseed: sample-vault fuzz seeds
 internal/archtest        source guards (tests only): one home per fact
@@ -91,10 +91,12 @@ docs/                    architecture, safety model, tool contract, testing and 
   paragraph); `TestReadmeToolsTable` fails on drift, and
   `SVMC_UPDATE_README=1 go test -run TestReadmeToolsTable ./internal/mcpserver`
   rewrites it. Never edit it by hand.
-- The note lock (`fsx.LockPath`, documented for outside writers in
+- The note lock (`fsx.LockFile`, documented for outside writers in
   `docs/ai-tool-contract.md`): any process that writes a vault note, such as
   an append-only hook, takes an exclusive `flock` on
-  `<vault>/.locks/<vault-relative path, "/" as "%">.lock` for the whole write.
+  `<state dir>/locks/<id>/<vault-relative path, "/" as "%">.lock` for the whole
+  write; the lock lives outside the vault, and `<id>` is 16 hex of the SHA-256
+  of the vault's resolved root path (rule and example in the contract doc).
   Changing the path rule is a contract change for every such writer.
 - The session handoff (`internal/mcpserver/binary.go`): a server whose binary
   was replaced, between messages with every call answered, first runs the new

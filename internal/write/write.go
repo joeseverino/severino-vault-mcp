@@ -256,7 +256,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 		return text, jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
 			"message", "No fields differ, so nothing was written.")
 	}
-	task := schema.IsTask(fm)
+	task := p.IsTask(fm)
 	var errs []string
 	refs := jsonx.New("doc_id", docID)
 	added := jsonx.New() // the related_projects entries this call adds; old ones stay
@@ -288,7 +288,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 		errs = append(errs, p.ProjectProblems(added, idx.Projects)...)
 	}
 	if archive != "" {
-		errs = append(errs, schema.ArchiveProblems(fm, archive)...)
+		errs = append(errs, p.ArchiveProblems(fm, archive)...)
 	}
 	for _, e := range introduced(p, before, fm, rel, archive) {
 		if !slices.Contains(errs, e) {
@@ -392,7 +392,7 @@ func checkNew(fm *jsonx.Obj, rel, archive string, p *schema.Profile, idx *vault.
 }
 
 // TouchReviewed sets last_reviewed to today without rebuilding the index.
-func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
+func TouchReviewed(l *vault.Loader, relativePath string, p *schema.Profile) *jsonx.Obj {
 	v, full, rel, archive, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
@@ -405,7 +405,7 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 			out = jsonx.Fail("file has no frontmatter; add a block first.")
 			return text
 		}
-		if errs := schema.ArchiveProblems(fm, archive); archive != "" && len(errs) > 0 {
+		if errs := p.ArchiveProblems(fm, archive); archive != "" && len(errs) > 0 {
 			out = jsonx.Fail(strings.Join(errs, "; "))
 			return text
 		}

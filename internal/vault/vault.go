@@ -281,12 +281,23 @@ type Index struct {
 // Folder layout a related_projects entry names: a live project is a folder
 // under ProjectsDir holding an index.md, an archived one a folder under the
 // archive's ArchivedProjects, and BacklogProject stands for the
-// cross-cutting backlog.
+// cross-cutting backlog, whose notes live in BacklogDir.
 const (
 	ProjectsDir      = "01 Projects"
 	ArchivedProjects = "Projects"
 	BacklogProject   = "backlog"
+	BacklogDir       = "07 Backlog"
 )
+
+// ProjectOf is the project folder under ProjectsDir that holds the note at
+// the vault-relative relativePath, or "" for a note outside every project.
+func ProjectOf(relativePath string) string {
+	parts := strings.Split(relativePath, "/")
+	if len(parts) >= 2 && parts[0] == ProjectsDir {
+		return parts[1]
+	}
+	return ""
+}
 
 // ProjectFolders are the names of the folders under vaultPath's ProjectsDir,
 // sorted; nil when it has none. A dot folder is left out, as Obsidian hides

@@ -13,8 +13,9 @@ const JSONSchemaDialect = "https://json-schema.org/draft/2020-12/schema"
 
 // JSONSchema is the profile's frontmatter rules as a JSON Schema (draft
 // 2020-12), derived from Settable, so off-the-shelf validators and editors
-// check a block the way Check does. A task (doc_type: task) is held to the
-// task's required fields and lifecycle through if/then/else, and a field
+// check a block the way Check does. In a profile that declares tasks, a task
+// (doc_type: task) is held to the task's required fields and lifecycle
+// through if/then/else, and a field
 // only some doc_types carry is held absent on the others. What a schema
 // can't see is left to Check and RefProblems and said in the description: a
 // field's path scope, uniqueness across docs, immutability, whether a doc
@@ -32,7 +33,7 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 			shared.Set(f.Name, property(f, false))
 		}
 	}
-	isTask := ofType("task")
+	isTask := ofType(taskDocType)
 	// A doc_type with its own required set is held to it in its allOf entry
 	// below, and not to the profile's.
 	notTask := branch(doc, p.RequiredFields)
@@ -45,11 +46,20 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 		"description", "The frontmatter block of a doc in a "+p.Name+" vault. Fields it does not declare are allowed."+p.placementText(),
 		"type", "object",
 		"$defs", jsonx.New("absent", jsonx.New("description", "A value Check treats as not given.", "enum", []any{nil, "", []any{}})),
-		"properties", shared,
-		"if", isTask,
-		"then", branch(task, p.TaskRequiredFields),
-		"else", notTask,
 	)
+	if p.HasDocType(taskDocType) {
+		o.Set("properties", shared).Set("if", isTask).Set("then", branch(task, p.TaskRequiredFields)).Set("else", notTask)
+	} else {
+		// No doc is a task, so every block is held to the doc branch.
+		props, _ := notTask.Get("properties")
+		o.Set("properties", shared.Merge(props.(*jsonx.Obj)))
+		for _, k := range notTask.Keys() {
+			if k != "properties" {
+				v, _ := notTask.Get(k)
+				o.Set(k, v)
+			}
+		}
+	}
 	var perType []any
 	for _, name := range slices.Sorted(mapKeys(p.DocumentSchemas)) {
 		ds := p.DocumentSchemas[name]

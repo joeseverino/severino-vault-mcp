@@ -1,6 +1,6 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, move_doc, move_folder, task_board, task_write,
-// log_entries and queue, plus the two resource renderers. Each
+// read_doc, set_frontmatter, write_doc, move_doc, move_folder, log_entries and
+// queue, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
 // these functions.
@@ -22,7 +22,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/search"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/tabular"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -378,7 +377,7 @@ func notFound(v *Vault, identifier string) *jsonx.Obj {
 	if dups, ok := v.Loader.Index(false).DuplicateDocIDs[identifier]; ok {
 		return steer(jsonx.New("doc_id", identifier, "found", false, "ambiguous", true,
 			"error", "duplicate doc_id "+pystr.Repr(identifier), "paths", slices.Clone(dups)),
-			Call("task_write", "action", "add", "title", "Resolve duplicate doc_id "+identifier)+
+			Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+identifier)+
 				" and tell the user; neither doc can be read until one file's doc_id changes")
 	}
 	return steer(jsonx.New("doc_id", identifier, "found", false,
@@ -714,7 +713,7 @@ func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []
 	case docID != "":
 		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
 			return nil, fmt.Sprintf("duplicate doc_id %s at %s; resolve the duplicate first", pystr.Repr(docID), pystr.ReprList(dups)),
-				[]string{Call("task_write", "action", "add", "title", "Resolve duplicate doc_id "+docID) + " and tell the user"}
+				[]string{Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+docID) + " and tell the user"}
 		}
 		if d, ok := idx.ByDocID[docID]; ok {
 			return d, "", nil
@@ -765,155 +764,6 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	}
 	idx := v.Loader.Index(false)
 	return rel, slices.Concat(v.Profile.Check(fm, rel), v.Profile.RefProblems(fm, idx.Has), v.Profile.ProjectProblems(fm, idx.Projects)), true
-}
-
-// BoardArgs are task_board's options beyond the filter. Limit caps the tasks
-// returned, after ranking; count still says how many matched.
-// IncludeQueue adds the open and returned work queue items (every queue, or
-// the filter's project's) under queue; by default the board is tasks only.
-type BoardArgs struct {
-	Limit        int
-	IncludeQueue bool
-	View
-}
-
-// TaskFields are the fields a task on the board carries.
-var TaskFields = typed("doc_id", tStr, "slug", tStr, "title", tStr, "status", tStr, "project", tStr,
-	"related_projects", tList, "effort", tStr, "priority", tStr, "created", tStr, "closed", tStr, "tags", tList,
-	"relative_path", tStr, "age_days", tInt, "stale", tBool)
-
-var leanTask = mustMask(TaskFields, "doc_id", "title", "status", "project", "priority")
-
-// TaskBoard is a vault's board plus the projects a task can go in. Masked,
-// it keeps the matching count, the tasks and the recently shipped ones (both
-// cut to the mask), and the projects as bare slugs.
-func TaskBoard(v *Vault, f tasks.Filter, a BoardArgs) *jsonx.Obj {
-	m, err := a.selection(TaskFields, leanTask)
-	if err != nil {
-		return failNext(err.Error(), withoutFields("task_board"))
-	}
-	if a.Limit < 0 {
-		return failNext("limit: give a positive number, or 0 for no limit", Call("task_board", "limit", 25))
-	}
-	board := tasks.List(v.Loader, f)
-	if all, _ := board.Get("tasks"); a.Limit > 0 && len(all.([]*jsonx.Obj)) > a.Limit {
-		board.Set("tasks", all.([]*jsonx.Obj)[:a.Limit])
-	}
-	if a.IncludeQueue {
-		board.Set("queue", boardQueue(v, f.Project))
-	}
-	projects, _ := tasks.Projects(v.Loader).Get("projects")
-	if m == nil {
-		return board.Set("projects", projects)
-	}
-	slugs := []string{}
-	for _, p := range projects.([]*jsonx.Obj) {
-		slugs = append(slugs, p.Str("slug"))
-	}
-	board = keepOnly(board, "ok", "count", "total", "tasks", "shipped", "queue").Set("projects", slugs)
-	cutEach(board, "tasks", m)
-	cutEach(board, "shipped", m)
-	return board
-}
-
-// TaskWriteArgs are task_write's arguments.
-type TaskWriteArgs struct {
-	Action          string
-	Title           string
-	Project         string
-	RelatedProjects []string
-	Effort          string
-	Priority        string
-	Tags            []string
-	Problem         string
-	Fix             string
-	Principle       string
-	Source          string
-	DocID           string
-	Status          string
-	NotePath        string
-}
-
-// TaskWrite adds, moves, promotes or deletes a task.
-func TaskWrite(v *Vault, a TaskWriteArgs) *jsonx.Obj {
-	missing := func(names ...string) *jsonx.Obj {
-		values := map[string]string{"title": a.Title, "doc_id": a.DocID, "status": a.Status, "note_path": a.NotePath}
-		var absent []string
-		for _, n := range names {
-			if values[n] == "" {
-				absent = append(absent, n)
-			}
-		}
-		if len(absent) > 0 {
-			args := []any{"action", a.Action}
-			for _, n := range names {
-				args = append(args, n, "...")
-			}
-			return failNext(fmt.Sprintf("action %s requires %s", pystr.Repr(a.Action), strings.Join(absent, ", ")), Call("task_write", args...))
-		}
-		return nil
-	}
-	guided := func(o *jsonx.Obj) *jsonx.Obj { return guide(o, taskSteps(a)) }
-	switch a.Action {
-	case "add":
-		if err := missing("title"); err != nil {
-			return err
-		}
-		return guided(tasks.Add(v.Loader, tasks.New{
-			Title: a.Title, Project: a.Project, RelatedProjects: a.RelatedProjects,
-			Effort: a.Effort, Priority: a.Priority, Tags: a.Tags,
-		}, tasks.Sections{Problem: a.Problem, Fix: a.Fix, Principle: a.Principle, Source: a.Source}))
-	case "status":
-		if err := missing("doc_id", "status"); err != nil {
-			return err
-		}
-		return guided(tasks.SetStatus(v.Loader, a.DocID, a.Status))
-	case "promote":
-		if err := missing("note_path", "title"); err != nil {
-			return err
-		}
-		return guided(tasks.Promote(v.Loader, a.NotePath, tasks.New{Title: a.Title, Project: a.Project, Effort: a.Effort, Priority: a.Priority}))
-	case "delete":
-		if err := missing("doc_id"); err != nil {
-			return err
-		}
-		return guided(tasks.Delete(v.Loader, a.DocID))
-	}
-	return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(TaskActions, ", ")),
-		Call("task_write", "action", TaskActions[0], "title", "...")+" or another listed action")
-}
-
-// TaskActions are task_write's actions.
-var TaskActions = []string{"add", "status", "promote", "delete"}
-
-// MaxTaskItems caps one batch, so a runaway caller can't rewrite the board in
-// one call.
-const MaxTaskItems = 50
-
-// TaskWrites applies items in order, each through TaskWrite, and goes on past
-// a failure: earlier items are not rolled back. ok is true only when every
-// item applied; failed lists the indexes of the ones that didn't.
-func TaskWrites(v *Vault, items []TaskWriteArgs) *jsonx.Obj {
-	if len(items) == 0 {
-		return failNext("items: give at least one item, or call with a single action instead", Call("task_write", "action", "...")+" for one change")
-	}
-	if len(items) > MaxTaskItems {
-		return failNext(fmt.Sprintf("items: at most %d per call; split the batch", MaxTaskItems),
-			Call("task_write", "items", []string{"..."})+fmt.Sprintf(" with at most %d items, once per batch", MaxTaskItems))
-	}
-	results := make([]*jsonx.Obj, 0, len(items))
-	failed := []int{}
-	for i, item := range items {
-		r := TaskWrite(v, item)
-		if !r.Bool("ok") {
-			failed = append(failed, i)
-		}
-		// A receipt is for a projection replaying one write; a batch's
-		// caller needs only what happened to each item.
-		r.Delete("receipt")
-		results = append(results, jsonx.New("index", i, "action", item.Action).Merge(r))
-	}
-	return jsonx.New("ok", len(failed) == 0, "applied", len(items)-len(failed), "failed", failed, "results", results)
 }
 
 // RelStem is used by tests to name a doc by its path stem.

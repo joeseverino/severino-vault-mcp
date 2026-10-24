@@ -111,18 +111,6 @@ func TestFromContractKeepsAProfilesOwnFields(t *testing.T) {
 	}
 }
 
-func TestCheckPassesAValidTask(t *testing.T) {
-	if e := Labs.Check(jsonx.New("doc_id", "task-ship-the-thing", "title", "Ship the thing", "doc_type", "task", "status", "open"), at); len(e) != 0 {
-		t.Fatal(e)
-	}
-}
-
-func TestCheckEnforcesTheTaskLifecycle(t *testing.T) {
-	if !has(Labs.Check(jsonx.New("doc_id", "task-x", "title", "x", "doc_type", "task", "status", "deprecated"), at), "status 'deprecated' not in") {
-		t.Fatal("deprecated task accepted")
-	}
-}
-
 func TestCheckRequiresTheFullFieldSetAndRejectsTaskStatusOnADoc(t *testing.T) {
 	if !has(Labs.Check(jsonx.New("doc_id", "rb-x", "title", "x", "doc_type", "runbook", "status", "active"), at), "missing required field") {
 		t.Fatal("missing fields accepted")

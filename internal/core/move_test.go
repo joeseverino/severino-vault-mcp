@@ -194,17 +194,13 @@ func nextSteps(r *jsonx.Obj) []string {
 	return s
 }
 
-// tree lists every file under root but the note locks, so a test can see
-// that nothing moved.
+// tree lists every file under root, so a test can see that nothing moved.
 func tree(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if d.IsDir() && d.Name() == ".locks" {
-			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)
 		out = append(out, rel)

@@ -225,23 +225,3 @@ func (v *Vault) sectionSteps(d *vault.Doc, mode string) func(string) []string {
 		}
 	}
 }
-
-// taskSteps recovers a refused task change.
-func taskSteps(a TaskWriteArgs) func(string) []string {
-	return func(msg string) []string {
-		if contended(msg) {
-			return []string{Call("task_write", "action", a.Action, "doc_id", a.DocID) + " again" + contendedWhy}
-		}
-		switch a.Action {
-		case "add":
-			if strings.Contains(msg, "no such project") {
-				return []string{Call("task_board", "limit", 1) + " to list the projects a task can go in"}
-			}
-			return []string{Call("task_write", "action", "add", "title", a.Title) + " again with what the error names fixed"}
-		case "promote":
-			return []string{Call("find", "query", strings.TrimSuffix(filepath.Base(a.NotePath), ".md")) + " to get the note's path"}
-		}
-		return []string{Call("task_board", "include_all", true, "fields", []string{"doc_id", "title", "status"}) +
-			" to get the task's doc_id"}
-	}
-}

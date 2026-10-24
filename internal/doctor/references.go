@@ -21,7 +21,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
@@ -116,9 +115,9 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 	}
 	// A doc also names notes beside it, in its project's folder, or by a
 	// path from the projects folder or the vault root.
-	notes := []string{path.Dir(rel), tasks.ProjectsDir, "."}
+	notes := []string{path.Dir(rel), vault.ProjectsDir, "."}
 	for _, p := range projects {
-		notes = append(notes, path.Join(tasks.ProjectsDir, p))
+		notes = append(notes, path.Join(vault.ProjectsDir, p))
 	}
 	var missing []string
 	at := map[string][]string{}
@@ -151,7 +150,7 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 // sits in, then its related_projects.
 func (rs *references) projects(rel string, fm *jsonx.Obj) []string {
 	var out []string
-	if p := tasks.ProjectOf(rel); p != tasks.Cross {
+	if p := vault.ProjectOf(rel); p != "" {
 		out = append(out, p)
 	}
 	related, _ := fm.Get("related_projects")
@@ -167,7 +166,7 @@ func (rs *references) checkout(name string) *checkout {
 	if c, ok := rs.checkouts[name]; ok {
 		return c
 	}
-	index := path.Join(tasks.ProjectsDir, name, "index.md")
+	index := path.Join(vault.ProjectsDir, name, "index.md")
 	c := &checkout{index: index}
 	rs.checkouts[name] = c
 	if strings.ContainsAny(name, `/\`) || name == ".." {

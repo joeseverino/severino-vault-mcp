@@ -21,7 +21,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
 
-var coreTools = []string{"find", "log_entries", "move_doc", "move_folder", "queue", "read_doc", "set_frontmatter", "task_board", "task_write", "write_doc"}
+var coreTools = []string{"find", "log_entries", "move_doc", "move_folder", "queue", "read_doc", "set_frontmatter", "write_doc"}
 
 // TestMain doubles as a fake vault provider when re-executed with
 // FAKE_PROVIDER set to the vault name it should serve, so the provider seam
@@ -193,9 +193,6 @@ func TestToolCallsRouteAndValidate(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if r, _ := call(t, s, "read_doc", map[string]any{"doc_id": "infra-local-pki"}); r.Bool("body_released") || r.Has("body") {
-		t.Fatal(jsonx.Compact(r))
-	}
-	if r, _ := call(t, s, "task_write", map[string]any{"action": "add"}); !strings.Contains(r.Str("error"), "requires title") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
