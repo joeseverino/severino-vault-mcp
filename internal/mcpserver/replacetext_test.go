@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // new_text "" is given, and removes old_text; left out, the call is refused.

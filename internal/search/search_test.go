@@ -3,10 +3,10 @@ package search_test
 import (
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
-	"github.com/joeseverino/severino-vault-mcp/internal/search"
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/gate"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/search"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 func doc(id, title, system string, sens gate.Sensitivity, body string) *vault.Doc {

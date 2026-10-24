@@ -42,13 +42,13 @@ web URL.
 Run before opening a pull request:
 
 ```bash
-scripts/check.sh
-mise run golden
+mise run check
 ```
 
-The gate runs `go test -race`, `govulncheck` (a `tool` directive in `go.mod`)
-and `golangci-lint` (configured in `.golangci.yml`; a pinned version runs
-through `go run`). Fix findings in place. A `//nolint` needs a specific linter
+`mise run check` is the gate CI runs: one `check:*` task per check, in
+parallel, with `go test -race`, `govulncheck` and `golangci-lint` (configured
+in `.golangci.yml`) at the versions `mise.toml` pins. `mise tasks` lists each
+one; `mise run check:test` runs one alone. Fix findings in place. A `//nolint` needs a specific linter
 and a reason.
 
 The suite covers indexing and frontmatter parsing, search and body search,

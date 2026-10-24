@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fuzzseed"
 )
 
 const multi = `Overview line before any heading.

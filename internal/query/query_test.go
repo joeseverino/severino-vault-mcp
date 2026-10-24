@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/query"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/query"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func note(t *testing.T, root, name, id, body string) {

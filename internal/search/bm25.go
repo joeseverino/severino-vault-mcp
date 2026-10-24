@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // The BM25 parameters: k1 at the top of the usual 1.2 to 2.0 range, the

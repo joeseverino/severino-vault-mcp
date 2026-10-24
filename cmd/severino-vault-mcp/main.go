@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/cli"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/cli"
 )
 
 func main() {

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // StateDir is the per-user state directory: $XDG_STATE_HOME/severino-vault-mcp,

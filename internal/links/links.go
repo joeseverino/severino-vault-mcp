@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
 )
 
 // Wiki matches a wikilink or an embed: the opener, the target ending at the

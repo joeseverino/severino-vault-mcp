@@ -12,16 +12,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/clock"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/queue"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/clock"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/gate"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/queue"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/write"
 )
 
 // A project's work queue is one note, <project folder>/Queue.md, with an

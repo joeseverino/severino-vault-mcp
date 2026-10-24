@@ -17,10 +17,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vaults"
 )
 
 // fakeBinary points the server's executable at a file the test can replace,
@@ -249,8 +249,8 @@ func build(t *testing.T, dir, label string) string {
 	}
 	out := filepath.Join(dir, label)
 	cmd := exec.Command(gobin, "build", "-o", out,
-		"-ldflags=-X github.com/joeseverino/severino-vault-mcp/internal/mcpserver.version="+label,
-		"github.com/joeseverino/severino-vault-mcp/cmd/severino-vault-mcp")
+		"-ldflags=-X github.com/joeseverino/severino-vault-mcp/v3/internal/mcpserver.version="+label,
+		"github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, b)
 	}

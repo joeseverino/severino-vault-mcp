@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/doctor"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 const driftFront = "doc_id: rb-drift\ntitle: Drift\ndoc_type: runbook\nsystem: Drift\nenvironment: other\nstatus: active\nsensitivity: internal"

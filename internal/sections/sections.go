@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // DefaultTokenCap is the size (about 4 chars per token) past which an H2 is split.

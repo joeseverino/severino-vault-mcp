@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
 )
 
 func has(errs []string, sub string) bool {

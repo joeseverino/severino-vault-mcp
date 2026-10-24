@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/links"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/links"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // MoveArgs are move_doc's arguments. DocID or RelativePath names the doc; To

@@ -1,35 +1,20 @@
-# The release surface of this repo, the sibling of ci.yml. Versioning, the
-# CHANGELOG, the tag, and the GitHub Release are cut by cordon's reusable
-# cordon-release.yml; this repo just calls it. release-type `go` versions from
-# the tags alone; there is no version file. Status check: cordon / release.
-#
-# ONE-TIME per-repo setting (required): Settings → Actions → General → Workflow
-# permissions → "Allow GitHub Actions to create and approve pull requests".
-# Guide: https://github.com/joeseverino/cordon/blob/main/docs/RELEASE.md
+# The release surface of this repo, the sibling of ci.yml. Pushing a vX.Y.Z
+# tag is the release: this builds the binaries for that tag and creates its
+# GitHub Release with generated notes and the archives attached.
 name: release
 
 on:
   push:
-    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: read
 
 jobs:
-  cordon:
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: joeseverino/cordon/.github/workflows/cordon-release.yml@f0fbb6e1919514c024608254ec6501f821992ea5 # v2.1.0
-    with:
-      release-type: go
-
-  # Binaries for the release the job above just cut. The build flags match the
-  # documented `go install -trimpath`; --fingerprint hashes the embedded
-  # sources, so it is the same for every platform built from this tag.
+  # The build flags match the documented `go install -trimpath`; --fingerprint
+  # hashes the embedded sources, so it is the same for every platform built
+  # from this tag.
   build:
-    needs: cordon
-    if: needs.cordon.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,21 +29,38 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.cordon.outputs.tag_name }}
           persist-credentials: false
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
 
+      # `go install ...@vN.x.y` resolves only when the module path carries the
+      # tag's major as a /vN suffix (none for v0 and v1).
+      - name: The module path matches the tag's major
+        run: |
+          module="$(go list -m)"
+          major="${GITHUB_REF_NAME%%.*}"
+          case "$major" in
+            v0 | v1) want="" ;;
+            *) want="/$major" ;;
+          esac
+          case "$module" in
+            */v[0-9]*) have="/${module##*/}" ;;
+            *) have="" ;;
+          esac
+          if [ "$have" != "$want" ]; then
+            echo "::error file=go.mod::tag $GITHUB_REF_NAME needs the module path to end in '$want'; go.mod says $module"
+            exit 1
+          fi
+
       - name: Build and archive
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-          TAG: ${{ needs.cordon.outputs.tag_name }}
         run: |
-          name="severino-vault-mcp_${TAG}_${GOOS}_${GOARCH}"
+          name="severino-vault-mcp_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$name"
           go build -trimpath -o "dist/$name/severino-vault-mcp" ./cmd/severino-vault-mcp
           cp LICENSE README.md "dist/$name/"
@@ -71,7 +73,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [cordon, build]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -92,9 +94,8 @@ jobs:
         with:
           subject-path: dist/*.tar.gz
 
-      - name: Upload to the release
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.cordon.outputs.tag_name }}
-        run: gh release upload "$TAG" dist/*.tar.gz dist/SHA256SUMS --clobber
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes dist/*.tar.gz dist/SHA256SUMS

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func TestMoveRelocatesANoteAndCreatesItsFolders(t *testing.T) {

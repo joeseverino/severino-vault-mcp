@@ -84,7 +84,7 @@ walk the vault when it is on `PATH`, otherwise a built-in walk does.
 Install the binary:
 
 ```bash
-go install github.com/joeseverino/severino-vault-mcp/cmd/severino-vault-mcp@latest
+go install github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp@latest
 ```
 
 Or download the archive for your platform (darwin or linux, amd64 or arm64)
@@ -126,7 +126,7 @@ SVMC_VAULT_PATH=/path/to/vault severino-vault-mcp doctor --propose
 ```
 
 [`QUICKSTART.md`](QUICKSTART.md) walks through Claude Desktop, your own vault
-and its docs. To run the tests: `go test -race ./...`, or `scripts/check.sh` for
+and its docs. To run the tests: `go test -race ./...`, or `mise run check` for
 the full CI gate.
 
 ## How it fits together

@@ -3,7 +3,7 @@ package sections
 import (
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // A log note is append-only: each top-level bullet in its body is one entry,

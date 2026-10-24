@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/search"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/search"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // A filter value no doc carries is a guess at the vault's vocabulary (a

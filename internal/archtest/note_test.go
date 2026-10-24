@@ -16,7 +16,7 @@ func TestOneNoteReader(t *testing.T) {
 		if in(s.rel, "internal/frontmatter", "internal/fsx") {
 			continue
 		}
-		fm := s.importName("github.com/joeseverino/severino-vault-mcp/internal/frontmatter")
+		fm := s.importName("github.com/joeseverino/severino-vault-mcp/v3/internal/frontmatter")
 		for _, decl := range s.file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
@@ -58,7 +58,7 @@ func TestOneCoercion(t *testing.T) {
 	for _, s := range sources(t) {
 		osName := s.importName("os")
 		stringsName := s.importName("strings")
-		jsonxName := s.importName("github.com/joeseverino/severino-vault-mcp/internal/jsonx")
+		jsonxName := s.importName("github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx")
 		for _, decl := range s.file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {

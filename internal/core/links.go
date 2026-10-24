@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/links"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/links"
 )
 
 // schemeRE marks a markdown link to a URL rather than a file.

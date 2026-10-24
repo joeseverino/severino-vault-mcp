@@ -8,8 +8,8 @@ been released.
 
 | Version | Supported |
 |---|---|
-| `2.x` | Yes |
-| `< 2.0.0` | No |
+| `3.x` | Yes |
+| `< 3.0.0` | No |
 
 If you are running from source, update to the latest commit on `main` before
 reporting unless the issue is specifically about upgrade behavior.
@@ -148,13 +148,13 @@ signal across code, dependencies, and project governance.
 | Layer | Tool | Workflow |
 |---|---|---|
 | Static analysis (SAST) | CodeQL with the `security-and-quality` query suite | `.github/workflows/codeql.yml` |
-| Dependency CVEs (SCA) | `govulncheck` over the module and its reachable call graph | `cordon.checks.json` (run by `ci.yml`) |
-| Dependency updates | Dependabot | `.github/dependabot.yml` |
+| Dependency CVEs (SCA) | `govulncheck` over the module and its reachable call graph | `mise.toml`'s `check:govulncheck` (run by `ci.yml`) |
+| Dependency updates | Renovate, each release held 7 days | `renovate.json` |
 | Project governance | OSSF Scorecard, results published to scorecard.dev | `.github/workflows/scorecard.yml` |
 | Tests + lint | `gofmt`, `go vet`, `go test -race`, `golangci-lint`, golden contracts | `.github/workflows/ci.yml` |
 
 Findings from CodeQL and Scorecard appear in the repository's Security tab.
-`govulncheck` failures fail the `cordon / gate` check on the PR.
+`govulncheck` failures fail the `mise run check` check on the PR.
 
 ## Supply Chain Hardening
 
@@ -164,8 +164,8 @@ upstream tag being executed against this repository:
 - All GitHub Action references are pinned to a full commit SHA, with the
   human-readable version retained as a trailing comment (for example,
   `uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4`).
-  Dependabot understands this format and will open update PRs when a new
-  version is released.
+  Renovate updates the SHA and the comment together when a new version is
+  released.
 - Workflow `permissions:` blocks default to `read` and only grant
   `security-events: write`, `id-token: write`, or `actions: read` to the
   specific jobs that require them (CodeQL upload, Scorecard OIDC publish,
@@ -183,7 +183,7 @@ upstream tag being executed against this repository:
 - Linear history is required (no merge commits in `main`).
 - Conversation resolution is required before merging a pull request.
 - Required status checks must pass before any pull request can merge:
-  `cordon / gate` and `Analyze (go)` (CodeQL).
+  `mise run check` and `Analyze (go)` (CodeQL).
 
 Administrators are not currently included in the branch protection
 enforcement. This is a deliberate solo-maintainer trade-off: PR merges are
@@ -193,10 +193,12 @@ without a PR round-trip. If the project gains contributors, enable
 
 ## Releases
 
-Tagged releases (`vMAJOR.MINOR.PATCH`) are published on GitHub with notes
-generated from `CHANGELOG.md`. Release tags are annotated. Until the project
-adopts a signed release process (Sigstore or signed git tags), consumers who
-need integrity guarantees should pin to a commit SHA rather than a tag.
+Each `vMAJOR.MINOR.PATCH` tag is published as a GitHub Release with generated
+notes, the darwin and linux archives, `SHA256SUMS`, and a build provenance
+attestation for every archive (`gh attestation verify <archive> --repo
+joeseverino/severino-vault-mcp`). Tags themselves are not signed, so a
+consumer who installs from source and needs integrity guarantees should pin
+to a commit SHA rather than a tag.
 
 ## Disclosure
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func TestAnUnreadableVaultFailsDoctorValidateAndFind(t *testing.T) {
