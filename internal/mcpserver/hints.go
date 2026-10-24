@@ -74,7 +74,7 @@ var outputSchemas = map[string]json.RawMessage{
 	"task_board": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "count", ty("integer"), "total", ty("integer"),
 		"tasks", records(core.TaskFields), "shipped", records(core.TaskFields), "projects", textList(),
-		"next_steps", textList(),
+		"queue", records(core.QueueItemFields), "next_steps", textList(),
 	)),
 	"task_write": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "doc_id", ty("string"), "relative_path", ty("string"),
@@ -90,9 +90,10 @@ var outputSchemas = map[string]json.RawMessage{
 	)),
 	"queue": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "id", ty("string"), "project", ty("string"), "doc_id", ty("string"),
-		"relative_path", ty("string"), "exists", ty("boolean"), "created_queue", ty("boolean"), "fallback", ty("string"),
-		"item", jsonx.New("type", "object", "properties", fieldProps(core.QueueItemFields)), "no_op", ty("boolean"),
-		"body", ty("string"), "owner", ty("string"), "count", ty("integer"), "items", records(core.QueueItemFields),
+		"relative_path", ty("string"), "exists", ty("boolean"), "created_queue", ty("boolean"), "fallback", ty("string"), "warning", ty("string"),
+		// item is one of items; the reference keeps the item shape out of tools/list twice.
+		"item", jsonx.New("$ref", "#/properties/items/items"), "no_op", ty("boolean"),
+		"owner", ty("string"), "count", ty("integer"), "items", records(core.QueueItemFields),
 		"skipped_restricted", textList(), "unparsed_lines", ty("integer"), "next_steps", textList(),
 	)),
 	"set_frontmatter": outSchema(jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList())),

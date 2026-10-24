@@ -19,26 +19,28 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | Known doc ID | `read_doc` or `vault://{vault}/doc/{doc_id}` | Respect the sensitivity policy. |
 | System context | `find(query, system="...")` | Read the selected doc before summarizing. |
 | Docs for a project | `find(query, project="...")` | Read before summarizing. |
+| Queue notes (`doc_type: queue`) | `find(query, doc_type="queue")` | `find` leaves them out otherwise; `queue` is the tool to work them. |
 | Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
 | Move or rename a doc | `move_doc(doc_id, to)` | Fix the links `wikilinks` lists with `write_doc`; never move a vault file with the shell. |
 | A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
-| Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
+| Tasks | `task_board` (`include_queue=true` adds the open queue items), then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
 | Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
-| Work to track: next, delegated, a decision, a follow-up | `queue(action="add", cwd=..., kind=..., text=...)` | `queue(action="list", cwd=...)` to see it; `set`, `close`, `promote` by `id` (or `agent`). Never keep it in scratch files. |
+| Work to track: next, delegated, a decision, a follow-up | `queue(action="add", cwd=..., kind=..., text=...)` | `queue(action="list", cwd=...)` to see it; `set`, `close` by `id` (or `agent`). Never keep it in scratch files. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
 
 ## Failures
 
-Every failure is `{"ok": false, "error": "..."}` with `next_steps`: short
+Every `ok: false` result is an MCP tool error (`isError`) carrying
+`{"ok": false, "error": "..."}` and `next_steps`: short
 strings, each starting with a call to a registered tool, such as
 `find(query="...")` for an unknown doc_id or
 `read_doc(doc_id="...", fields=["outline"])` for a heading that isn't there.
 `read_doc`'s not-found and withheld answers, and a `find` with no hits, carry
 them too. An argument the schema refuses (an unknown name, a wrong type, a
-value outside its enum, a missing required one) fails the same way, flagged
-as a tool error. Take a next step before guessing.
+value outside its enum, a missing required one) fails the same way. Take a
+next step before guessing.
 
 ## Sensitivity
 
@@ -60,7 +62,7 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 | Ranked section menu | `severino-vault-mcp find <query>` |
 | Some sections or a whole body | `severino-vault-mcp read <doc_id> [--sections <slug> ...] [--fields outline]` |
 | Open log entries, or close one | `severino-vault-mcp log-entries list <doc_id> [--contains <text>]`, `log-entries close <doc_id> --match <text> --resolution <text>` |
-| A project's work queue | `severino-vault-mcp queue <list\|add\|set\|close\|promote> [id] --cwd <dir> ...` (see [Work queue](#work-queue)) |
+| A project's work queue | `severino-vault-mcp queue <list\|add\|set\|close> [id] --cwd <dir> ...` (see [Work queue](#work-queue)) |
 | Move or rename a doc | `severino-vault-mcp move-doc <to> --doc-id <id> [--with-folder]` |
 | The frontmatter rules as JSON Schema | `severino-vault-mcp schema --json-schema [--vault labs\|edu]` (see [Frontmatter as JSON Schema](#frontmatter-as-json-schema)) |
 | The edu dataset | `severino-vault-mcp export education` |
@@ -91,7 +93,7 @@ Set both through the server, never by editing the frontmatter by hand:
 `set_frontmatter` on the project's `index.md` takes `repos` (replace),
 `add_repos`, `remove_repos` and `queue_prefix`; the CLI is
 `update-frontmatter <path> --set-repos <dir>... --queue-prefix <prefix>`.
-The labs profile declares both (see "Frontmatter fields" below): repos are
+The labs profile declares both (see [Frontmatter fields](#frontmatter-fields)): repos are
 bare directory names (no `/`); a prefix is lowercase letters and digits,
 starting with a letter, at most 12 characters, and `backlog` is reserved.
 Each value belongs to one project index; a clash is refused naming the doc
@@ -99,7 +101,142 @@ that holds it. Both keys are refused on any doc outside
 `01 Projects/*/index.md`. Two projects whose folder names slug to the same
 default prefix are reported by the queue itself.
 
-### Frontmatter fields
+A call names its queue by `project` (the folder name, or `backlog`), `repo`,
+or `cwd`. A `cwd` is tried folder by folder from itself up; a folder whose
+`.git` file points into `<repo>/.git/worktrees/` also tries `<repo>`, so a
+worker's worktree maps to the repository it came from.
+
+A `repo` or `cwd` no project lists is never filed in the backlog: `add`
+fails (`ok: false`, exit 1 from the CLI) and its `next_steps` name the call
+that maps it, `set_frontmatter(relative_path="01 Projects/<project>/index.md",
+add_repos=["<repo>"])`. The backlog queue takes work only through an
+explicit `project="backlog"`. `list` from an unmapped repo reads the backlog
+and says so: `fallback` is the backlog queue's path and `warning` the
+sentence to show, with the mapping call.
+
+Ids are `<prefix>-<n>`, allocated under the note's lock as one more than the
+largest n in the note. The caller never supplies one on `add`; `set` and `close`
+find the queue from the id's prefix, or take `agent` instead of
+`id` to name the one open item carrying that agent id.
+
+An item may carry an `alias`, an older id it also answers to (a task's
+doc_id when an import moves the task into a queue), and a `body`, the
+doc_id of the doc that holds its detail; `add` and `set` write both (`""`
+removes one on `set`). A `body` is checked like a `superseded_by` doc
+reference: it starts with a doc_id prefix and names a doc in the vault. An
+alias that another item already carries, or that is another item's id, is
+refused. Wherever an id names an item (`set` and `close`'s `id`, and each
+`blocked_by` entry) its alias does too: the item with that id comes first,
+then the one with that alias, and `blocked_by` stores the item's id. `list`
+with `alias` returns the item that carries it, from every queue unless one
+is named.
+
+### Workers across repos
+
+- A worker sent from one repo to work in another is filed in the queue of
+  the repo it works in (`cwd` its worktree), with `origin` the repo the
+  sending session ran in (a repository name, or a working directory
+  resolved as `cwd` is). `list` with `origin` keeps only items from that
+  repo; `list` with `include_origin=true` and a `cwd`, `repo` or `project`
+  returns that queue plus the delegated items in any other queue whose
+  `origin` is that repo (by `project`, any repo it lists), each with its
+  `project`. Those items default to the fields `id, project, kind, status,
+  owner, text, origin`.
+- One worker whose work spans repos is one item, filed in the sending
+  repo's queue, with `repos` listing them. Its resolution is `repo@sha` per
+  repo, comma-separated. `close` with `partial=true` appends the landings
+  it is given and leaves the item open until every repo in `repos` has one,
+  then closes it; repeating a recorded landing is a no-op. A `close` without
+  `partial` that leaves a repo unlanded is refused, naming it; a landing in
+  a repo the item does not list is refused. `status=dropped` keeps the
+  landings and adds the reason.
+- Several workers for one piece of work: each worker's item goes in its own
+  repo's queue with `origin`, and the sending session adds one parent item
+  in its own queue whose `blocked_by` names the children. The parent shows
+  in `ready` once they are all closed or dropped.
+
+### Line grammar
+
+Each item is an Obsidian task whose fields are
+[Dataview inline fields](https://blacksmithgu.github.io/obsidian-dataview/annotation/add-metadata/),
+so Obsidian, the [Tasks plugin](https://publish.obsidian.md/tasks/) (set its
+task format to Dataview) and Dataview render and query the note as it is:
+
+```
+- [<mark>] <text>  [kind:: <kind>]  [owner:: <owner>]  [agent:: <agent>]  [origin:: <repo>]  [repos:: <repo>,<repo>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [body:: <doc_id>]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]
+```
+
+- `<mark>` is the status, as the Tasks plugin types it:
+
+  | Status | Mark | Tasks type |
+  |---|---|---|
+  | `open` | `[ ]` | TODO |
+  | `returned` (delegated only) | `[/]` | IN_PROGRESS |
+  | `parked` | `[>]` | TODO by default; give `>` the ON_HOLD type in Tasks' settings to match |
+  | `closed` | `[x]` | DONE |
+  | `dropped` | `[-]` | CANCELLED |
+
+  A closed or dropped item sits under `## Closed`; `close` takes
+  `status=dropped` for work not done.
+- `<kind>`: `next`, `delegated`, `decision`, `follow-up`.
+- `<text>`: one line. A backslash (Markdown's own escape) goes only before
+  what a parser would read as something other than text: a `\`; a `[` or
+  `(` that a `::` follows before its own closing bracket (a Dataview field
+  opener); the first `:` of a leading unbracketed `key::`; and a Tasks date
+  emoji (✅ ❌ 📅 ⏳ 🛫 ➕) followed by a date. Ordinary brackets and
+  parentheses stay as typed.
+- Fields appear only when set, each after two spaces (Tasks' own separator),
+  in the order above. `owner`, `agent`, `origin`, the links (`commit`
+  comma-separated), `body` and `alias` are one word without spaces,
+  brackets, parentheses or a backslash; `repos` is a comma list of such
+  words without `@`. `resolution` is one line, such as `repo@sha`, a PR or a
+  doc_id; inside its `[resolution:: ...]` only `]` and `\` take a backslash,
+  since only a `]` ends the field, so `merged (#213)` is written as typed
+  (a resolution that carries escaped parentheses or `[` still reads back
+  as typed). A closed item closed through
+  `queue` carries one, and an open item carries one only when it has `repos`
+  (the `repo@sha` landings so far).
+- `id` and `dependsOn` are the Tasks plugin's own dependency fields (the
+  tool's `blocked_by`), last because Tasks reads fields from the end of the
+  line and stops at the first it does not know. Tasks' `is blocked` and
+  `is blocking` filters and `ready` agree: a dependency stops blocking once
+  it is closed or dropped.
+
+```
+- [/] Build the store  [kind:: delegated]  [owner:: worker]  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
+- [ ] Read map[string] keys (see \[note:: x])  [kind:: next]  [id:: ex-5]  [dependsOn:: ex-4]
+- [x] Ship on Friday?  [kind:: decision]  [owner:: main]  [resolution:: yes]  [id:: ex-2]
+```
+
+Editing the note in Obsidian is fine; every write re-reads it under the
+lock. A box ticked there is closed: the Tasks plugin's `[completion:: date]`
+or `✅ date`, Dataview's completion field, and any other field the queue does
+not own are kept as written (Tasks' own fields after `dependsOn`, the rest
+before `id`). A ticked item has no resolution until `close` records one,
+which also files it under `## Closed`; reopening it with `set` drops the
+resolution and the done and cancelled dates. A line under either heading
+that starts `- [` and doesn't parse is left alone and counted in `list`'s
+`unparsed_lines`.
+
+### CLI for hooks
+
+`severino-vault-mcp queue <action> [id] [flags]` runs the same function as
+the MCP tool against the labs vault and prints one line of compact JSON
+(`--pretty` indents it). It exits 0 when `ok` is true, 1 on a refused call
+(the JSON carries `error` and `next_steps`), 2 on a usage error (stderr).
+Pass a value that starts with a dash as `--flag=value`. Items in the output
+carry `id, project, kind, status, owner, text, links`, plus `blocked_by,
+body, alias, agent, origin, repos, resolution` when set; `--fields` narrows
+them.
+
+| Action | Flags |
+|---|---|
+| `add` | `--cwd`, `--repo` or `--project` (`--project backlog` for the backlog); `--kind`, `--text`; optional `--owner`, `--agent`, `--origin <repo or dir>`, `--repos <repo>,<repo>`, `--pr`, `--branch`, `--commit`, `--slug`, `--alias=<id>`, `--body=<doc_id>`, `--blocked-by <id or alias> ...` |
+| `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent`, `--origin` or `--alias` alone searches every queue); `--include-origin`; `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--ready`, `--contains`, `--limit` |
+| `set` | `<id or alias>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos` |
+| `close` | `<id or alias>` or `--agent`; `--resolution` (`repoA@sha,repoB@sha` for an item with repos); `--partial` to record landings; `--status dropped` for work not done; link flags |
+
+## Frontmatter fields
 
 Each vault's profile (`internal/schema`) declares the frontmatter fields its
 docs carry: name, kind (string, enum, date, list, path, integer, boolean),
@@ -115,7 +252,7 @@ whole change that makes it settable; a field the chosen vault does not
 declare is refused. `schema --contract` carries the declarations under
 `fields`.
 
-### Frontmatter as JSON Schema
+## Frontmatter as JSON Schema
 
 `severino-vault-mcp schema --json-schema [--vault labs|edu]` emits a vault's
 frontmatter rules as a [JSON Schema](https://json-schema.org) (draft
@@ -144,7 +281,7 @@ verdict on every fixture doc; `tests/golden/labs.schema.json` pins the labs
 schema. `schema --json` (the enum sets HQ commits) is a separate, frozen
 shape.
 
-### Moving a doc
+## Moving a doc
 
 `move_doc` (CLI `move-doc`) moves or renames a registered doc by `doc_id` or
 `relative_path`. `to` is a vault-relative `.md` path, or a folder ending in
@@ -167,7 +304,7 @@ holds both notes' locks and never replaces a file. The result is
 count; restricted notes are not read and are listed in `skipped_restricted`.
 Other notes are never rewritten.
 
-### Superseded reports
+## Superseded reports
 
 `superseded_by` holds the doc_id of the doc that replaces this one. When a
 newer report of a series is written, the old one gets `superseded_by` (the
@@ -176,91 +313,6 @@ new doc_id) and `status: deprecated`. `validate` and `doctor` refuse a
 write one. `doctor` warns on a deprecated doc with a date (YYYY-MM-DD) in its
 title and no `superseded_by`, and on a `superseded_by` that names a doc that
 is itself deprecated.
-
-A call names its queue by `project` (the folder name, or `backlog`), `repo`,
-or `cwd`. A `cwd` is tried folder by folder from itself up; a folder whose
-`.git` file points into `<repo>/.git/worktrees/` also tries `<repo>`, so a
-worker's worktree maps to the repository it came from. A `repo` or `cwd` no
-project lists falls back to the backlog queue, and the result says so in
-`fallback`.
-
-Ids are `<prefix>-<n>`, allocated under the note's lock as one more than the
-largest n in the note. The caller never supplies one on `add`; `set`, `close`
-and `promote` find the queue from the id's prefix, or take `agent` instead of
-`id` to name the one open item carrying that agent id.
-
-### Line grammar
-
-Each item is an Obsidian task whose fields are
-[Dataview inline fields](https://blacksmithgu.github.io/obsidian-dataview/annotation/add-metadata/),
-so Obsidian, the [Tasks plugin](https://publish.obsidian.md/tasks/) (set its
-task format to Dataview) and Dataview render and query the note as it is:
-
-```
-- [<mark>] <text>  [kind:: <kind>]  [owner:: <owner>]  [agent:: <agent>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [body:: <doc_id>]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]
-```
-
-- `<mark>` is the status, as the Tasks plugin types it:
-
-  | Status | Mark | Tasks type |
-  |---|---|---|
-  | `open` | `[ ]` | TODO |
-  | `returned` (delegated only) | `[/]` | IN_PROGRESS |
-  | `parked` | `[>]` | TODO by default; give `>` the ON_HOLD type in Tasks' settings to match |
-  | `closed` | `[x]` | DONE |
-  | `dropped` | `[-]` | CANCELLED |
-
-  A closed or dropped item sits under `## Closed`; `close` takes
-  `status=dropped` for work not done.
-- `<kind>`: `next`, `delegated`, `decision`, `follow-up`.
-- `<text>`: one line. A backslash escapes `\`, `[`, `]`, `(`, `)` and the
-  Tasks date emoji (✅ ❌ 📅 ⏳ 🛫 ➕) in it, Markdown's own escape, so
-  Obsidian shows it as typed and no text reads as a field.
-- Fields appear only when set, each after two spaces (Tasks' own separator),
-  in the order above. `owner`, `agent`, the links (`commit` comma-separated),
-  `body` and `alias` are one word without spaces, brackets, parentheses or a
-  backslash. `resolution` is one line, such as `repo@sha`, a PR or a doc_id,
-  with the text's bracket escapes; a closed item closed through `queue`
-  carries one, and an open item never does.
-- `id` and `dependsOn` are the Tasks plugin's own dependency fields (the
-  tool's `blocked_by`), last because Tasks reads fields from the end of the
-  line and stops at the first it does not know. Tasks' `is blocked` and
-  `is blocking` filters and `ready` agree: a dependency stops blocking once
-  it is closed or dropped.
-
-```
-- [/] Build the store  [kind:: delegated]  [owner:: worker]  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
-- [ ] Read map\[string\] keys  [kind:: next]  [id:: ex-5]  [dependsOn:: ex-4]
-- [x] Ship on Friday?  [kind:: decision]  [owner:: main]  [resolution:: yes]  [id:: ex-2]
-```
-
-Editing the note in Obsidian is fine; every write re-reads it under the
-lock. A box ticked there is closed: the Tasks plugin's `[completion:: date]`
-or `✅ date`, Dataview's completion field, and any other field the queue does
-not own are kept as written (Tasks' own fields after `dependsOn`, the rest
-before `id`). A ticked item has no resolution until `close` records one,
-which also files it under `## Closed`; reopening it with `set` drops the
-resolution and the done and cancelled dates. A line under either heading
-that starts `- [` and doesn't parse is left alone and counted in `list`'s
-`unparsed_lines`.
-
-### CLI for hooks
-
-`severino-vault-mcp queue <action> [id] [flags]` runs the same function as
-the MCP tool against the labs vault and prints one line of compact JSON
-(`--pretty` indents it). It exits 0 when `ok` is true, 1 on a refused call
-(the JSON carries `error` and `next_steps`), 2 on a usage error (stderr).
-Pass a value that starts with a dash as `--flag=value`. Items in the output
-carry `id, project, kind, status, owner, text, links`, plus `blocked_by,
-body, alias, agent, resolution` when set; `--fields` narrows them.
-
-| Action | Flags |
-|---|---|
-| `add` | `--cwd`, `--repo` or `--project`; `--kind`, `--text`; optional `--owner`, `--agent`, `--pr`, `--branch`, `--commit`, `--slug`, `--blocked-by <id> ...` |
-| `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent` alone searches every queue); `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--ready`, `--contains`, `--limit` |
-| `set` | `<id>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--text`, link flags (`''` removes one), `--blocked-by` |
-| `close` | `<id>` or `--agent`; `--resolution`; `--status dropped` for work not done; link flags |
-| `promote` | `<id>` or `--agent`; optional `--content` |
 
 ## Writing a note from outside the server
 

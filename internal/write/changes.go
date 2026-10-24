@@ -197,38 +197,29 @@ func (a Arg) Help() string {
 	case OpAdd:
 		return "Append to " + f.Name + "."
 	case OpRemove:
-		return "Remove from " + f.Name + " (update only)."
+		return "Remove from " + f.Name + "."
 	}
 	var parts []string
-	switch {
-	case a.Op == OpReplace && f.Help != "":
-		parts = append(parts, "Replace "+f.Name+": "+strings.ToLower(f.Help[:1])+f.Help[1:])
-	case a.Op == OpReplace:
-		parts = append(parts, "Replace "+f.Name+".")
-	case f.Help != "":
+	if f.Help != "" {
 		parts = append(parts, f.Help)
 	}
 	switch f.Kind {
-	case schema.KindEnum:
-		parts = append(parts, "One of the vault's "+f.Name+" values.")
 	case schema.KindDate:
-		parts = append(parts, "ISO date (YYYY-MM-DD).")
+		parts = append(parts, "YYYY-MM-DD.")
 	case schema.KindPath:
-		parts = append(parts, "An absolute path or one under ~/.")
-	case schema.KindInteger:
-		parts = append(parts, "An integer.")
+		parts = append(parts, "Absolute or ~/ path.")
 	}
 	if f.Shape != "" {
 		parts = append(parts, strings.ToUpper(f.Shape[:1])+f.Shape[1:]+".")
 	}
 	if f.Unique {
-		parts = append(parts, "Unique across docs.")
-	}
-	if f.Example != "" {
-		parts = append(parts, "E.g. "+f.Example+".")
+		parts = append(parts, "Unique.")
 	}
 	if f.Scope != "" {
 		parts = append(parts, "Only on "+f.Scope+".")
+	}
+	if a.Op == OpReplace {
+		parts = append(parts, "Replaces the list.")
 	}
 	return strings.Join(parts, " ")
 }

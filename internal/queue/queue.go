@@ -39,8 +39,8 @@ var marks = map[string]rune{"open": ' ', "returned": '/', "parked": '>', "closed
 func Done(status string) bool { return status == "closed" || status == "dropped" }
 
 // LinkKeys are the typed links a hook can match an item by. Format writes
-// kind, owner, agent, the links, body, alias and resolution in this order,
-// then id and dependsOn.
+// kind, owner, agent, origin, repos, the links, body, alias and resolution in
+// this order, then id and dependsOn.
 var LinkKeys = []string{"pr", "branch", "commit", "slug"}
 
 // Unowned is the owner argument meaning nobody; the line simply omits owner.
@@ -68,13 +68,17 @@ var tasksKeys = []string{"created", "start", "scheduled", "due", "completion", "
 var doneKeys = []string{"completion", "cancelled"}
 
 // Item is one queue line. Owner "" is unowned; Links holds only the keys
-// given; Resolution is set only on a done item. Extra holds the fields the
-// queue does not own (a done date Tasks appended, say), each as written.
+// given. Origin is the repository the session that filed the item ran in;
+// Repos are the repositories one item's work spans. Resolution is set on a
+// done item, and on an open one with Repos as the repo@sha landings so far.
+// Extra holds the fields the queue does not own (a done date Tasks appended,
+// say), each as written.
 type Item struct {
 	ID, Kind, Status, Owner, Text string
 	Links                         map[string]string
 	BlockedBy                     []string
-	Body, Alias, Agent            string
+	Body, Alias, Agent, Origin    string
+	Repos                         []string
 	Resolution                    string
 	Extra                         []string
 }
@@ -108,6 +112,34 @@ func ValidPrefix(p string) bool { return prefixRe.MatchString(p) }
 // ValidToken reports whether s can stand as a one-word field value.
 func ValidToken(s string) bool { return tokenRe.MatchString(s) }
 
+// ValidRepo reports whether s can stand in a comma list of repositories.
+func ValidRepo(s string) bool { return ValidToken(s) && !strings.ContainsAny(s, ",@") }
+
+// Landing is one repo@sha entry of a multi-repo item's resolution.
+type Landing struct{ Repo, Commit string }
+
+// Landings reads s as comma-separated repo@sha entries; ok is false when any
+// entry is something else.
+func Landings(s string) (out []Landing, ok bool) {
+	for _, e := range SplitList(s) {
+		repo, commit, found := strings.Cut(e, "@")
+		if !found || !ValidRepo(repo) || !ValidRepo(commit) {
+			return nil, false
+		}
+		out = append(out, Landing{repo, commit})
+	}
+	return out, true
+}
+
+// SplitList reads a comma list, trimming each entry.
+func SplitList(s string) []string {
+	var out []string
+	for e := range strings.SplitSeq(s, ",") {
+		out = append(out, strings.TrimSpace(e))
+	}
+	return out
+}
+
 // escape puts a backslash before each rune in special: Markdown's own escape,
 // so Obsidian shows the text as typed.
 func escape(s, special string) string {
@@ -121,17 +153,49 @@ func escape(s, special string) string {
 	return sb.String()
 }
 
-// Brackets and parentheses could open an inline field; the emoji could start a
-// Tasks date the parser would take off the end of the text.
-const (
-	textSpecial  = "[]()✅❌📅⏳🛫➕"
-	valueSpecial = "[]()"
-)
+// valueSpecial is escaped inside a [key:: value] field: only a ] ends it, so
+// parentheses and [ stay as typed.
+const valueSpecial = "]"
 
-// Escape makes text safe as the task's description.
-func Escape(text string) string { return escape(text, textSpecial) }
+// dateEmoji are the Tasks emoji that start a date.
+const dateEmoji = "✅❌📅⏳🛫➕"
 
-// Unescape reverses Escape and the escaping of a resolution.
+var emojiDateTail = regexp.MustCompile(`^ *\d{4}-\d{2}-\d{2}`)
+
+// Escape makes text safe as the task's description, escaping only what a
+// parser would read as something other than text: a backslash; a [ or ( that
+// opens a Dataview field (a "::" follows it before its own closing bracket);
+// the "::" of a leading unbracketed "key:: value"; and a Tasks date emoji
+// followed by a date. Ordinary brackets and parentheses stay as typed.
+func Escape(text string) string {
+	leading := strings.Index(text, "::")
+	if leading <= 0 || strings.ContainsAny(text[:leading], "[]()") {
+		leading = -1
+	}
+	var sb strings.Builder
+	for i, r := range text {
+		rest := text[i+utf8.RuneLen(r):]
+		switch {
+		case r == '\\',
+			r == '[' && opensField(rest, ']'),
+			r == '(' && opensField(rest, ')'),
+			i == leading,
+			strings.ContainsRune(dateEmoji, r) && emojiDateTail.MatchString(rest):
+			sb.WriteByte('\\')
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
+}
+
+// opensField reports whether a "::" comes in rest before the closing bracket.
+func opensField(rest string, closing byte) bool {
+	before, _, found := strings.Cut(rest, "::")
+	return found && strings.IndexByte(before, closing) < 0
+}
+
+// Unescape reverses Escape and the escaping of a resolution, whichever
+// characters carry a backslash.
 func Unescape(s string) string {
 	var sb strings.Builder
 	escaped := false
@@ -170,8 +234,8 @@ func (it Item) Validate() error {
 		return err
 	}
 	if it.Resolution != "" {
-		if !Done(it.Status) {
-			return fmt.Errorf("only a closed or dropped item carries a resolution; %s is %s", it.ID, it.Status)
+		if !Done(it.Status) && len(it.Repos) == 0 {
+			return fmt.Errorf("only a closed or dropped item, or one with repos, carries a resolution; %s is %s", it.ID, it.Status)
 		}
 		if err := OneLine("resolution", it.Resolution); err != nil {
 			return err
@@ -190,9 +254,14 @@ func (it Item) Validate() error {
 			return fmt.Errorf("blocked_by %q is not an item id", b)
 		}
 	}
-	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}} {
+	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}, {"origin", it.Origin}} {
 		if f[1] != "" && !ValidToken(f[1]) {
 			return fmt.Errorf("%s %q must be %s", f[0], f[1], TokenRule)
+		}
+	}
+	for _, r := range it.Repos {
+		if !ValidRepo(r) {
+			return fmt.Errorf("repos %q must each be %s, without a comma or @", r, TokenRule)
 		}
 	}
 	for _, x := range it.Extra {
@@ -235,7 +304,7 @@ func (it *Item) Reopen(status string) {
 // owned reports whether the queue owns field key.
 func owned(key string) bool {
 	switch key {
-	case "kind", "owner", "agent", "body", "alias", "resolution", idKey, dependsOnKey:
+	case "kind", "owner", "agent", "origin", "repos", "body", "alias", "resolution", idKey, dependsOnKey:
 		return true
 	}
 	return slices.Contains(LinkKeys, key)
@@ -253,6 +322,8 @@ func Format(it Item) string {
 	field("kind", it.Kind)
 	field("owner", it.Owner)
 	field("agent", it.Agent)
+	field("origin", it.Origin)
+	field("repos", strings.Join(it.Repos, ","))
 	for _, k := range LinkKeys {
 		field(k, it.Links[k])
 	}
@@ -321,6 +392,10 @@ func Parse(line string) (it Item, ok bool) {
 			it.Owner = f.value
 		case "agent":
 			it.Agent = f.value
+		case "origin":
+			it.Origin = f.value
+		case "repos":
+			it.Repos = SplitList(f.value)
 		case "body":
 			it.Body = f.value
 		case "alias":
@@ -330,9 +405,7 @@ func Parse(line string) (it Item, ok bool) {
 		case idKey:
 			it.ID = f.value
 		case dependsOnKey:
-			for b := range strings.SplitSeq(f.value, ",") {
-				it.BlockedBy = append(it.BlockedBy, strings.TrimSpace(b))
-			}
+			it.BlockedBy = SplitList(f.value)
 		default:
 			if it.Links == nil {
 				it.Links = map[string]string{}
@@ -366,22 +439,28 @@ func lastField(s string) (inline, bool) {
 	if s[end] == ')' {
 		open = '('
 	}
-	start := -1
+	// Only the field's own closing bracket ends it, so its value may hold the
+	// other kind, and its opening one, as typed. The field starts at the
+	// leftmost opening bracket that reads as "key::" before the previous
+	// field's close: any opening bracket further right is inside the value.
+	var f inline
+	found := false
 	for i := end - 1; i >= 0; i-- {
-		if (s[i] == '[' || s[i] == '(' || s[i] == ']' || s[i] == ')') && !escapedAt(s, i) {
-			start = i
+		if escapedAt(s, i) {
+			continue
+		}
+		if s[i] == s[end] {
 			break
 		}
+		if s[i] != open || (i > 0 && s[i-1] != ' ' && s[i-1] != '\t') {
+			continue
+		}
+		key, value, ok := strings.Cut(s[i+1:end], "::")
+		if key = strings.TrimSpace(key); ok && keyRe.MatchString(key) {
+			f, found = inline{raw: s[i:], key: key, value: strings.TrimSpace(value)}, true
+		}
 	}
-	if start < 0 || s[start] != open || (start > 0 && s[start-1] != ' ' && s[start-1] != '\t') {
-		return inline{}, false
-	}
-	key, value, found := strings.Cut(s[start+1:end], "::")
-	key = strings.TrimSpace(key)
-	if !found || !keyRe.MatchString(key) {
-		return inline{}, false
-	}
-	return inline{raw: s[start:], key: key, value: strings.TrimSpace(value)}, true
+	return f, found
 }
 
 // escapedAt reports whether an odd run of backslashes precedes s[i].

@@ -103,8 +103,8 @@ func (v *Vault) docAt(rel string) *vault.Doc {
 // emptyFind is the way out of a search with no hits.
 func (v *Vault) emptyFind(q string, a FindArgs) []string {
 	var steps []string
-	if a.System != "" || a.Project != "" {
-		steps = append(steps, Call("find", "query", q)+" without system or project")
+	if a.System != "" || a.Project != "" || a.DocType != "" {
+		steps = append(steps, Call("find", "query", q)+" without system, project or doc_type")
 	}
 	if a.By == "relevance" {
 		steps = append(steps, Call("find", "query", q, "by", "text")+" to search doc bodies")

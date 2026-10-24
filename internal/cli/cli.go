@@ -466,7 +466,7 @@ func runTaskList(c *Ctx, p Parsed) int {
 	return c.emit(core.TaskBoard(c.labsVault(), tasks.Filter{
 		Status: p.Str("status"), Project: p.Str("project"), StaleOnly: p.Bool("stale_only"),
 		IncludeAll: p.Bool("include_all"), StaleDays: p.Int("stale_days"),
-	}, core.BoardArgs{Limit: p.Int("limit"), View: view(p)}), p.Bool("pretty"))
+	}, core.BoardArgs{Limit: p.Int("limit"), IncludeQueue: p.Bool("include_queue"), View: view(p)}), p.Bool("pretty"))
 }
 
 func runPromoteNote(c *Ctx, p Parsed) int {
@@ -518,10 +518,12 @@ func runLogEntries(c *Ctx, p Parsed) int {
 func runQueue(c *Ctx, p Parsed) int {
 	q := core.QueueArgs{
 		Action: p.Str("action"), ID: p.Str("id"), Project: p.Str("project"), Repo: p.Str("repo"), Cwd: p.Str("cwd"),
-		All: p.Bool("all"), Agent: p.Str("agent"), Kind: p.Str("kind"), Text: optStr(p, "text"), Owner: optStr(p, "owner"),
-		BlockedBy: p.List("blocked_by"), HasBlockedBy: p.Has("blocked_by"), Status: p.Str("status"), Ready: p.Bool("ready"),
+		All: p.Bool("all"), Agent: p.Str("agent"), Origin: p.Str("origin"), IncludeOrigin: p.Bool("include_origin"), Kind: p.Str("kind"), Text: optStr(p, "text"), Owner: optStr(p, "owner"),
+		Alias: optStr(p, "alias"), Body: optStr(p, "body"),
+		BlockedBy: p.List("blocked_by"), HasBlockedBy: p.Has("blocked_by"), Repos: p.List("repos"), HasRepos: p.Has("repos"),
+		Partial: p.Bool("partial"), Status: p.Str("status"), Ready: p.Bool("ready"),
 		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Resolution: p.Str("resolution"),
-		Content: p.Str("content"), View: view(p),
+		View: view(p),
 	}
 	for _, k := range queue.LinkKeys {
 		if p.Has(k) {

@@ -229,7 +229,10 @@ var coreKeys = map[string]bool{
 	"sensitivity": true, "last_reviewed": true, "tags": true, "related_projects": true, "related_assets": true,
 }
 
-// CoerceList turns a parsed value into a list of strings.
+// CoerceList reads a frontmatter value as a list of strings, the one reader
+// for tags, relations and every list field. A missing or empty value is the
+// empty list, because the writer stores an emptied list as nothing, and a
+// null item is skipped; a scalar is a one-item list.
 func CoerceList(v any) []string {
 	switch x := v.(type) {
 	case nil:
@@ -242,6 +245,10 @@ func CoerceList(v any) []string {
 			}
 		}
 		return out
+	case string:
+		if x == "" {
+			return []string{}
+		}
 	}
 	return []string{pystr.Str(v)}
 }

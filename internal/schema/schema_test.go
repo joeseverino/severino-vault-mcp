@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "cf68dbb89aa9e0b8a63365e79725ae9d3abb89f7dc4b8d6870ad5ebb3a689b46"
+const labsFingerprint = "aa209c1bbf060f9be8ba211ccca1fc36d6a079dc70100d7814d72f48e2568d17"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -81,6 +81,21 @@ func TestDocumentSchemaValidatesComposableFieldRules(t *testing.T) {
 		}
 	}
 	if errs := domain.Validate(jsonx.New()); len(errs) != 2 {
+		t.Fatal(errs)
+	}
+}
+
+// A work queue note is its own doc_type, and its doc_id carries queue-.
+func TestAQueueNoteCarriesTheQueuePrefix(t *testing.T) {
+	block := func(id string) *jsonx.Obj {
+		return jsonx.New("doc_id", id, "title", "Q", "doc_type", "queue", "system", "x", "environment", "other",
+			"status", "active", "sensitivity", "internal")
+	}
+	if errs := Labs.Check(block("queue-example"), "01 Projects/Example/Queue.md"); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	errs := Labs.Check(block("note-example"), "01 Projects/Example/Queue.md")
+	if !slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, "must start with one of ['queue-']") }) {
 		t.Fatal(errs)
 	}
 }

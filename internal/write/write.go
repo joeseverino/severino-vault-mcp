@@ -140,28 +140,6 @@ func held(idx *vault.Index, f schema.Field, values []string, self string) string
 	return ""
 }
 
-// valueList reads a frontmatter value as a list of strings.
-func valueList(v any) []string {
-	switch x := v.(type) {
-	case nil:
-		return []string{}
-	case []any:
-		out := []string{}
-		for _, item := range x {
-			out = append(out, pystr.Str(item))
-		}
-		return out
-	case string:
-		if x == "" {
-			return []string{}
-		}
-	}
-	if !pystr.Truthy(v) {
-		return []string{}
-	}
-	return []string{pystr.Str(v)}
-}
-
 // SetFrontmatter applies c to the doc at relativePath, validated against p:
 // a file without frontmatter gets a new block, an existing block is changed
 // in place. Every field p declares can be set; an immutable one only while
@@ -220,7 +198,7 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 		case slices.Contains(c.Touch, name):
 			set(name, Today())
 		case c.Lists[name].given():
-			current := valueList(cur)
+			current := vault.CoerceList(cur)
 			if next := applyListOp(current, c.Lists[name]); !slices.Equal(next, current) {
 				fm.Set(name, jsonx.Strings(next))
 				changed = append(changed, name)
@@ -254,7 +232,7 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 		}
 		if f.Unique && idx != nil {
 			old, _ := before.Get(name)
-			fresh := slices.DeleteFunc(valueList(v), func(s string) bool { return slices.Contains(valueList(old), s) })
+			fresh := slices.DeleteFunc(vault.CoerceList(v), func(s string) bool { return slices.Contains(vault.CoerceList(old), s) })
 			if e := held(idx, f, fresh, rel); e != "" {
 				errs = append(errs, e)
 			}
@@ -305,7 +283,7 @@ func checkNew(fm *jsonx.Obj, rel string, p *schema.Profile, idx *vault.Index) []
 		if !f.Unique || v == nil || idx == nil {
 			continue
 		}
-		if e := held(idx, f, valueList(v), rel); e != "" {
+		if e := held(idx, f, vault.CoerceList(v), rel); e != "" {
 			errs = append(errs, e)
 		}
 	}

@@ -138,7 +138,7 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 | `move_doc` | Move or rename a registered doc, keeping its frontmatter; a file name another note has is refused. |
 | `task_board`, `task_write` | The task ledger. |
 | `log_entries` | An append-only log note's entries: list the open ones, or close one with its resolution. |
-| `queue` | A project's work queue: add, list, set or claim, close and promote one-line items in its `Queue.md`. |
+| `queue` | A project's work queue: add, list, set or claim, and close one-line items in its `Queue.md`. |
 
 Broad questions start at the Quick Index; specific ones use `find`, then
 `read_doc`; answers come from the doc. See [`demo.md`](demo.md). The
