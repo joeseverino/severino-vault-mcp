@@ -19,6 +19,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 )
 
 // Field kinds.
@@ -242,8 +243,14 @@ func (f Field) Contract() *jsonx.Obj {
 	return o
 }
 
-// DocumentSchema is the field contract for one doc_type.
-type DocumentSchema struct{ Fields map[string]Field }
+// DocumentSchema is the field contract for one doc_type. RequiredFields,
+// when set, replace the profile's RequiredFields for docs of the type: a
+// field the profile requires that the type does not is neither required nor
+// defaulted by a create.
+type DocumentSchema struct {
+	Fields         map[string]Field
+	RequiredFields []string
+}
 
 // Validate checks every field rule, in name order.
 func (d DocumentSchema) Validate(data *jsonx.Obj) []string {
@@ -281,6 +288,48 @@ type Profile struct {
 	// profile shares (Settable lists both).
 	Fields          []Field
 	DocumentSchemas map[string]DocumentSchema
+	// Retired is structure the vault has given up; doctor warns on a live
+	// doc that mentions any of it.
+	Retired []Retired
+}
+
+// Retired is one piece of retired structure: Pattern, a regular expression,
+// matches a mention of it in a doc's text, and Help says what to do instead.
+type Retired struct{ Pattern, Help string }
+
+// RetiredIn are the retired structure text mentions, each with the 1-based
+// lines it appears on, in the profile's order.
+func (p *Profile) RetiredIn(text string) []RetiredMention {
+	var out []RetiredMention
+	lines := sections.Lines(text)
+	for _, r := range p.Retired {
+		re, err := regexp.Compile(r.Pattern)
+		if err != nil {
+			continue
+		}
+		var at []int
+		var first string
+		for i, line := range lines {
+			if m := re.FindString(line); m != "" {
+				if first == "" {
+					first = m
+				}
+				at = append(at, i+1)
+			}
+		}
+		if len(at) > 0 {
+			out = append(out, RetiredMention{Retired: r, Match: first, Lines: at})
+		}
+	}
+	return out
+}
+
+// RetiredMention is one Retired pattern found in a text: the first match and
+// every line it is on.
+type RetiredMention struct {
+	Retired
+	Match string
+	Lines []int
 }
 
 // HasDocType and friends test membership.
@@ -402,18 +451,47 @@ func (p *Profile) docOnly(name string) bool {
 	return slices.Contains(p.RequiredFields, name) && !slices.Contains(p.TaskRequiredFields, name) && !slices.Contains(p.TaskFields, name)
 }
 
+// RequiredFor is the field set a doc of docType must carry: a task's own
+// set for tasks, the doc_type's own where its document schema names one,
+// and the profile's otherwise.
+func (p *Profile) RequiredFor(docType string) []string {
+	if docType == "task" {
+		return p.TaskRequiredFields
+	}
+	if ds, ok := p.DocumentSchemas[docType]; ok && len(ds.RequiredFields) > 0 {
+		return ds.RequiredFields
+	}
+	return p.RequiredFields
+}
+
+// Omits reports a field docType's own required set leaves out, which a
+// create does not default.
+func (p *Profile) Omits(docType, name string) bool {
+	ds, ok := p.DocumentSchemas[docType]
+	return ok && len(ds.RequiredFields) > 0 && !slices.Contains(ds.RequiredFields, name)
+}
+
+// ownRequired are the doc_types whose document schema names its own
+// required set, sorted.
+func (p *Profile) ownRequired() []string {
+	var out []string
+	for _, name := range slices.Sorted(mapKeys(p.DocumentSchemas)) {
+		if len(p.DocumentSchemas[name].RequiredFields) > 0 {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // Check validates a whole frontmatter block at rel with the rules
-// set_frontmatter writes by: required fields (a task's own set for tasks),
-// every declared field's rule and scope (a task skips the doc-only fields),
-// and the per-doc-type field rules.
+// set_frontmatter writes by: required fields (RequiredFor the block's
+// doc_type), every declared field's rule and scope (a task skips the
+// doc-only fields), and the per-doc-type field rules.
 func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
 	task := IsTask(fm)
-	required := p.RequiredFields
-	if task {
-		required = p.TaskRequiredFields
-	}
+	dt, _ := fm.Get("doc_type")
 	var errs []string
-	for _, name := range required {
+	for _, name := range p.RequiredFor(pystr.Str(orEmpty(dt))) {
 		if v, _ := fm.Get(name); missing(v) {
 			errs = append(errs, "missing required field: "+name)
 		}
@@ -429,6 +507,63 @@ func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
 			errs = append(errs, f.ScopeError(rel))
 		}
 	}
+	return append(errs, p.ValidateDocument(fm)...)
+}
+
+// ArchivedStatus is the status a doc carries in the archive;
+// ClosedTaskStatuses are the task statuses that go there as they are, since
+// archived is not a task status and a closed task is already history.
+const ArchivedStatus = "archived"
+
+var ClosedTaskStatuses = []string{"done", "wontfix"}
+
+// ArchiveRequiredFields are the fields a note in the archive carries: enough
+// to be found and read, since the archive keeps a doc's frontmatter as it was.
+var ArchiveRequiredFields = []string{"doc_id", "title", "doc_type", "status"}
+
+// Archivable reports whether a block may stand in the archive: status:
+// archived, or a closed task.
+func Archivable(fm *jsonx.Obj) bool {
+	status := fm.Text("status")
+	if IsTask(fm) {
+		return slices.Contains(ClosedTaskStatuses, status)
+	}
+	return status == ArchivedStatus
+}
+
+// ArchiveProblems are the problem with a block that may not stand in the
+// archive dir archive, none when it may.
+func ArchiveProblems(fm *jsonx.Obj, archive string) []string {
+	if Archivable(fm) {
+		return nil
+	}
+	if IsTask(fm) {
+		return []string{fmt.Sprintf("a task in %s is closed (status %s), not %s", archive, strings.Join(ClosedTaskStatuses, " or "), pystr.Repr(fm.Text("status")))}
+	}
+	return []string{fmt.Sprintf("a doc in %s has status: %s, not %s; set status %s in the same call", archive, ArchivedStatus, pystr.Repr(fm.Text("status")), ArchivedStatus)}
+}
+
+// CheckArchived validates a block in the archive dir archive:
+// ArchiveRequiredFields, every declared field's rule but not its path scope
+// (a doc keeps the fields it carried where it lived), the per-doc-type
+// field rules, and Archivable.
+func (p *Profile) CheckArchived(fm *jsonx.Obj, archive string) []string {
+	task := IsTask(fm)
+	var errs []string
+	for _, name := range ArchiveRequiredFields {
+		if v, _ := fm.Get(name); missing(v) {
+			errs = append(errs, "missing required field: "+name)
+		}
+	}
+	for _, f := range p.Settable() {
+		v, _ := fm.Get(f.Name)
+		if missing(v) || (task && p.docOnly(f.Name)) {
+			continue
+		}
+		f.Required = false
+		errs = append(errs, f.check(f.Name, v, task)...)
+	}
+	errs = append(errs, ArchiveProblems(fm, archive)...)
 	return append(errs, p.ValidateDocument(fm)...)
 }
 
@@ -515,6 +650,20 @@ func (p *Profile) ContractDict() *jsonx.Obj {
 	o.Set("task_fields", slices.Clone(p.TaskFields))
 	o.Set("fields", fields)
 	o.Set("document_schemas", schemas)
+	if own := p.ownRequired(); len(own) > 0 {
+		required := jsonx.New()
+		for _, name := range own {
+			required.Set(name, slices.Clone(p.DocumentSchemas[name].RequiredFields))
+		}
+		o.Set("doc_type_required_fields", required)
+	}
+	if len(p.Retired) > 0 {
+		retired := make([]any, 0, len(p.Retired))
+		for _, r := range p.Retired {
+			retired = append(retired, jsonx.New("pattern", r.Pattern, "help", r.Help))
+		}
+		o.Set("retired", retired)
+	}
 	return o
 }
 
@@ -661,8 +810,19 @@ var Labs = &Profile{
 			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
 	},
 	DocumentSchemas: map[string]DocumentSchema{
-		// A project's work queue note (the queue tool's Queue.md).
-		QueueDocType: {Fields: map[string]Field{"doc_id": {Kind: KindString, Required: true, Prefixes: []string{QueueDocIDPrefix}}}},
+		// A project's work queue note (the queue tool's Queue.md): its folder
+		// names the project and the queue tool owns the body, so it needs no
+		// environment, sensitivity or relation lists.
+		QueueDocType: {
+			Fields:         map[string]Field{"doc_id": {Kind: KindString, Required: true, Prefixes: []string{QueueDocIDPrefix}}},
+			RequiredFields: []string{"doc_id", "title", "doc_type", "system", "status", QueueFormatField},
+		},
+	},
+	Retired: []Retired{
+		{Pattern: `00 Reporting`, Help: "the 00 Reporting folder is retired; a report lives in the folder of the project it belongs to"},
+		{Pattern: `\btasks/`, Help: "task folders are retired; a project's work lives in its Queue.md"},
+		{Pattern: `Backlog\.base`, Help: "Backlog.base is retired; work no project owns lives in 07 Backlog/Queue.md"},
+		{Pattern: `\[\[task-`, Help: "task notes are retired; name the queue item by its id instead"},
 	},
 }
 
@@ -853,6 +1013,42 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				return nil, fmt.Errorf("document schemas reference unknown doc_types: ['%s']", docType)
 			}
 			p.DocumentSchemas[docType] = ds
+		}
+	}
+	if rv, ok := c.Get("doc_type_required_fields"); ok {
+		ro, isObj := rv.(*jsonx.Obj)
+		if !isObj {
+			return nil, fmt.Errorf("profile contract doc_type_required_fields must be an object")
+		}
+		for _, docType := range ro.Keys() {
+			v, _ := ro.Get(docType)
+			names, isList := strs(v)
+			if !isList {
+				return nil, fmt.Errorf("doc_type_required_fields.%s must be a list of strings", docType)
+			}
+			if !p.HasDocType(docType) {
+				return nil, fmt.Errorf("doc_type_required_fields references unknown doc_types: ['%s']", docType)
+			}
+			ds := p.DocumentSchemas[docType]
+			ds.RequiredFields = names
+			p.DocumentSchemas[docType] = ds
+		}
+	}
+	if rv, ok := c.Get("retired"); ok {
+		items, isList := rv.([]any)
+		if !isList {
+			return nil, fmt.Errorf("profile contract retired must be a list")
+		}
+		for i, item := range items {
+			ro, isObj := item.(*jsonx.Obj)
+			if !isObj {
+				return nil, fmt.Errorf("retired[%d] must be an object", i)
+			}
+			r := Retired{Pattern: ro.Str("pattern"), Help: ro.Str("help")}
+			if _, err := regexp.Compile(r.Pattern); err != nil || r.Pattern == "" {
+				return nil, fmt.Errorf("retired[%d].pattern must be a regular expression", i)
+			}
+			p.Retired = append(p.Retired, r)
 		}
 	}
 	return p, nil

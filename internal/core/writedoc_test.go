@@ -155,7 +155,7 @@ func TestWriteDocSectionModesSpliceOnlyTheirSection(t *testing.T) {
 	}
 }
 
-func TestWriteDocSectionStopsAtTheNextHeadingOfItsLevel(t *testing.T) {
+func TestWriteDocHeadingInsideAWholeSectionStopsAtTheNextHeading(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.MultisectionDoc(t, root)
 	path := filepath.Join(root, "03 Runbooks", "Backup Ops.md")
@@ -176,7 +176,7 @@ func TestWriteDocSectionRefusals(t *testing.T) {
 	before, pkiBefore := tk.Read(t, path), tk.Read(t, pki)
 	v := tk.Vault(root)
 	for want, a := range map[string]core.WriteDocArgs{
-		"no heading 'Goal' in 03 Runbooks/Backup Ops.md; pass one of ['Routine operations', 'Troubleshooting', 'Troubleshooting'] exactly": sectionArgs("replace_section", "Goal", "x"),
+		"no heading 'Goal' in 03 Runbooks/Backup Ops.md; pass a heading path or section slug from read_doc's outline, or one of ['Routine operations', 'Troubleshooting', 'Troubleshooting'] exactly": sectionArgs("replace_section", "Goal", "x"),
 		"heading 'Troubleshooting' appears 2 times":                         sectionArgs("replace_section", "Troubleshooting", "x"),
 		"mode 'append_section' requires heading":                            {Mode: "append_section", Body: "x", DocID: "rb-backup-ops"},
 		"body is empty":                                                     sectionArgs("append_section", "Routine operations", "\n"),
@@ -208,5 +208,113 @@ func TestWriteDocSectionRefusesFrontmatterThatNoLongerValidates(t *testing.T) {
 	}
 	if tk.Read(t, path) != before {
 		t.Fatal("wrote")
+	}
+}
+
+// filler is prose long enough that two of them push an H2 past the section
+// token cap, so Parse splits it at its H3s, while one stays under it.
+var filler = strings.Repeat("Steady words fill this paragraph for the cap. ", 22) + "\n"
+
+func sectionDoc(t *testing.T, root, body string) string {
+	t.Helper()
+	path := filepath.Join(root, "03 Runbooks", "Section Ops.md")
+	tk.Doc(t, path, "doc_id: rb-section-ops\ntitle: Section Ops\ndoc_type: runbook\nsystem: Backup\nenvironment: homelab\n"+
+		"status: active\nsensitivity: internal\nlast_reviewed: 2026-05-01", body)
+	return path
+}
+
+func sectionOps(mode, heading, body string) core.WriteDocArgs {
+	return core.WriteDocArgs{Mode: mode, Heading: &heading, Body: body, DocID: "rb-section-ops"}
+}
+
+func TestReplaceSectionReplacesExactlyWhatReadDocReturns(t *testing.T) {
+	big := "## Stages\n\n- one\n\n### Contract\n\n" + filler + "\n### Other\n\n" + filler + "\n## After\n\nkept\n"
+	for name, tc := range map[string]struct {
+		body, ref string
+		whole     bool // read_doc returns the whole H2, its H3 inside
+	}{
+		"small H2 with an H3": {"## Stages\n\n- one\n\n### Contract\n\nshort\n\n## After\n\nkept\n", "stages", true},
+		"oversized H2":        {big, "stages", false},
+		"an H3 of an oversized H2, by heading path": {big, "Stages > Contract", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := tk.FakeVault(t)
+			path := sectionDoc(t, root, tc.body)
+			v := tk.Vault(root)
+			secs := tk.Hits(core.ReadDoc(v, "rb-section-ops", core.ReadArgs{Sections: []string{tc.ref}}), "sections")
+			if len(secs) != 1 {
+				t.Fatalf("read_doc sections: %v", secs)
+			}
+			read := secs[0].Str("body")
+			if (strings.Contains(read, "- one") && strings.Contains(read, "### Contract")) != tc.whole {
+				t.Fatalf("read_doc section %q: the doc does not exercise this case", read)
+			}
+			_, before := splitHead(t, tk.Read(t, path))
+			at := strings.Index(before, read)
+			if at < 0 || strings.Count(before, read) != 1 {
+				t.Fatalf("section body not found once in %q", before)
+			}
+			heading, _, _ := strings.Cut(read, "\n")
+			mustOK(t, core.WriteDoc(v, sectionOps("replace_section", tc.ref, "NEW")))
+			_, after := splitHead(t, tk.Read(t, path))
+			if want := before[:at] + heading + "\n\nNEW\n" + before[at+len(read):]; after != want {
+				t.Fatalf("replace_section %s covered other than read_doc's section:\nread %q\ngot  %q\nwant %q", tc.ref, read, after, want)
+			}
+		})
+	}
+}
+
+func TestAppendSectionAddsBeforeTheFirstSubheading(t *testing.T) {
+	root := tk.FakeVault(t)
+	path := sectionDoc(t, root, "## Stages\n\n- one\n\n### Contract\n\nshort\n\n## After\n\nkept\n")
+	mustOK(t, core.WriteDoc(tk.Vault(root), sectionOps("append_section", "Stages", "- two")))
+	if _, body := splitHead(t, tk.Read(t, path)); body != "## Stages\n\n- one\n\n- two\n\n### Contract\n\nshort\n\n## After\n\nkept\n" {
+		t.Fatalf("%q", body)
+	}
+}
+
+func TestSectionEditRefusesABodyThatRepeatsItsHeading(t *testing.T) {
+	root := tk.FakeVault(t)
+	path := sectionDoc(t, root, "## Stages\n\n- one\n\n## After\n\nkept\n")
+	before := tk.Read(t, path)
+	v := tk.Vault(root)
+	for _, mode := range []string{"replace_section", "append_section"} {
+		r := core.WriteDoc(v, sectionOps(mode, "Stages", "\n## Stages\n\n- two\n"))
+		if r.Bool("ok") || !strings.Contains(r.Str("error"), "send the body without it") {
+			t.Errorf("%s: %s", mode, jsonx.Compact(r))
+		}
+	}
+	if tk.Read(t, path) != before {
+		t.Fatal("a refused edit wrote")
+	}
+	// A body opening with a deeper heading of the same text is new content.
+	mustOK(t, core.WriteDoc(v, sectionOps("replace_section", "Stages", "### Stages\n\n- two")))
+}
+
+func TestADuplicatedHeadingIsTargetedByItsHeadingPath(t *testing.T) {
+	for name, fill := range map[string]string{"whole H2s": "short\n", "H2s split at their H3s": filler} {
+		t.Run(name, func(t *testing.T) {
+			root := tk.FakeVault(t)
+			body := "## One\n\n### Target shape\n\nfirst\n\n### Pad\n\n" + fill + "\n## Two, owned by CI\n\n### Target shape\n\nsecond\n\n### Pad\n\n" + fill + "\n## End\n\nend\n"
+			path := sectionDoc(t, root, body)
+			v := tk.Vault(root)
+			r := core.WriteDoc(v, sectionOps("replace_section", "Target shape", "x"))
+			if r.Bool("ok") || !strings.Contains(r.Str("error"), "appears 2 times") ||
+				!strings.Contains(r.Str("error"), "['One > Target shape', 'Two, owned by CI > Target shape']") {
+				t.Fatal(jsonx.Compact(r))
+			}
+			if steps := jsonx.Compact(r); !strings.Contains(steps, `heading=\"Two, owned by CI > Target shape\"`) || !strings.Contains(steps, `heading=\"One > Target shape\"`) {
+				t.Fatal(steps)
+			}
+			mustOK(t, core.WriteDoc(v, sectionOps("replace_section", "Two, owned by CI > Target shape", "replaced")))
+			_, got := splitHead(t, tk.Read(t, path))
+			if want := strings.Replace(body, "second", "replaced", 1); got != want {
+				t.Fatalf("%q", got)
+			}
+			mustOK(t, core.WriteDoc(v, sectionOps("append_section", "one-target-shape", "more")))
+			if _, got := splitHead(t, tk.Read(t, path)); !strings.Contains(got, "first\n\nmore\n\n### Pad") {
+				t.Fatalf("%q", got)
+			}
+		})
 	}
 }

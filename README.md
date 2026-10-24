@@ -99,13 +99,19 @@ go install ./cmd/severino-vault-mcp
 claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
-Or load the repo as a Claude Code plugin, which declares the same server
-(`.mcp.json`, the binary on `PATH`) and adds the `vault` skill:
+Or install it as a Claude Code plugin, which declares the same server
+(`.mcp.json`, the binary on `PATH`) and adds the `vault` skill. The repo is its
+own marketplace:
 
 ```bash
 go install ./cmd/severino-vault-mcp
-claude --plugin-dir /path/to/severino-vault-mcp
+/plugin install severino-vault-mcp --marketplace joeseverino/severino-vault-mcp
 ```
+
+A server you already registered with the same command wins over the plugin's
+copy, so its tool names stay `mcp__severino-vault-mcp__*`; the plugin then only
+adds the skill. Without one, the plugin's tools are
+`mcp__plugin_severino-vault-mcp_severino-vault-mcp__*`.
 
 After upgrading the binary, restart Claude Code sessions, not just `/mcp`:
 `find` and `read_doc` load upfront (`anthropic/alwaysLoad`) and keep the

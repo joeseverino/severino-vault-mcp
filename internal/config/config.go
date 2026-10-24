@@ -64,8 +64,9 @@ var DefaultReadOnlyDirs = []string{"00 Inbox", "05 Writeups", "06 Pages"}
 
 // DefaultArchiveDir is the labs vault's archive, where retired docs and
 // projects go with status: archived. The index reads it apart from the rest,
-// so find leaves its docs out unless asked, and nothing writes there but a
-// move. It applies only while the indexed dirs are the defaults too.
+// so find leaves its docs out unless asked, and a write there keeps the doc
+// archived (schema.Profile.CheckArchived). It applies only while the indexed
+// dirs are the defaults too.
 const DefaultArchiveDir = "99 Archive"
 
 // Archived reports whether rel, a vault-relative path, is in the archive.

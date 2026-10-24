@@ -197,8 +197,8 @@ func (v *Vault) sectionSteps(d *vault.Doc, mode string) func(string) []string {
 			return []string{Call("write_doc", "mode", mode, "doc_id", d.DocID) + " with a non-empty body"}
 		}
 		return []string{
-			Call("read_doc", "doc_id", d.DocID, "fields", []string{"outline"}) + " to see its headings",
-			Call("write_doc", "mode", mode, "doc_id", d.DocID) + " with heading set to one of them exactly",
+			Call("read_doc", "doc_id", d.DocID, "fields", []string{"outline"}) + " to see its sections",
+			Call("write_doc", "mode", mode, "doc_id", d.DocID) + " with heading set to a heading_path or section slug from it",
 		}
 	}
 }

@@ -9,7 +9,25 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
+
+// A retired field holding a value someone chose, or an H1 that is not the
+// title, is kept: reformat drops only values that say nothing.
+func TestReformatKeepsWhatWasChosenByHand(t *testing.T) {
+	root, v := queueVault(t)
+	path := filepath.Join(root, trackerQueue)
+	front := strings.NewReplacer("sensitivity: internal", "sensitivity: sensitive", "tags:\n  - queue", "tags:\n  - queue\n  - pinned").Replace(oldQueueFront)
+	tk.Doc(t, path, front+"\nqueue_format: 1", "# Widget work\n\n"+newQueueBody)
+	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "reformat", All: true}))
+	if jsonx.Compact(tk.Get(r, "changed.0.fields_dropped")) != `["environment","related_projects"]` || tk.Get(r, "changed.0.h1_dropped") != nil {
+		t.Fatal(jsonx.Compact(r))
+	}
+	note := tk.Read(t, path)
+	if !strings.Contains(note, "\nsensitivity: sensitive\n") || !strings.Contains(note, "\n  - pinned\n") || !strings.Contains(note, "\n# Widget work\n") {
+		t.Fatal(note)
+	}
+}
 
 const oldQueueFront = "doc_id: queue-example-tracker\ntitle: Example Tracker Queue\ndoc_type: queue\nsystem: Example Tracker\n" +
 	"environment: other\nstatus: active\nsensitivity: internal\nlast_reviewed: 2026-01-01\nrelated_projects:\n  - Example Tracker\ntags:\n  - queue"
@@ -23,7 +41,12 @@ const oldQueueBody = "# Example Tracker Queue\n\n## Open\n\n" +
 	"## Closed\n\n" +
 	"- [x] Shipped  [kind:: decision]  [owner:: main]  [resolution:: yes (Friday)]  [id:: ex-4]  ✅ 2026-10-20\n"
 
-const newQueueBody = "# Example Tracker Queue\n\n## Open\n\n" +
+// leanQueueFront is that note's block after reformat drops what a queue
+// note does not need.
+const leanQueueFront = "doc_id: queue-example-tracker\ntitle: Example Tracker Queue\ndoc_type: queue\nsystem: Example Tracker\n" +
+	"status: active\nlast_reviewed: 2026-01-01\nqueue_format: 1"
+
+const newQueueBody = "## Open\n\n" +
 	"- [ ] Build it #queue/delegated #owner/worker  [agent:: a1]  [branch:: pass/x]  [id:: ex-1]\n" +
 	"- [x] Ticked by hand ([[01 Projects/example-site/index|notes]]) #queue/next  [alias:: task-old]  [id:: ex-2]  [dependsOn:: ex-1]  [completion:: 2026-10-22]\n" +
 	"- [ ] mentions \\#queue/next #queue/follow-up  [id:: ex-3]\n\n" +
@@ -37,14 +60,13 @@ func TestReformatRewritesEveryLineOnceAndThenNothing(t *testing.T) {
 	before := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Status: "all", Full: true}))
 
 	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "reformat", All: true}))
-	if r.Int("count") != 1 || tk.Get(r, "changed.0.relative_path") != trackerQueue || tk.Get(r, "changed.0.lines") != 4 || r.Has("unparsed_lines") {
+	if r.Int("count") != 1 || tk.Get(r, "changed.0.relative_path") != trackerQueue || tk.Get(r, "changed.0.lines") != 4 || r.Has("unparsed_lines") ||
+		jsonx.Compact(tk.Get(r, "changed.0.fields_dropped")) != `["environment","sensitivity","related_projects","tags"]` ||
+		tk.Get(r, "changed.0.h1_dropped") != true {
 		t.Fatal(jsonx.Compact(r))
 	}
 	note := tk.Read(t, path)
-	if !strings.Contains(note, "\nqueue_format: 1\n") {
-		t.Fatalf("reformat did not stamp the format:\n%s", note)
-	}
-	if _, body, _ := strings.Cut(note, "\n---\n\n"); body != newQueueBody {
+	if want := "---\n" + strings.Replace(leanQueueFront, "2026-01-01", write.Today(), 1) + "\n---\n\n" + newQueueBody; note != want {
 		t.Fatalf("reformatted as\n%s", note)
 	}
 	after := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Status: "all", Full: true}))
@@ -62,7 +84,7 @@ func TestReformatRewritesEveryLineOnceAndThenNothing(t *testing.T) {
 func TestReformatDropsAliasesOnlyWhenAsked(t *testing.T) {
 	root, v := queueVault(t)
 	path := filepath.Join(root, trackerQueue)
-	tk.Doc(t, path, oldQueueFront+"\nqueue_format: 1", newQueueBody)
+	tk.Doc(t, path, leanQueueFront, newQueueBody)
 	if r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "reformat", All: true})); r.Int("count") != 0 || r.Has("aliases_dropped") {
 		t.Fatal(jsonx.Compact(r))
 	}

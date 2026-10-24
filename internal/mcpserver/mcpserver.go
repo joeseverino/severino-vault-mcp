@@ -52,7 +52,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	instructions := strings.Join(append([]string{Instructions}, reg.Instructions...), "\n")
 	s := mcp.NewServer(&mcp.Implementation{Name: "severino-vault-mcp", Version: Version()},
 		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{}})
-	h := &handlers{reg: reg}
+	h := &handlers{reg: reg, bin: watchBinary()}
 	h.registerCore(s)
 	taken := map[string]bool{}
 	for _, name := range coreToolNames {
@@ -341,7 +341,10 @@ func result(o *jsonx.Obj) *mcp.CallToolResult {
 
 // ----- core tools ------------------------------------------------------------------
 
-type handlers struct{ reg *vaults.Registry }
+type handlers struct {
+	reg *vaults.Registry
+	bin *binaryWatch
+}
 
 // fields are the frontmatter fields every vault's profile declares.
 func (h *handlers) fields() []schema.Field {
@@ -418,7 +421,12 @@ type toolFunc func(a args) (*jsonx.Obj, error)
 func (h *handlers) add(s *mcp.Server, name, desc string, schema json.RawMessage, fn toolFunc) {
 	tool := &mcp.Tool{Name: name, Description: desc, InputSchema: schema, Annotations: annotations[name], OutputSchema: outputSchemas[name],
 		Meta: toolMeta[name]}
+	reads := readOnly(name)
 	addTool(s, tool, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		stale := h.bin.replaced()
+		if stale && !reads {
+			return result(h.bin.staleFailure(name)), nil
+		}
 		a, err := parseArgs(req.Params.Arguments)
 		if err != nil {
 			return argFailure(tool, req.Params.Arguments, err), nil
@@ -426,6 +434,9 @@ func (h *handlers) add(s *mcp.Server, name, desc string, schema json.RawMessage,
 		o, err := fn(a)
 		if err != nil {
 			return argFailure(tool, req.Params.Arguments, err), nil
+		}
+		if stale {
+			o.Set("warning", h.bin.staleText())
 		}
 		return result(o), nil
 	})
@@ -550,7 +561,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"vault", h.vaultProp("Which vault."),
 		"relative_path", optStr("Path from the vault root; required to create."),
 		"doc_id", optStr("The new doc's id, or the doc to edit (or give relative_path)."),
-		"heading", optStr(`Section heading text without the #s; "" for the text before the first heading. Section modes only.`),
+		"heading", optStr(`The section to edit: a heading_path or section slug from read_doc's outline, or a unique heading text without the #s; "" for the text before the first heading. Section modes only.`),
 		"include_restricted", boolean("Edit a restricted doc."),
 	).Merge(frontmatterProps(createArgs))
 	h.add(s, "write_doc", descWriteDoc, object(writeProps, []string{"body"}), func(a args) (*jsonx.Obj, error) {
@@ -793,14 +804,14 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"id", optStr("set, close: the item's id, e.g. example-3, or its alias."),
 		"alias", optStr("add, set: an old id the item also answers to, such as a task doc_id (\"\" removes it on set). list: only the item with it."),
 		"body", optStr("add, set: the doc_id of the doc holding the item's detail; it must exist (\"\" removes it on set)."),
-		"agent", optStr("add: the worker's agent id. list: only that agent's items. set, close: the item by agent instead of id."),
+		"agent", optStr("add: the worker's agent id. list: only that agent's items. set, close: the item by agent instead of id; set with id writes the agent onto that item."),
 		"origin", optStr("add: the sending session's repo or working directory. list: only items from it."),
 		"include_origin", boolean("list: also delegated items anywhere whose origin is this repo."),
-		"kind", optStr("add: "+strings.Join(queue.Kinds, ", ")+". list: only this kind."),
+		"kind", optStr("add: "+strings.Join(queue.Kinds, ", ")+". list: only this kind. set: delegated, for a next or follow-up item (the only change)."),
 		"text", optStr("add: one line saying what the work is. set: replace it. Escaped in the note, never by you."),
 		"owner", optStr("add, set: who holds the item (one word; \"\" or \"-\" for nobody). list: only that owner's items."),
 		"links", jsonx.New("type", []string{"object", "null"}, "properties", linkProps, "additionalProperties", false,
-			"description", "add, set, close: typed links, each one word; on set, \"\" removes one."),
+			"description", "add, set, close: typed links, each one word; on set, \"\" removes one. list: only items whose links equal these, e.g. {\"branch\": \"pass/x\"}."),
 		"blocked_by", strList("add, set: item ids (or aliases) that must close before this one is ready."),
 		"repos", strList("add, set: the repos one worker's item spans."),
 		"status", optStr("set: open, returned or parked. close: closed (default) or dropped. list: comma-separated statuses or all; default open,returned."),
@@ -1013,11 +1024,13 @@ create (default): write relative_path with body and a new frontmatter block
     sensitivity default to other, active, internal). Refuses an existing
     file and a body that carries its own frontmatter; adds ` + "`# <title>`" + `
     when the body has no H1.
-replace_section: replace the content under heading (doc_id or
-    relative_path names the doc) up to the next heading of the same or
-    higher level; the heading line stays. heading "" is the text before
-    the first heading.
-append_section: add body to the end of that section.
+replace_section: replace the section heading names (doc_id or
+    relative_path names the doc): exactly what read_doc returns for it, so
+    a small H2 includes its H3s; the heading line stays. heading takes a
+    heading_path or section slug from read_doc's outline, or a unique
+    heading text; "" is the text before the first heading.
+append_section: add body at the end of the text under that heading,
+    before its first subheading.
 Section modes keep the frontmatter as it is except last_reviewed, which
 becomes today. Restricted docs need include_restricted and Touch ID.`
 
@@ -1075,7 +1088,8 @@ list (default): open and returned items; all=true every queue;
 add: kind and text; returns the new id. alias keeps an old id the item
     answers to wherever an id does; body names its detail doc.
 set: id (or agent) and what changes; claim=true with owner takes an
-    unowned item atomically.
+    unowned item atomically. With an id, agent, kind=delegated (from next
+    or follow-up) and links.branch ride in the same locked edit.
 close: id (or agent) and resolution; status=dropped for work not done. An
     item with repos closes once each has a repo@sha; partial=true adds some.
 reformat: rewrite the named queue (or all=true) in the current line

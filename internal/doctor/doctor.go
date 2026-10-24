@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
@@ -51,11 +53,16 @@ func relative(p, root string) string {
 
 // Validate checks every vault-doc file under the indexed dirs: the field rules
 // are schema.Profile.Check and RefProblems; doctor adds the whole-vault ones
-// (unreadable files, a missing block, duplicate doc_ids) and warns on a
-// superseded report the vault can't follow to its successor.
+// (unreadable files, a missing block, duplicate doc_ids, a path wikilink to
+// no file) and warns on a superseded report the vault can't follow to its
+// successor and on a mention of structure the profile lists as retired in a
+// living part of a doc (living).
+// The archive and the read-only folders are not indexed dirs, so only live
+// docs are checked.
 func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	r := &Report{VaultPath: cfg.VaultPath}
 	idx := vault.NewLoader(cfg).Index(false)
+	files := links.NewFiles(links.VaultFiles(cfg.VaultPath))
 	seen := map[string]string{}
 	for _, path := range vault.MarkdownFiles(cfg.VaultPath, cfg.IndexedDirs) {
 		r.CheckedFiles++
@@ -66,6 +73,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 			continue
 		}
 		fm := note.FM
+		r.body(rel, note.Text[note.Offset:], fm, p, files)
 		if fm == nil || fm.Len() == 0 {
 			proposal := ""
 			if propose {
@@ -91,6 +99,39 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 		}
 	}
 	return r
+}
+
+// body adds the findings in a doc's body: each retired structure a living
+// part of it mentions, and each path wikilink that names no file.
+func (r *Report) body(rel, body string, fm *jsonx.Obj, p *schema.Profile, files *links.Files) {
+	for _, m := range p.RetiredIn(living(body, fm)) {
+		lines := make([]string, len(m.Lines))
+		for i, n := range m.Lines {
+			lines[i] = strconv.Itoa(n)
+		}
+		r.add(Finding{rel, "warning", fmt.Sprintf("mentions retired structure %s (body line %s): %s",
+			pystr.Repr(m.Match), strings.Join(lines, ", "), m.Help), ""})
+	}
+	for _, target := range links.Dangling(body, filepath.ToSlash(rel), files) {
+		r.add(Finding{rel, "error", fmt.Sprintf("path wikilink %s names no file in the vault; point it at the note's current path",
+			pystr.Repr("[["+target+"]]")), ""})
+	}
+}
+
+// living is the part of body that describes the vault as it is now, with
+// its line numbers kept: none of a deprecated or archived doc, which records
+// the past, and none of a closed log entry.
+func living(body string, fm *jsonx.Obj) string {
+	if status := fm.Text("status"); status == "deprecated" || status == schema.ArchivedStatus {
+		return ""
+	}
+	b := sections.NewBody(body)
+	for _, e := range sections.Entries(body, 1) {
+		if e.Closed {
+			b.Lines[e.Index] = ""
+		}
+	}
+	return b.String()
 }
 
 // dated matches a date in a title, the mark of one report in a series.
@@ -163,9 +204,6 @@ system: %s
 environment: other
 status: draft
 sensitivity: internal
-tags: []
-related_projects: []
-related_assets: []
 ---
 Path: %s
 `, prefixFor(path), slug, title, docTypeFor(path), title, relative(path, root))

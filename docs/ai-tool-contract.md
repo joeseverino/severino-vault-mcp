@@ -78,7 +78,10 @@ restating commands from this doc.
 Each project keeps one queue note, `01 Projects/<project>/Queue.md`
 (`doc_id: queue-<project slug>`); work no project owns goes to
 `07 Backlog/Queue.md` (`queue-backlog`). The first `add` creates the note
-through `write_doc`'s create path. Items live under `## Open`; a closed or
+through `write_doc`'s create path, with only the fields the labs profile
+requires of `doc_type: queue` (`doc_id`, `title`, `doc_type`, `system`,
+`status`, `queue_format`, plus `last_reviewed`) and no H1: the file name and
+breadcrumb name it. Items live under `## Open`; a closed or
 dropped item moves under `## Closed`. An agent writes the note only through
 `queue`; a person may also edit it in Obsidian (see the line grammar).
 
@@ -281,10 +284,15 @@ counted there and does not block writes.
 `cwd`) or of every queue (`all=true`) in the current grammar, through the
 same locked write, and is how a change to the grammar reaches existing
 notes. It reads the older grammars it knows and stamps the current
-`queue_format`. It keeps each line where it is (a ticked box under `## Open`
-stays there), writes a note only when a line or the stamp changes, so a
-second run writes nothing, and returns `{ok, count, changed: [{project,
-relative_path, lines}]}`, with `unparsed_lines` for `- [` lines outside
+`queue_format`. In the same write it drops what a queue note does not
+need: `environment: other`, `sensitivity: internal`, `related_projects`
+naming only the note's `system`, `tags` of only `queue`, any of those or
+`related_assets` left empty, and an H1 at the top that repeats the title; a
+value chosen by hand stays. It keeps each line where it is (a ticked box
+under `## Open` stays there), writes a note only when a line, the stamp or
+one of those changes, so a second run writes nothing, and returns `{ok,
+count, changed: [{project, relative_path, lines, fields_dropped?,
+h1_dropped?}]}`, with `unparsed_lines` for `- [` lines outside
 `## Open` and `## Closed` (left as they are) and `skipped_restricted` for
 queues it did not touch. A note it may not write (see
 [Format version](#format-version)) stops the run with that refusal and the
@@ -303,11 +311,25 @@ carry `id, project, kind, status, owner, text, links`, plus `blocked_by,
 body, alias, agent, origin, repos, resolution` when set; `--fields` narrows
 them.
 
+`--owner` is one word of letters, digits, `_` or `-`, since the line writes
+it as the tag `#owner/<owner>` and a tag ends at any other character; a
+value outside that is refused. A hook that records an agent type as the
+owner passes the part after its last `:` (`worker` for
+`severino-ops:worker`).
+
+A brief that starts from a queued item (an `Item: <id>` line) launches its
+worker with one atomic call, `queue set <id> --claim --owner <type> --agent
+<agent id> --kind delegated --branch <branch>`: the claim, owner, agent, kind
+and branch land in one locked edit, so a lost claim (another owner holds the
+item) changes nothing and no duplicate delegated item is created. Landing
+then closes it by agent: `queue close --agent <agent id> --resolution
+<repo>@<sha>`.
+
 | Action | Flags |
 |---|---|
 | `add` | `--cwd`, `--repo` or `--project` (`--project backlog` for the backlog); `--kind`, `--text`; optional `--owner`, `--agent`, `--origin <repo or dir>`, `--repos <repo>,<repo>`, `--pr`, `--branch`, `--commit`, `--slug`, `--alias=<id>`, `--body=<doc_id>`, `--blocked-by <id or alias> ...` |
-| `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent`, `--origin` or `--alias` alone searches every queue); `--include-origin`; `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--ready`, `--contains`, `--limit` |
-| `set` | `<id or alias>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos` |
+| `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent`, `--origin`, `--alias` or a link flag alone searches every queue); `--include-origin`; `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--branch <name>` (or any link flag: items whose link is exactly that value), `--ready`, `--contains`, `--limit` |
+| `set` | `<id or alias>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--agent` (with an id: writes the agent onto the item; refused when another open item has it), `--kind delegated` (the only kind change: from next or follow-up), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos` |
 | `close` | `<id or alias>` or `--agent`; `--resolution` (`repoA@sha,repoB@sha` for an item with repos); `--partial` to record landings; `--status dropped` for work not done; link flags |
 | `reformat` | `--cwd`, `--repo`, `--project` or `--all`; `--drop-aliases` |
 
@@ -325,7 +347,15 @@ per field (`--set-<field>` replaces a list), and `validate` checks every
 declared field present in a block. Declaring a field in the profile is the
 whole change that makes it settable; a field the chosen vault does not
 declare is refused. `schema --contract` carries the declarations under
-`fields`.
+`fields`. A list left empty is not written: every writer leaves the key
+out, which every reader takes as no value.
+
+A doc_type may name its own required set in its document schema
+(`schema --contract` carries them under `doc_type_required_fields`); it
+replaces the profile's `required_fields` for that type, and a create
+writes no default for a field the set leaves out. The labs profile's
+`queue` type requires `doc_id`, `title`, `doc_type`, `system`, `status`
+and `queue_format`.
 
 ## Frontmatter as JSON Schema
 
@@ -355,6 +385,31 @@ A test holds `schema.Profile.Check` and a JSON Schema validator to the same
 verdict on every fixture doc; `tests/golden/labs.schema.json` pins the labs
 schema. `schema --json` (the enum sets HQ commits) is a separate, frozen
 shape.
+
+## Section edits
+
+`write_doc` modes `replace_section` and `append_section` (CLI `write-doc
+--mode`) edit one section of a registered doc, and a section is what
+`read_doc` returns for it: `heading` takes a section slug, a `heading_path`
+as `find` and the outline give it (`Parent > Child`), or a heading's text,
+resolved the way `read_doc`'s `sections` resolves them.
+
+- `replace_section` replaces exactly the lines `read_doc` returns for that
+  section, after its heading line, which stays. An H2 small enough to stay
+  whole holds its H3s, so they are replaced with it; an H2 split at its H3s
+  is only the text above the first. A heading that is no section of its own
+  (an H3 inside a whole H2, an H4) runs to the next heading of any level. A
+  heading hard-wrapped into parts is one section by its text or path; a
+  part's slug names only that part.
+- `append_section` adds the body at the end of the text under the heading,
+  before its first subheading.
+- `heading: ""` is the text before the first heading.
+
+Refused, with `next_steps`: a heading text several headings share (the
+error and `candidates` list each one's heading path, or its slug where two
+paths are the same, and a step per candidate), and a body whose first
+non-blank line is the section's own heading line, same level and text (send
+the body without it).
 
 ## Moving a doc
 
@@ -412,8 +467,8 @@ its slug (the folder name):
   folders keeps its entry and is listed in `project.related_projects_skipped`;
 - the queue note keeps its doc_id (doc_ids never change, so it stays
   `queue-<old>` and the queue tool reports that id), and its `title`,
-  `system` and `# <old> Queue` heading take the new name when they carried
-  the old one;
+  `system` and any `# <old> Queue` heading take the new name when they
+  carried the old one;
 - queue item ids never change. A project's new items take its
   `queue_prefix`, else the slug of its folder name; when `index.md` sets no
   `queue_prefix` and the old slug is a valid one, it is pinned there so new
@@ -435,6 +490,14 @@ there only when it has
 `status: archived` on each doc first. The archive keeps a doc's frontmatter
 as it was, so path-scoped fields are not checked there.
 
+A doc in the archive is maintained like any other: `set_frontmatter` and
+`write_doc` (sections, and create) accept it when the doc is, or the same
+call makes it, `status: archived` (a task: `done` or `wontfix`), and refuse
+anything else there. A write there checks `doc_id`, `title`, `doc_type` and
+`status` and each field's value, not the live required set or path scopes,
+so `set_frontmatter` registers an archive note that has no block with just
+those four (`status: archived`).
+
 ## Superseded reports
 
 `superseded_by` holds the doc_id of the doc that replaces this one. When a
@@ -444,6 +507,21 @@ new doc_id) and `status: deprecated`. `validate` and `doctor` refuse a
 write one. `doctor` warns on a deprecated doc with a date (YYYY-MM-DD) in its
 title and no `superseded_by`, and on a `superseded_by` that names a doc that
 is itself deprecated.
+
+## Drift
+
+`doctor` reads the body of every live doc (the indexed dirs; not the archive
+or the read-only folders) for structure the vault has left behind:
+
+- a mention of retired structure is a warning, one per term per doc with the
+  body lines it is on. The terms are the profile's `retired` list (`schema
+  --contract`), each a regular expression with the help doctor prints; the
+  labs profile lists `00 Reporting`, a `tasks/` path segment, `Backlog.base`
+  and `[[task-` links.
+- a path wikilink (`[[folder/note]]`, `![[folder/file.png]]`) that names no
+  file in the vault, from the root, from the note's folder, or as the end of
+  a file's path, is an error. A link by file name alone, and links in code,
+  are not checked.
 
 ## Writing a note from outside the server
 

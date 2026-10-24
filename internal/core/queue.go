@@ -630,6 +630,7 @@ type queueDoc struct {
 	exists     bool
 	restricted bool
 	format     string // queue_format as written, "" when absent
+	fm         *jsonx.Obj
 	body       *queueBody
 }
 
@@ -647,6 +648,7 @@ func (s *queueStore) read(p queueProject) (queueDoc, error) {
 		sens, _ := note.FM.Get("sensitivity")
 		d.restricted = !gate.Releasable(gate.Parse(pystr.Str(sens)))
 		d.format = note.FM.Text(schema.QueueFormatField)
+		d.fm = note.FM
 	}
 	d.body = parseBody(note.Text[note.Offset:], s.links)
 	return d, nil
@@ -678,13 +680,20 @@ var currentFormat = strconv.Itoa(queue.Version)
 // is refused before edit runs, a body that would carry an id twice is
 // refused after, and the note is stamped with the format it was written in.
 func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) *jsonx.Obj {
+	return s.changeNote(p, func(_ *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj) { return nil, edit(b) })
+}
+
+// changeNote is change with an edit that also reads the note's frontmatter
+// and returns the head fields to set or drop.
+func (s *queueStore) changeNote(p queueProject, edit func(fm *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj)) *jsonx.Obj {
 	out := write.EditNoteUnindexed(s.v.Loader, p.rel(), s.v.Profile, func(fm *jsonx.Obj, body, _ string) (string, []write.HeadField, *jsonx.Obj) {
 		b := parseBody(body, s.links)
 		format := fm.Text(schema.QueueFormatField)
 		if f := b.writable(p.rel(), format); f != nil {
 			return "", nil, f
 		}
-		if f := edit(b); f != nil {
+		head, f := edit(fm, b)
+		if f != nil {
 			return "", nil, f
 		}
 		if id := b.duplicateID(); id != "" {
@@ -692,11 +701,10 @@ func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) 
 				"give one of those lines a new id by hand in the note, then retry; "+
 					qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" shows the ids in use")
 		}
-		var stamp []write.HeadField
 		if format != currentFormat {
-			stamp = []write.HeadField{{Key: schema.QueueFormatField, Value: currentFormat}}
+			head = append(head, write.HeadField{Key: schema.QueueFormatField, Value: currentFormat})
 		}
-		return b.String(), stamp, nil
+		return b.String(), head, nil
 	})
 	if !out.Failed() {
 		return nil
@@ -714,21 +722,86 @@ func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) 
 	})
 }
 
-// create makes p's queue note through the doc create path.
+// queueTitle is the title a project's queue note (or the backlog's) is
+// created with, and the one a folder rename carries over.
+func queueTitle(name string) string {
+	if name == backlogProject {
+		return "Backlog Queue"
+	}
+	return name + " Queue"
+}
+
+// create makes p's queue note through the doc create path, with only the
+// fields the profile requires of a queue note and no H1.
 func (s *queueStore) create(p queueProject) *jsonx.Obj {
-	title := p.name + " Queue"
-	if p.name == backlogProject {
-		title = "Backlog Queue"
-	}
-	var related []string
-	if p.name != backlogProject {
-		related = []string{p.name}
-	}
-	r := write.CreateDoc(s.v.Loader, p.rel(), "# "+title+"\n\n## "+queueOpen+"\n\n## "+queueClosed+"\n", write.With(
-		"doc_id", p.docID(), "title", title, "doc_type", schema.QueueDocType, "system", p.name,
-		"tags", []string{"queue"}, "related_projects", related, schema.QueueFormatField, queue.Version,
+	r := write.CreateNote(s.v.Loader, p.rel(), "## "+queueOpen+"\n\n## "+queueClosed+"\n", write.With(
+		"doc_id", p.docID(), "title", queueTitle(p.name), "doc_type", schema.QueueDocType, "system", p.name,
+		schema.QueueFormatField, queue.Version,
 	), s.v.Profile)
 	return guide(r, s.v.createSteps(p.rel(), p.docID()))
+}
+
+// surplusQueueKeys are fields a queue note does not need, each with the
+// values that say nothing the note's type and folder don't: reformat drops
+// a key holding one of them, or nothing, and keeps any other value. A list
+// value is matched as its items joined by ",", "{system}" standing for the
+// note's system.
+var surplusQueueKeys = []struct {
+	key    string
+	values []string
+}{
+	{"environment", []string{"other"}},
+	{"sensitivity", []string{"internal"}},
+	{"related_projects", []string{"{system}"}},
+	{"related_assets", nil},
+	{"tags", []string{"queue"}},
+}
+
+// surplusHead are the surplusQueueKeys fm carries with a value that says
+// nothing.
+func surplusHead(fm *jsonx.Obj) []string {
+	var out []string
+	for _, r := range surplusQueueKeys {
+		v, has := fm.Get(r.key)
+		if !has {
+			continue
+		}
+		text := pystr.Str(v)
+		if _, isList := v.([]any); isList || v == nil {
+			text = strings.Join(vault.CoerceList(v), ",")
+		}
+		if text == "" || slices.ContainsFunc(r.values, func(want string) bool {
+			return text == strings.ReplaceAll(want, "{system}", fm.Text("system"))
+		}) {
+			out = append(out, r.key)
+		}
+	}
+	return out
+}
+
+// titleH1 is the line of b's H1 when it is the note's first heading and
+// repeats its title; -1 otherwise.
+func (b *queueBody) titleH1(title string) int {
+	hs := b.Headings()
+	if title == "" || len(hs) == 0 || hs[0].Level != 1 || hs[0].Text != title {
+		return -1
+	}
+	return hs[0].Line
+}
+
+// dropTitleH1 removes the title H1 titleH1 finds, and the blank line it
+// leaves at the top of the body; false when there is none.
+func (b *queueBody) dropTitleH1(title string) bool {
+	at := b.titleH1(title)
+	if at < 0 {
+		return false
+	}
+	b.Remove(at)
+	if at == 0 && len(b.Lines) > 1 && strings.TrimSpace(b.Lines[0]) == "" {
+		b.Lines = b.Lines[1:]
+	}
+	b.scan()
+	return true
 }
 
 // ----- items ---------------------------------------------------------------
@@ -1055,7 +1128,8 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 // target is the item a set or close names, by id or by agent.
 func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 	findIt := qcall("action", "list", "all", true, "fields", []string{"id", "project", "text", "agent"}) + " to find the item's id"
-	if (a.ID == "") == (a.Agent == "") {
+	// set with both names the item by id and writes the agent onto it.
+	if (a.ID == "") == (a.Agent == "") && (a.Action != "set" || a.ID == "") {
 		return queueProject{}, "", failNext(a.Action+" names one item: give id, or agent for a worker's item", findIt)
 	}
 	if a.ID != "" {
@@ -1121,8 +1195,16 @@ func (s *queueStore) edit(p queueProject, id string, a QueueArgs, fn func(it *qu
 				qcall("action", "list", "project", p.name, "status", "all", "fields", []string{"id", "status", "text"})+" to see its ids")
 		}
 		it := b.items[i].it
-		if a.Agent != "" && it.Agent != a.Agent {
+		if a.ID == "" && a.Agent != "" && it.Agent != a.Agent {
 			return failNext(fmt.Sprintf("%s no longer carries agent %s", id, pystr.Repr(a.Agent)), qcall("action", a.Action, "id", id))
+		}
+		if a.Action == "set" && a.ID != "" && a.Agent != "" {
+			for _, x := range b.items {
+				if x.it.ID != it.ID && x.it.Agent == a.Agent && !queue.Done(x.it.Status) {
+					return failNext(fmt.Sprintf("agent %s already has %s", pystr.Repr(a.Agent), x.it.ID),
+						qcall("action", "set", "agent", a.Agent)+" to change that item instead")
+				}
+			}
 		}
 		before := queue.Format(it)
 		if f := fn(&it); f != nil {
@@ -1162,6 +1244,12 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	if a.Claim && (a.Owner == nil || owner(*a.Owner) == "") {
 		return failNext("claim needs owner: who takes the item", qcall("action", "set", "id", a.ID, "claim", true, "owner", "..."))
 	}
+	if a.ID != "" && a.Agent != "" && !queue.ValidToken(a.Agent) {
+		return failNext("agent "+pystr.Repr(a.Agent)+" must be "+queue.TokenRule, qcall("action", "set", "id", a.ID, "agent", "...")+" with the agent id as one word")
+	}
+	if a.Kind != "" && !slices.Contains(queue.Kinds, a.Kind) {
+		return failNext(fmt.Sprintf("kind %s is not one of %s", pystr.Repr(a.Kind), strings.Join(queue.Kinds, ", ")), qcall("action", "set", "id", a.ID, "kind", "delegated"))
+	}
 	p, id, f := s.target(a)
 	if f != nil {
 		return f
@@ -1177,6 +1265,16 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 		if a.Claim && it.Owner != "" && it.Owner != owner(*a.Owner) {
 			return failNext(fmt.Sprintf("%s is owned by %s", id, it.Owner),
 				qcall("action", "list", "project", p.name, "ready", true, "owner", queue.Unowned)+" to pick unowned work").Set("owner", it.Owner)
+		}
+		if a.Kind != "" && a.Kind != it.Kind {
+			if a.Kind != "delegated" || (it.Kind != "next" && it.Kind != "follow-up") {
+				return failNext(fmt.Sprintf("set changes a next or follow-up item to delegated; %s is %s, not %s", id, it.Kind, a.Kind),
+					qcall("action", "close", "id", id, "resolution", "...")+" and add the "+a.Kind+" item instead")
+			}
+			it.Kind = a.Kind
+		}
+		if a.ID != "" && a.Agent != "" {
+			it.Agent = a.Agent
 		}
 		if a.Owner != nil {
 			it.Owner = owner(*a.Owner)
@@ -1337,8 +1435,10 @@ func (b *queueBody) reformatted(drop bool) (edits []lineEdit, aliases int) {
 }
 
 // reformat rewrites every item line of the queues named (by project, repo or
-// cwd, or all) in the current format, through the locked write path, and
-// stamps it with that format; a note already in it is not written at all.
+// cwd, or all) in the current format, through the locked write path, stamps
+// it with that format, and drops the fields and H1 a queue note does not
+// need (surplusHead, titleH1), all in one write; a note already in that
+// shape is not written at all.
 func (s *queueStore) reformat(a QueueArgs) *jsonx.Obj {
 	scoped := a.Project != "" || a.Repo != "" || a.Cwd != ""
 	var targets []queueProject
@@ -1371,25 +1471,41 @@ func (s *queueStore) reformat(a QueueArgs) *jsonx.Obj {
 		if f := d.body.writable(p.rel(), d.format); f != nil {
 			return f.Set("changed", changed)
 		}
-		if edits, _ := d.body.reformatted(a.DropAliases); len(edits) == 0 && d.format == currentFormat {
+		if edits, _ := d.body.reformatted(a.DropAliases); len(edits) == 0 && d.format == currentFormat &&
+			len(surplusHead(d.fm)) == 0 && d.body.titleH1(d.fm.Text("title")) < 0 {
 			unparsed += len(d.body.unparsed)
 			continue
 		}
 		lines, aliases, left := 0, 0, 0
-		if f := s.change(p, func(b *queueBody) *jsonx.Obj {
+		var fields []string
+		h1 := false
+		if f := s.changeNote(p, func(fm *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj) {
 			var edits []lineEdit
 			edits, aliases = b.reformatted(a.DropAliases)
 			for _, e := range edits {
 				b.Lines[e.at] = e.line
 			}
+			var head []write.HeadField
+			fields = surplusHead(fm)
+			for _, k := range fields {
+				head = append(head, write.HeadField{Key: k, Drop: true})
+			}
+			h1 = b.dropTitleH1(fm.Text("title"))
 			lines, left = len(edits), len(b.unparsed)
-			return nil
+			return head, nil
 		}); f != nil {
 			return f.Set("changed", changed)
 		}
 		unparsed += left
 		dropped += aliases
-		changed = append(changed, jsonx.New("project", p.name, "relative_path", p.rel(), "lines", lines))
+		entry := jsonx.New("project", p.name, "relative_path", p.rel(), "lines", lines)
+		if len(fields) > 0 {
+			entry.Set("fields_dropped", fields)
+		}
+		if h1 {
+			entry.Set("h1_dropped", true)
+		}
+		changed = append(changed, entry)
 	}
 	out := jsonx.New("ok", true, "count", len(changed), "changed", changed)
 	if a.DropAliases {
@@ -1417,6 +1533,17 @@ func boardQueue(v *Vault, project string) []*jsonx.Obj {
 		}
 	}
 	return out
+}
+
+// linksMatch reports whether an item carries each wanted link exactly; a
+// wanted "" matches an item without that link.
+func linksMatch(have, want map[string]string) bool {
+	for k, v := range want {
+		if have[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // sameProject matches a project's folder name the way a caller may type it.
@@ -1465,7 +1592,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 			qcall("action", "list", "cwd", "<the session's working directory>", "include_origin", true))
 	case a.All && scoped:
 		return failNext("give all, or one of project, repo or cwd", qcall("action", "list", "all", true))
-	case a.All || (!scoped && (a.Agent != "" || a.Origin != "" || alias != "")):
+	case a.All || (!scoped && (a.Agent != "" || a.Origin != "" || alias != "" || len(a.Links) > 0)):
 		targets = s.projects
 	case !scoped:
 		return failNext("name the queue: give project, repo or cwd, or all=true",
@@ -1522,6 +1649,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 				a.Kind != "" && it.Kind != a.Kind,
 				a.Agent != "" && it.Agent != a.Agent,
 				alias != "" && it.Alias != alias,
+				!linksMatch(it.Links, a.Links),
 				a.Owner != nil && it.Owner != owner(*a.Owner),
 				a.Contains != "" && !containsFold(it.Text, a.Contains):
 				continue

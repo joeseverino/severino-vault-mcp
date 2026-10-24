@@ -128,3 +128,35 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+func TestTargetsJoinTheHardWrappedPartsOfAHeading(t *testing.T) {
+	long := strings.Repeat("word ", 400) + "\n"
+	body := "## Big\n\n" + long + long + "\n## Next\n\nkept\n"
+	parsed := strings.TrimSuffix(body, "\n")
+	secs := Parse(parsed, 0)
+	if secs[0].Part != 1 || secs[1].Part != 2 {
+		t.Fatalf("the doc does not wrap: %+v", secs)
+	}
+	whole := Targets(parsed, "Big")
+	if len(whole) != 1 || whole[0].Start != 0 || whole[0].End != secs[len(secs)-2].End() || whole[0].Path != "Big" {
+		t.Fatalf("by heading: %+v", whole)
+	}
+	part := Targets(parsed, secs[1].Slug)
+	if len(part) != 1 || part[0].Start != secs[1].StartLine || part[0].End != secs[1].End() || part[0].Line != -1 {
+		t.Fatalf("by part slug: %+v", part)
+	}
+}
+
+func TestTargetsFindAHeadingInsideAWholeSectionByPath(t *testing.T) {
+	body := "## A\n\n### Shape\n\none\n\n#### Deep\n\nd\n\n## B\n\n### Shape\n\ntwo"
+	if got := Targets(body, "Shape"); len(got) != 2 || got[0].Path != "A > Shape" || got[1].Path != "B > Shape" {
+		t.Fatalf("%+v", got)
+	}
+	got := Targets(body, "B > Shape")
+	if len(got) != 1 || got[0].Line != 12 || got[0].End != 15 {
+		t.Fatalf("%+v", got)
+	}
+	if got := Targets(body, "a-shape-deep"); len(got) != 1 || got[0].Path != "A > Shape > Deep" || got[0].End != 10 {
+		t.Fatalf("%+v", got)
+	}
+}

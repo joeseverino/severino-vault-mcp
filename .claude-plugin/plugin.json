@@ -2,7 +2,7 @@
   "name": "severino-vault-mcp",
   "description": "The vault MCP server and the vault skill that says how to use it: find and read governed Obsidian docs, write docs and tasks against each vault's schema.",
   "author": {
-    "name": "Joseph Severino"
+    "name": "Joe Severino"
   },
   "repository": "https://github.com/joeseverino/severino-vault-mcp",
   "license": "MIT",

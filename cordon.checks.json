@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/joeseverino/cordon/main/checks/config.schema.json",
   "commands": [
-    { "id": "gofmt", "name": "gofmt", "effect": "read", "requires": ["gofmt"],
-      "exec": { "cmd": "sh", "args": ["-c", "out=$(gofmt -l .) && test -z \"$out\" || { echo \"$out\"; exit 1; }"] },
+    { "id": "gofmt", "name": "gofmt", "effect": "read", "requires": ["gofmt", "git"],
+      "exec": { "cmd": "sh", "args": ["-c", "files=$(git ls-files --cached --others --exclude-standard '*.go') && out=$(gofmt -l $files) && test -z \"$out\" || { echo \"$out\"; exit 1; }"] },
       "fix": "gofmt -w ." },
     { "id": "go-vet", "name": "go vet", "effect": "read", "network": true, "requires": ["go"],
       "exec": { "cmd": "go", "args": ["vet", "./..."] } },

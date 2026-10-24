@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
@@ -71,6 +72,15 @@ func TestTheFirstAddCreatesAQueueThatValidates(t *testing.T) {
 	}
 	if _, problems, ok := core.CheckDoc(v, filepath.Join(root, trackerQueue)); !ok || len(problems) > 0 {
 		t.Fatal(problems)
+	}
+	// The note carries only what a queue note needs, and no H1: its file
+	// name and breadcrumb name it.
+	n := frontmatter.NewNote(note)
+	if got := n.FM.Keys(); !slices.Equal(slices.Sorted(slices.Values(got)), []string{"doc_id", "doc_type", "last_reviewed", "queue_format", "status", "system", "title"}) {
+		t.Fatalf("queue note fields %v", got)
+	}
+	if !strings.HasPrefix(note[n.Offset:], "## Open\n") && !strings.HasPrefix(note[n.Offset:], "\n## Open\n") {
+		t.Fatalf("queue note body:\n%s", note[n.Offset:])
 	}
 	if site := add(t, v, "example-site", "next", "Draft"); site != "example-site-1" {
 		t.Fatal(site)
@@ -502,6 +512,26 @@ func TestListAllSpansEveryQueueAndMasksFields(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if r := core.Queue(v, core.QueueArgs{Action: "list"}); r.Bool("ok") || !r.Has("next_steps") {
+		t.Fatal(jsonx.Compact(r))
+	}
+}
+
+// A hook that knows only a worktree's branch finds its item in whichever
+// queue holds it, by the exact branch and never a prefix of it.
+func TestListByBranchFindsTheItemAcrossQueues(t *testing.T) {
+	_, v := queueVault(t)
+	branch := func(b string) func(*core.QueueArgs) {
+		return func(a *core.QueueArgs) { a.Links = map[string]string{"branch": b} }
+	}
+	add(t, v, "Example Tracker", "next", "Other work", branch("pass/queue-cli-2"))
+	want := add(t, v, "example-site", "next", "This work", branch("pass/queue-cli"))
+	add(t, v, "example-site", "next", "No branch")
+	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Links: map[string]string{"branch": "pass/queue-cli"}}))
+	if !slices.Equal(ids(r), []string{want}) {
+		t.Fatal(jsonx.Compact(r))
+	}
+	r = mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Links: map[string]string{"branch": "pass/queue-cli"}}))
+	if len(ids(r)) != 0 {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

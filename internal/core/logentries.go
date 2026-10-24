@@ -13,13 +13,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
 
-// A log note is append-only: each top-level bullet in its body is one entry,
-// and an entry is closed once its line carries the resolution mark followed
-// by text.
-
-// ResolutionMark separates an entry from its resolution.
-const ResolutionMark = " → "
-
 // LogActions are log_entries' actions; the first is the default.
 var LogActions = []string{"list", "close"}
 
@@ -44,41 +37,12 @@ var leanEntry = mustMask(EntryFields, "line", "text")
 // maxCandidates caps the entries an ambiguous close lists.
 const maxCandidates = 10
 
-type logEntry struct {
-	index      int // line index in the body
-	line       int // 1-based line in the file
-	text       string
-	resolution string
-	closed     bool
-}
-
-func (e logEntry) obj() *jsonx.Obj {
+func entryObj(e sections.Entry) *jsonx.Obj {
 	var resolution any
-	if e.closed {
-		resolution = e.resolution
+	if e.Closed {
+		resolution = e.Resolution
 	}
-	return jsonx.New("line", e.line, "text", e.text, "closed", e.closed, "resolution", resolution)
-}
-
-// parseEntries reads a log body whose first line is line first of the file.
-func parseEntries(body string, first int) []logEntry {
-	var out []logEntry
-	for i, raw := range sections.Lines(body) {
-		rest, ok := strings.CutPrefix(raw, "- ")
-		if !ok {
-			rest, ok = strings.CutPrefix(raw, "* ")
-		}
-		if !ok {
-			continue
-		}
-		text := strings.TrimRight(rest, " \t\r")
-		e := logEntry{index: i, line: first + i, text: text}
-		if _, after, found := strings.Cut(text, ResolutionMark); found && pystr.Strip(after) != "" {
-			e.closed, e.resolution = true, pystr.Strip(after)
-		}
-		out = append(out, e)
-	}
-	return out
+	return jsonx.New("line", e.Line, "text", e.Text, "closed", e.Closed, "resolution", resolution)
 }
 
 func containsFold(s, sub string) bool {
@@ -127,11 +91,11 @@ func LogEntries(v *Vault, docID string, a LogArgs) *jsonx.Obj {
 		return closeEntry(v, d, a, head)
 	}
 	matched := []*jsonx.Obj{}
-	for _, e := range parseEntries(body, head+1) {
-		if (a.OpenOnly && e.closed) || (a.Contains != "" && !containsFold(e.text, a.Contains)) {
+	for _, e := range sections.Entries(body, head+1) {
+		if (a.OpenOnly && e.Closed) || (a.Contains != "" && !containsFold(e.Text, a.Contains)) {
 			continue
 		}
-		matched = append(matched, e.obj())
+		matched = append(matched, entryObj(e))
 	}
 	count := len(matched)
 	if a.Limit > 0 && count > a.Limit {
@@ -172,15 +136,15 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 	}
 	list := func(args ...any) string { return Call("log_entries", append([]any{"doc_id", d.DocID}, args...)...) }
 	resolution := pystr.Strip(a.Resolution)
-	var closed logEntry
+	var closed sections.Entry
 	out := write.EditBody(v.Loader, d.RelativePath, v.Profile, func(body, _ string) (string, *jsonx.Obj) {
-		var hits []logEntry
+		var hits []sections.Entry
 		closedHits := 0
-		for _, e := range parseEntries(body, head+1) {
-			if !containsFold(e.text, a.Match) {
+		for _, e := range sections.Entries(body, head+1) {
+			if !containsFold(e.Text, a.Match) {
 				continue
 			}
-			if e.closed {
+			if e.Closed {
 				closedHits++
 				continue
 			}
@@ -200,7 +164,7 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 				if i == maxCandidates {
 					break
 				}
-				candidates = append(candidates, jsonx.New("line", e.line, "text", e.text))
+				candidates = append(candidates, jsonx.New("line", e.Line, "text", e.Text))
 			}
 			return "", failNext(fmt.Sprintf("%d open entries contain %s; give match text only one of them has", len(hits), pystr.Repr(a.Match)),
 				list("action", "close", "match", candidates[0].Str("text"), "resolution", resolution)+
@@ -208,12 +172,12 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 		}
 		closed = hits[0]
 		b := sections.NewBody(body)
-		b.Lines[closed.index] = strings.TrimRight(b.Lines[closed.index], " \t\r") + ResolutionMark + resolution
-		closed.text += ResolutionMark + resolution
+		b.Lines[closed.Index] = strings.TrimRight(b.Lines[closed.Index], " \t\r") + sections.ResolutionMark + resolution
+		closed.Text += sections.ResolutionMark + resolution
 		return b.String(), nil
 	}, "action", "close")
 	if !out.Failed() {
-		return out.Set("line", closed.line).Set("text", closed.text)
+		return out.Set("line", closed.Line).Set("text", closed.Text)
 	}
 	return guide(out, func(msg string) []string {
 		if v.outsideWritable(d.RelativePath) {

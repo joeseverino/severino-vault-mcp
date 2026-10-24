@@ -36,21 +36,45 @@ func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
 		relativePath, pystr.Repr(dir), pystr.ReprList(l.Config.ReadOnlyDirs)))
 }
 
-// indexedPath is fsx.IndexedPath behind the read-only refusal.
-func indexedPath(l *vault.Loader, relativePath string) (*fsx.Vault, string, *jsonx.Obj) {
+// indexedPath is fsx.IndexedPath behind the read-only refusal, over the
+// indexed dirs and the archive: rel is the note's vault-relative path, and
+// archive the archive dir when the note is in it, "" otherwise. A write to
+// an archived note holds it to schema.Profile.CheckArchived.
+func indexedPath(l *vault.Loader, relativePath string) (v *fsx.Vault, full, rel, archive string, refused *jsonx.Obj) {
 	if refused := readOnly(l, relativePath); refused != nil {
-		return nil, "", refused
+		return nil, "", "", "", refused
 	}
-	return fsx.IndexedPath(l.Config, relativePath)
+	cfg := l.Config
+	if cfg.ArchiveDir != "" {
+		cfg.IndexedDirs = append(slices.Clone(cfg.IndexedDirs), cfg.ArchiveDir)
+	}
+	v, full, refused = fsx.IndexedPath(cfg, relativePath)
+	if refused != nil {
+		if strings.Contains(refused.Str("error"), "outside the indexed dirs") {
+			refused = jsonx.Fail("path is outside the indexed dirs: " + pystr.ReprList(l.Config.IndexedDirs))
+		}
+		return nil, "", "", "", refused
+	}
+	rel, _ = filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
+	if l.Config.Archived(rel) {
+		archive = l.Config.ArchiveDir
+	}
+	return v, full, rel, archive, nil
 }
 
-// createNeeds are the fields a new block has no default for.
+// createNeeds are the fields a new block has no default for; a note in the
+// archive needs schema.ArchiveRequiredFields instead.
 var createNeeds = []string{"doc_id", "title", "doc_type", "system"}
 
-// absentForCreate lists the createNeeds c leaves empty.
-func absentForCreate(c Changes) []string {
+// absentForCreate lists the fields a create needs that c leaves empty;
+// archive is the archive dir when the note is in it.
+func absentForCreate(c Changes, archive string) []string {
+	needs := createNeeds
+	if archive != "" {
+		needs = schema.ArchiveRequiredFields
+	}
 	var absent []string
-	for _, name := range createNeeds {
+	for _, name := range needs {
 		if pystr.Strip(c.Str(name)) == "" {
 			absent = append(absent, name)
 		}
@@ -59,9 +83,10 @@ func absentForCreate(c Changes) []string {
 }
 
 // newFrontmatter is the block a create writes from c: a task gets the task
-// fields, anything else the doc fields, each defaulted when c leaves it out;
-// every other field c gives follows.
-func newFrontmatter(c Changes) *jsonx.Obj {
+// fields, anything else the doc fields, each field p requires of the
+// doc_type defaulted when c leaves it out; every other field c gives
+// follows. Serialize leaves the empty lists out.
+func newFrontmatter(c Changes, p *schema.Profile) *jsonx.Obj {
 	def := func(name, fallback string) string {
 		if s := c.Str(name); s != "" {
 			return s
@@ -87,14 +112,25 @@ func newFrontmatter(c Changes) *jsonx.Obj {
 			"tags", jsonx.Strings(tags),
 		)
 	} else {
-		fm = jsonx.New(
-			"doc_id", c.Str("doc_id"), "title", c.Str("title"), "doc_type", c.Str("doc_type"), "system", c.Str("system"),
-			"environment", def("environment", "other"), "status", def("status", "active"), "sensitivity", def("sensitivity", "internal"),
-			"last_reviewed", reviewed,
-			"related_projects", list("related_projects"),
-			"related_assets", list("related_assets"),
-			"tags", list("tags"),
-		)
+		defaulted := func(name, fallback string) any {
+			if p.Omits(c.Str("doc_type"), name) {
+				return c.Values[name]
+			}
+			return def(name, fallback)
+		}
+		fm = jsonx.New("doc_id", c.Str("doc_id"), "title", c.Str("title"), "doc_type", c.Str("doc_type"))
+		if s := c.Str("system"); s != "" {
+			fm.Set("system", s)
+		}
+		for _, f := range []struct{ name, fallback string }{{"environment", "other"}, {"status", "active"}, {"sensitivity", "internal"}} {
+			if v := defaulted(f.name, f.fallback); v != nil && v != "" {
+				fm.Set(f.name, v)
+			}
+		}
+		fm.Set("last_reviewed", reviewed)
+		for _, name := range []string{"related_projects", "related_assets", "tags"} {
+			fm.Set(name, list(name))
+		}
 	}
 	for _, name := range c.names() {
 		if fm.Has(name) || (task && name == "last_reviewed") {
@@ -148,19 +184,18 @@ func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.P
 	if msg := c.undeclared(p); msg != "" {
 		return jsonx.Fail(msg)
 	}
-	v, full, perr := indexedPath(l, relativePath)
+	v, full, rel, archive, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
 	defer v.Close()
-	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
 	var idx *vault.Index
 	if slices.ContainsFunc(c.names(), func(name string) bool { f, _ := p.Field(name); return f.Unique || f.DocRef }) {
 		idx = l.Index(true)
 	}
 	var out *jsonx.Obj
 	wrote, err := v.Update(full, func(text string) string {
-		next, o := applyChanges(text, rel, c, p, idx)
+		next, o := applyChanges(text, rel, archive, c, p, idx)
 		out = o
 		return next
 	})
@@ -174,11 +209,12 @@ func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.P
 }
 
 // applyChanges is c applied to a note's text: the new text and the result to
-// report, or the text unchanged and a failure or no-op result.
-func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
+// report, or the text unchanged and a failure or no-op result. archive is
+// the archive dir when the note is in it.
+func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
 	before, body, _ := frontmatter.Split(text)
 	if before == nil {
-		return createBlock(text, rel, c, p, idx)
+		return createBlock(text, rel, archive, c, p, idx)
 	}
 	fm := before.Clone()
 	var changed []string
@@ -241,6 +277,9 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 	if idx != nil {
 		errs = append(errs, p.RefProblems(refs, idx.Has)...)
 	}
+	if archive != "" {
+		errs = append(errs, schema.ArchiveProblems(fm, archive)...)
+	}
 	if len(errs) > 0 {
 		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
@@ -250,11 +289,11 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 }
 
 // createBlock prepends the block c builds to a file that has none.
-func createBlock(text, rel string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
+func createBlock(text, rel, archive string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
 	if strings.HasPrefix(pystr.LStrip(text), "---") {
 		return text, jsonx.Fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
 	}
-	if absent := absentForCreate(c); len(absent) > 0 {
+	if absent := absentForCreate(c, archive); len(absent) > 0 {
 		return text, jsonx.Fail("no frontmatter yet; creating one needs " + strings.Join(absent, ", "))
 	}
 	for _, op := range c.Lists {
@@ -262,19 +301,23 @@ func createBlock(text, rel string, c Changes, p *schema.Profile, idx *vault.Inde
 			return text, jsonx.Fail("no frontmatter yet; remove_* lists only apply to an update")
 		}
 	}
-	fm := newFrontmatter(c)
-	if errs := checkNew(fm, rel, p, idx); len(errs) > 0 {
+	fm := newFrontmatter(c, p)
+	if errs := checkNew(fm, rel, archive, p, idx); len(errs) > 0 {
 		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
 	out := frontmatter.Serialize(fm) + text
 	return out, jsonx.New("ok", true, "doc_id", c.Str("doc_id"), "relative_path", rel, "wrote_bytes", len(out), "next_step", nextStep)
 }
 
-// checkNew is every problem with a new block at rel: the profile's rules,
-// each unique field's value held by another doc, and each doc reference that
-// names no doc.
-func checkNew(fm *jsonx.Obj, rel string, p *schema.Profile, idx *vault.Index) []string {
+// checkNew is every problem with a new block at rel: the profile's rules
+// (the archive's when archive names the archive dir it is in), each unique
+// field's value held by another doc, and each doc reference that names no
+// doc.
+func checkNew(fm *jsonx.Obj, rel, archive string, p *schema.Profile, idx *vault.Index) []string {
 	errs := p.Check(fm, rel)
+	if archive != "" {
+		errs = p.CheckArchived(fm, archive)
+	}
 	if idx != nil {
 		errs = append(errs, p.RefProblems(fm, idx.Has)...)
 	}
@@ -292,17 +335,20 @@ func checkNew(fm *jsonx.Obj, rel string, p *schema.Profile, idx *vault.Index) []
 
 // TouchReviewed sets last_reviewed to today without rebuilding the index.
 func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
-	v, full, perr := indexedPath(l, relativePath)
+	v, full, rel, archive, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
 	defer v.Close()
-	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
 	var out *jsonx.Obj
 	_, err := v.Update(full, func(text string) string {
 		fm, body, _ := frontmatter.Split(text)
 		if fm == nil {
 			out = jsonx.Fail("file has no frontmatter; add a block first.")
+			return text
+		}
+		if errs := schema.ArchiveProblems(fm, archive); archive != "" && len(errs) > 0 {
+			out = jsonx.Fail(strings.Join(errs, "; "))
 			return text
 		}
 		reviewed := Today()

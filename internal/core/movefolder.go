@@ -11,6 +11,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
@@ -65,7 +66,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 				Call("set_frontmatter", "relative_path", "...")+" to drop the fields the error names first, then the same move")
 		}
 	}
-	files := vaultFiles(v.Config.VaultPath)
+	files := links.VaultFiles(v.Config.VaultPath)
 	root, err := fsx.OpenVault(v.Config.VaultPath)
 	if err != nil {
 		return failNext("move failed: "+err.Error(), Call("move_folder", again...)+" again")
@@ -253,8 +254,8 @@ func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj
 	}
 	queueOut := jsonx.New("doc_id", note.FM.Text("doc_id"), "relative_path", queueRel)
 	c := write.Changes{}
-	if note.FM.Text("title") == old+" Queue" {
-		c = c.Set("title", name+" Queue")
+	if note.FM.Text("title") == queueTitle(old) {
+		c = c.Set("title", queueTitle(name))
 	}
 	if note.FM.Text("system") == old {
 		c = c.Set("system", name)
@@ -263,16 +264,6 @@ func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj
 		if r := write.SetFrontmatter(v.Loader, queueRel, c, v.Profile); r.Failed() {
 			failed = append(failed, queueRel+": "+r.Str("error"))
 		}
-	}
-	if _, err := root.Update(queueRel, func(text string) string {
-		off := frontmatter.BodyOffset(text)
-		b := sections.NewBody(text[off:])
-		if h, ok := b.Find(1, old+" Queue"); ok {
-			b.Lines[h.Line] = "# " + name + " Queue"
-		}
-		return text[:off] + b.String()
-	}); err != nil {
-		failed = append(failed, queueRel+": "+err.Error())
 	}
 	if title := readTitle(root, queueRel); title != "" {
 		queueOut.Set("title", title)

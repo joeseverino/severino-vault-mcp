@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
@@ -161,7 +162,8 @@ func TestUpdateFrontmatterEmptySetClears(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"changed_fields":["tags"]`) {
 		t.Fatal(out)
 	}
-	if !strings.Contains(tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md")), "tags: []") {
+	// A cleared list is left out of the block, as an empty one always is.
+	if fm := frontmatter.NewNote(tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md"))).FM; fm.Has("tags") {
 		t.Fatal("tags not cleared")
 	}
 }

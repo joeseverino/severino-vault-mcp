@@ -85,7 +85,6 @@ tags:
   - adguard
 related_projects:
   - client-edge-dns
-related_assets: []
 ---
 
 # Reset DNS Filtering

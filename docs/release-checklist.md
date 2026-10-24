@@ -19,7 +19,7 @@ writes `CHANGELOG.md` from the Conventional Commit titles; merging it tags
 
 ```bash
 scripts/check.sh
-bash tests/golden/verify.sh
+mise run golden
 ```
 
 In an MCP client, verify:

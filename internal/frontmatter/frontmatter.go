@@ -263,7 +263,8 @@ func Escape(value string) string {
 }
 
 // Serialize renders a frontmatter block: known keys first in canonical
-// order, then the rest in insertion order. Ends with the closing fence and
+// order, then the rest in insertion order. An empty list is left out, since
+// every reader treats it as absent. Ends with the closing fence and
 // one blank line.
 func Serialize(data *jsonx.Obj) string {
 	lines := []string{"---"}
@@ -278,7 +279,6 @@ func Serialize(data *jsonx.Obj) string {
 		switch x := value.(type) {
 		case []any:
 			if len(x) == 0 {
-				lines = append(lines, key+": []")
 				continue
 			}
 			lines = append(lines, key+":")
@@ -287,7 +287,6 @@ func Serialize(data *jsonx.Obj) string {
 			}
 		case []string:
 			if len(x) == 0 {
-				lines = append(lines, key+": []")
 				continue
 			}
 			lines = append(lines, key+":")
