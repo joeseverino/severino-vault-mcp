@@ -281,6 +281,9 @@ func (a FindArgs) filters() *jsonx.Obj {
 
 // Find searches one vault in the requested mode.
 func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	m, err := a.selection(HitFields, leanHit)
 	if err != nil {
 		return failNext(err.Error(), withoutFields("find", "query", q))
@@ -411,18 +414,25 @@ func unlock(v *Vault, _, _ string) (bool, string, string) {
 }
 
 // narrow replaces the body with the sections refs name, or, when one names
-// no section, with the doc's section list and no text at all.
+// no section, with the doc's section list and no text at all. A heading's
+// section is its whole block, the span write_doc edits for the same ref
+// (sections.Targets); a part's slug reads that part.
 func narrow(base *jsonx.Obj, d *vault.Doc, refs []string) *jsonx.Obj {
 	base.Delete("body")
 	var found []*jsonx.Obj
 	var missing []string
 	for _, ref := range refs {
-		sec := sections.Resolve(d.Sections, ref)
-		if sec == nil {
+		if sec := sections.Resolve(d.Sections, ref); sec != nil && sec.Level == 0 {
+			found = append(found, jsonx.New("section", sec.Slug, "heading_path", sec.HeadingPath, "body", sec.Body))
+			continue
+		}
+		targets := sections.Targets(d.Body, ref)
+		if len(targets) == 0 {
 			missing = append(missing, ref)
 			continue
 		}
-		found = append(found, jsonx.New("section", sec.Slug, "heading_path", sec.HeadingPath, "body", sec.Body))
+		t := targets[0]
+		found = append(found, jsonx.New("section", t.Name(), "heading_path", t.Path, "body", t.Span(d.Body)))
 	}
 	if len(missing) > 0 {
 		base.Set("body_released", false)
@@ -471,6 +481,9 @@ var gateKeys = []string{"found", "resolved_from_alias", "body_released", "adviso
 
 // ReadDoc reads a doc's body behind the sensitivity gate.
 func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	m, err := a.selection(DocFields, leanDoc)
 	if err != nil {
 		return failNext(err.Error(), withoutFields("read_doc", "doc_id", docID))
@@ -536,6 +549,9 @@ func release(base *jsonx.Obj, d *vault.Doc, refs []string, advisory string) *jso
 
 // RenderDoc is a doc's markdown resource view, gated without unlock.
 func RenderDoc(v *Vault, docID string) string {
+	if f := v.Unreadable(); f != nil {
+		return "# Vault Unreadable\n\n" + f.Str("error") + "\n"
+	}
 	idx := v.Loader.Index(false)
 	d, ok := idx.ByDocID[docID]
 	if !ok {
@@ -557,6 +573,9 @@ func RenderDoc(v *Vault, docID string) string {
 
 // SetFrontmatter creates or updates a doc's frontmatter.
 func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
@@ -564,7 +583,7 @@ func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
 }
 
 // WriteDocModes are write_doc's modes; the first is the default.
-var WriteDocModes = []string{"create", "replace_section", "append_section"}
+var WriteDocModes = []string{"create", "replace_section", "append_section", "delete_section"}
 
 // WriteDocArgs are write_doc's arguments. DocID is the new doc's id on
 // create and names the doc a section mode edits; New carries the rest of the
@@ -583,6 +602,9 @@ type WriteDocArgs struct {
 // WriteDoc creates a registered doc, or edits one section of its body, with
 // the frontmatter validated against v's profile either way.
 func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
@@ -600,12 +622,12 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			return failNext("mode 'create' requires relative_path", v.writable(name+".md"))
 		}
 		if a.Heading != nil {
-			return failNext("heading only applies to replace_section and append_section",
+			return failNext("heading only applies to the section modes",
 				Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" without heading",
 				Call("write_doc", "mode", "replace_section", "relative_path", a.RelativePath, "heading", heading)+" to edit an existing doc")
 		}
 		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New.Set("doc_id", a.DocID), v.Profile), v.createSteps(a.RelativePath, a.DocID))
-	case "replace_section", "append_section":
+	case "replace_section", "append_section", "delete_section":
 	default:
 		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")),
 			Call("write_doc", "mode", WriteDocModes[0])+" or another listed mode")
@@ -623,6 +645,10 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return failNext(fmt.Sprintf("mode %s requires heading (\"\" for the text before the first heading)", pystr.Repr(a.Mode)),
 			Call("read_doc", "doc_id", target, "fields", []string{"outline"})+" to list its headings")
 	}
+	if a.Mode == "delete_section" && a.Body != "" {
+		return failNext("mode 'delete_section' takes no body",
+			Call("write_doc", "mode", "delete_section", "doc_id", target, "heading", heading)+" without body")
+	}
 	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath)
 	if err != "" {
 		return failNext(err, steps...)
@@ -639,12 +665,25 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+" with the same body, once the user has fixed the unlock")
 		}
 	}
-	out := write.EditSection(v.Loader, d.RelativePath, heading, a.Body, a.Mode == "append_section", v.Profile)
+	var out *jsonx.Obj
+	if a.Mode == "delete_section" {
+		out = write.DeleteSection(v.Loader, d.RelativePath, heading, v.Profile)
+	} else {
+		out = write.EditSection(v.Loader, d.RelativePath, heading, a.Body, a.Mode == "append_section", v.Profile)
+	}
 	if c, ok := out.Get("candidates"); ok {
 		names := vault.CoerceList(c)
 		steps := make([]string, len(names))
 		for i, n := range names {
 			steps[i] = Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", n) + " with the same body"
+		}
+		return steer(out, steps...)
+	}
+	if s, ok := out.Get("subsections"); ok {
+		steps := []string{Call("read_doc", "doc_id", d.DocID, "sections", []string{heading}) +
+			" for the whole block, then " + Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", heading) + " with a body that keeps each subsection heading"}
+		for _, n := range vault.CoerceList(s) {
+			steps = append(steps, Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", n)+" to replace only that subsection")
 		}
 		return steer(out, steps...)
 	}

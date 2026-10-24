@@ -44,9 +44,9 @@ user's Touch ID approval through 1Password, from the main session only.
 Every `ok: false` result is an MCP tool error (`isError`) with `error` and
 `next_steps`: the calls that recover from it, each naming a tool. A `find` with no hits carries them too.
 Take one of them before guessing.
-After the server binary is upgraded, restart Claude Code sessions (`/mcp`
-alone is not enough): `find` and `read_doc` load upfront and keep the schema
-they started with.
+An upgraded server binary takes over a running session at its next call. A
+`warning` that the new binary could not take over means answers still come
+from the old one until the session restarts.
 
 ## Writes
 
@@ -54,18 +54,23 @@ they started with.
   vault's schema. It takes every field the vault's profile declares (they are
   its arguments), so no frontmatter is ever edited by hand. On a
   project's `index.md` that includes `project_path` and the work queue keys
-  `repos` / `add_repos` / `remove_repos` and `queue_prefix`.
-- `write_doc` creates a registered doc, or replaces or appends to one section
+  `repos` / `add_repos` / `remove_repos` and `queue_prefix`. `unset` takes
+  field names to remove from the block (a required field is refused).
+- `write_doc` creates a registered doc, or replaces, appends to or deletes one section
   of its body. `heading` takes a `heading_path` or section slug from
   `read_doc`'s outline, or a unique heading text; `""` is the text before the
-  first heading. `replace_section` replaces exactly what `read_doc` returns
-  for that section, so read it first; the body leaves out the heading line.
+  first heading. A heading names its whole block, subsections included, the
+  same span `read_doc` returns for it, so read it first; the body leaves out
+  the heading line and keeps every subsection heading (`replace_section`
+  refuses one that drops any), or targets the subsection itself.
+  `append_section` adds at the end of the block; `delete_section` removes
+  the block, subsections included, and takes no body.
   Body edits to a registered doc go through it, never the file directly.
 - `move_doc` moves or renames a registered doc (`to` is a .md path, or a
   folder ending in `/`); its doc_id and frontmatter stay. Never move a vault
   file with the shell. A file name another note already has is refused, since
   Obsidian links by unique name: rename first, in the same folder, to a name
-  that says which doc it is (`Audit.md` becomes `Example Audit — 2026-09-07.md`).
+  that says which doc it is (`Audit.md` becomes `Example Audit - 2026-09-07.md`).
   `with_folder=true` moves a report's folder with its evidence files. Path
   links to the doc are rewritten; `links` lists the notes changed.
 - `move_folder(from, to)` moves or renames a whole folder (a project, a

@@ -8,6 +8,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
@@ -25,6 +26,23 @@ func Call(tool string, args ...any) string {
 	}
 	return tool + "(" + strings.Join(parts, ", ") + ")"
 }
+
+// Unreadable is the failure for a vault this process cannot read, or nil. An
+// index built over an unreadable vault is empty, which would read as "no such
+// doc"; every tool that loads the index returns this instead.
+func Unreadable(name string, l *vault.Loader) *jsonx.Obj {
+	err := l.Err()
+	if err == nil {
+		return nil
+	}
+	return failNext("vault "+pystr.Repr(name)+" is unreadable, so no doc can be said to exist or not: "+err.Error(),
+		"check that the vault path in the config ("+l.Config.VaultPath+") exists and is a directory",
+		"check that this process may read it (on macOS, the app running the server needs access to the folder)",
+		"retry the same call once the vault is readable; the answer is not a missing doc")
+}
+
+// Unreadable is the package-level Unreadable for v.
+func (v *Vault) Unreadable() *jsonx.Obj { return Unreadable(v.Name, v.Loader) }
 
 // steer sets o's next_steps.
 func steer(o *jsonx.Obj, steps ...string) *jsonx.Obj {

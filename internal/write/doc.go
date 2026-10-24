@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/clock"
@@ -103,9 +104,10 @@ func hasH1(body string) bool {
 }
 
 // EditSection replaces or appends to one section of an existing doc. The
-// section is what read_doc returns for heading (sections.Targets): replace
-// covers all of it, and append adds at the end of the text under its heading,
-// before its first subheading.
+// section is what read_doc returns for heading (sections.Targets): a heading
+// with every subheading under it, or one part by a part's slug. Replace
+// covers all of it and refuses a body that would drop a subheading it holds;
+// append adds at its end.
 func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode bool, p *schema.Profile) *jsonx.Obj {
 	if appendMode && pystr.Strip(body) == "" {
 		return jsonx.Fail("body is empty; nothing to append")
@@ -117,6 +119,76 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 	return EditBody(l, relativePath, p, func(old, rel string) (string, *jsonx.Obj) {
 		return spliceSection(old, heading, body, appendMode, rel)
 	}, "mode", mode, "heading", pystr.Strip(heading))
+}
+
+// DeleteSection removes one section of an existing doc: the heading line and
+// everything under it, subsections included, the span read_doc returns for
+// heading. It refuses the preamble, a part of a split heading (a part is no
+// section), and a removal that leaves the doc without a heading.
+func DeleteSection(l *vault.Loader, relativePath, heading string, p *schema.Profile) *jsonx.Obj {
+	return EditBody(l, relativePath, p, func(old, rel string) (string, *jsonx.Obj) {
+		return cutSection(old, heading, rel)
+	}, "mode", "delete_section", "heading", pystr.Strip(heading))
+}
+
+func cutSection(body, heading, rel string) (string, *jsonx.Obj) {
+	needle := pystr.Strip(heading)
+	if needle == "" {
+		return "", jsonx.Fail("the text before the first heading is not a section; replace it with write_doc mode replace_section and heading \"\"")
+	}
+	b := sections.NewBody(body)
+	all := b.Headings()
+	parsed := strings.TrimSuffix(body, "\n")
+	targets := sections.Targets(parsed, needle)
+	switch len(targets) {
+	case 0:
+		texts := make([]string, len(all))
+		for i, h := range all {
+			texts[i] = h.Text
+		}
+		return "", jsonx.Fail(fmt.Sprintf("no heading %s in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
+			pystr.Repr(needle), rel, pystr.ReprList(texts)))
+	case 1:
+	default:
+		names := candidateNames(targets)
+		return "", jsonx.Fail(fmt.Sprintf("heading %s appears %d times in %s; pass one of its heading paths instead: %s",
+			pystr.Repr(needle), len(targets), rel, pystr.ReprList(names))).Set("candidates", jsonx.Strings(names))
+	}
+	t := targets[0]
+	if t.Line < 0 || t.End != min(b.BlockEnd(t.Line), len(sections.Lines(parsed))) {
+		return "", jsonx.Fail(fmt.Sprintf("%s is one part of a long section, not a section; delete the section by its heading path %s",
+			pystr.Repr(needle), pystr.Repr(t.Path)))
+	}
+	end := t.End
+	if end >= len(sections.Lines(parsed)) {
+		end = len(b.Lines)
+	}
+	var kept []sections.Heading
+	for _, h := range all {
+		if h.Line < t.Start || h.Line >= end {
+			kept = append(kept, h)
+		}
+	}
+	if len(kept) == 0 {
+		return "", jsonx.Fail(fmt.Sprintf("%s is the only section of %s; deleting it would leave the doc without a heading", pystr.Repr(t.Path), rel))
+	}
+	rest := slices.Clone(b.Lines[:t.Start])
+	for len(rest) > 0 && pystr.Strip(rest[len(rest)-1]) == "" {
+		rest = rest[:len(rest)-1]
+	}
+	tail := slices.Clone(b.Lines[end:])
+	for len(tail) > 0 && pystr.Strip(tail[len(tail)-1]) == "" {
+		tail = tail[:len(tail)-1]
+	}
+	out := strings.Join(rest, "\n")
+	if len(tail) > 0 {
+		if out != "" {
+			out += "\n\n"
+		}
+		out += strings.Join(tail, "\n")
+	}
+	out += "\n"
+	return out, nil
 }
 
 // EditBody rewrites an existing doc's body through edit, which gets the body
@@ -259,8 +331,11 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 	start := t.Start
 	if t.Line >= 0 {
 		start = t.Line + 1
-		if appendMode {
-			end = min(end, b.NextHeading(t.Line))
+	}
+	if !appendMode {
+		if dropped := droppedSubsections(all, start, end, content); len(dropped) > 0 {
+			return "", jsonx.Fail(fmt.Sprintf("replacing %s would drop its subsections %s; send a body that keeps each of their heading lines, or replace one subsection by its heading path",
+				pystr.Repr(t.Path), pystr.ReprList(dropped))).Set("subsections", jsonx.Strings(dropped))
 		}
 	}
 	section := strings.Trim(content, "\n")
@@ -281,6 +356,29 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 		sb.WriteString("\n" + strings.Join(lines[end:], "\n"))
 	}
 	return sb.String(), nil
+}
+
+// droppedSubsections are the heading paths of the headings in lines
+// [start, end) that content does not carry again, at the same level with the
+// same text, as many times as the span has them.
+func droppedSubsections(all []sections.Heading, start, end int, content string) []string {
+	have := map[sections.Heading]int{}
+	for _, h := range sections.Headings(content) {
+		have[sections.Heading{Level: h.Level, Text: h.Text}]++
+	}
+	var out []string
+	for _, h := range all {
+		if h.Line < start || h.Line >= end {
+			continue
+		}
+		key := sections.Heading{Level: h.Level, Text: h.Text}
+		if have[key] > 0 {
+			have[key]--
+			continue
+		}
+		out = append(out, sections.PathOf(all, h))
+	}
+	return out
 }
 
 // candidateNames names each target the way write_doc takes it back: its

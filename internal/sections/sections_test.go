@@ -160,3 +160,24 @@ func TestTargetsFindAHeadingInsideAWholeSectionByPath(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestTargetsNameAHeadingsWholeBlockPastTheTokenCap(t *testing.T) {
+	filler := strings.Repeat("Steady words fill this paragraph for the cap. ", 22)
+	body := "## Big\n\nlead\n\n### One\n\n" + filler + "\n\n#### Deep\n\nd\n\n### Two\n\n" + filler + "\n\n## Next\n\nkept"
+	secs := Parse(body, 0)
+	if len(secs) < 3 || secs[0].Slug != "big" || !strings.HasPrefix(secs[1].Slug, "big-one") {
+		t.Fatalf("the H2 is not split at its H3s: %+v", secs)
+	}
+	next := slices.Index(Lines(body), "## Next")
+	for _, ref := range []string{"Big", "big"} {
+		got := Targets(body, ref)
+		if len(got) != 1 || got[0].Start != 0 || got[0].End != next || got[0].Path != "Big" || got[0].Name() != "big" {
+			t.Fatalf("%s: %+v", ref, got)
+		}
+	}
+	two := slices.Index(Lines(body), "### Two")
+	got := Targets(body, "Big > One")
+	if len(got) != 1 || got[0].End != two || !strings.Contains(got[0].Span(body), "#### Deep") {
+		t.Fatalf("an H3 holds its H4: %+v", got)
+	}
+}

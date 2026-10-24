@@ -51,6 +51,9 @@ func containsFold(s, sub string) bool {
 
 // LogEntries lists a log note's entries, or closes one with its resolution.
 func LogEntries(v *Vault, docID string, a LogArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	list := func(args ...any) string { return Call("log_entries", append([]any{"doc_id", docID}, args...)...) }
 	m, err := a.selection(EntryFields, leanEntry)
 	if err != nil {

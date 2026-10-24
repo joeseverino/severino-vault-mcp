@@ -247,8 +247,12 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 			set(name, value)
 		}
 	}
+	removed, msg := unsetFields(fm, c, p, archive)
+	if msg != "" {
+		return text, jsonx.Fail(msg)
+	}
 	docID, _ := fm.Get("doc_id")
-	if len(changed) == 0 {
+	if len(changed) == 0 && len(removed) == 0 {
 		return text, jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
 			"message", "No fields differ, so nothing was written.")
 	}
@@ -294,9 +298,33 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 	if len(errs) > 0 {
 		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
+	changed = append(changed, removed...)
 	slices.Sort(changed)
 	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel,
 		"changed_fields", changed, "next_step", nextStep)
+}
+
+// unsetFields removes c.Unset from fm and returns the keys it removed. A field the doc's type (or the archive) requires, or one the same
+// call sets, is refused; a key the block lacks is skipped.
+func unsetFields(fm *jsonx.Obj, c Changes, p *schema.Profile, archive string) (removed []string, refused string) {
+	dt, _ := fm.Get("doc_type")
+	required := p.RequiredFor(pystr.Str(dt))
+	if archive != "" {
+		required = schema.ArchiveRequiredFields
+	}
+	for _, name := range c.Unset {
+		switch {
+		case slices.Contains(required, name):
+			return nil, fmt.Sprintf("%s is required by this doc; it cannot be unset", name)
+		case slices.Contains(c.names(), name):
+			return nil, fmt.Sprintf("%s is both set and unset in one call", name)
+		case !fm.Has(name):
+			continue
+		}
+		fm.Delete(name)
+		removed = append(removed, name)
+	}
+	return removed, ""
 }
 
 // introduced are the problems the whole block after has that before did
@@ -326,6 +354,9 @@ func createBlock(text, rel, archive string, c Changes, p *schema.Profile, idx *v
 		if len(op.Remove) > 0 {
 			return text, jsonx.Fail("no frontmatter yet; remove_* lists only apply to an update")
 		}
+	}
+	if len(c.Unset) > 0 {
+		return text, jsonx.Fail("no frontmatter yet; unset only applies to an update")
 	}
 	fm := newFrontmatter(c, p)
 	if errs := checkNew(fm, rel, archive, p, idx); len(errs) > 0 {

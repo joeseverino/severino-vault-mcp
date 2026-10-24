@@ -1,16 +1,16 @@
 package sections
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 	"strings"
 )
 
-// Target is the span of a body's lines, [Start, End), that one section edit
-// covers. Line is the heading line it opens with, or -1 for a later part of
-// a hard-wrapped heading; Path names it the way read_doc's outline does,
-// and Slug is its first section's slug, "" for a heading no section opens.
+// Target is the span of a body's lines, [Start, End), that one section read
+// or edit covers. Line is the heading line it opens with, or -1 for a later
+// part of a hard-wrapped heading; Path names it the way read_doc's outline
+// does, and Slug is its first section's slug, "" for a heading no section
+// opens.
 type Target struct {
 	Start, End int
 	Line       int
@@ -20,15 +20,27 @@ type Target struct {
 	Slug       string
 }
 
-// Targets are the spans ref names in body, which starts at line 0. A section
-// read_doc returns is the span an edit covers: ref resolves through Matches
-// over Parse, so each matched section is exactly what read_doc gives for it.
-// A heading resolved by its text or path covers every part it was
-// hard-wrapped into; a part's own slug or path covers that part. A heading
-// Parse keeps inside a larger section (an H3 of an H2 small enough to stay
-// whole, an H4) is found by its text or heading path, "Parent > Child", and
-// spans to the next heading of any level. More than one Target means ref is
-// ambiguous.
+// Span is the target's text in body, the body Targets was given.
+func (t Target) Span(body string) string {
+	return strings.Join(Lines(body)[t.Start:t.End], "\n")
+}
+
+// Name is how the target is named back to read_doc and write_doc: its slug,
+// or its heading path's slug for a heading no section opens.
+func (t Target) Name() string {
+	if t.Slug != "" {
+		return t.Slug
+	}
+	return Slugify(t.Path)
+}
+
+// Targets are the spans ref names in body, which starts at line 0. A heading
+// named by its text, its heading path ("Parent > Child") or its section's
+// slug is a block in the Markdown sense: the heading and everything up to the
+// next heading of the same or a higher level, so its subheadings come with
+// it. The token cap that splits a long H2 into parts for find is no
+// boundary here; only a part's own slug or path (a "(part N)" outline entry)
+// names just that part. More than one Target means ref is ambiguous.
 func Targets(body, ref string) []Target {
 	needle := strings.ToLower(strings.TrimSpace(ref))
 	if needle == "" {
@@ -41,19 +53,12 @@ func Targets(body, ref string) []Target {
 	for _, h := range headings {
 		byLine[h.Line] = h
 	}
-	// A heading's span as a section runs to the end of the last section
-	// opening under it, the parts it was hard-wrapped into included.
-	ends := map[int]int{}
-	paths := map[int]string{}
 	slugs := map[int]string{}
 	for _, s := range secs {
 		if s.Level == 0 {
 			continue
 		}
-		h, _ := b.Under(s.StartLine + 1)
-		ends[h.Line] = max(ends[h.Line], s.End())
-		if _, ok := paths[h.Line]; !ok {
-			paths[h.Line] = strings.TrimSuffix(s.HeadingPath, fmt.Sprintf(" (part %d)", s.Part))
+		if h, _ := b.Under(s.StartLine + 1); slugs[h.Line] == "" {
 			slugs[h.Line] = s.Slug
 		}
 	}
@@ -65,16 +70,10 @@ func Targets(body, ref string) []Target {
 		}
 		seen[line] = true
 		h := byLine[line]
-		end, ok := ends[line]
-		path := paths[line]
-		if !ok {
-			end, path = b.NextHeading(line), pathOf(headings, h)
-		}
-		out = append(out, Target{Start: line, End: end, Line: line, Level: h.Level, Text: h.Text, Path: path, Slug: slugs[line]})
+		out = append(out, Target{Start: line, End: b.BlockEnd(line), Line: line, Level: h.Level, Text: h.Text, Path: PathOf(headings, h), Slug: slugs[line]})
 	}
 	nslug := Slugify(needle)
-	matches := Matches(secs, ref)
-	for _, m := range matches {
+	for _, m := range Matches(secs, ref) {
 		if m.Level == 0 {
 			continue
 		}
@@ -95,10 +94,7 @@ func Targets(body, ref string) []Target {
 		}
 	}
 	for _, h := range headings {
-		path := paths[h.Line]
-		if path == "" {
-			path = pathOf(headings, h)
-		}
+		path := PathOf(headings, h)
 		if needle == strings.ToLower(h.Text) || needle == strings.ToLower(path) || nslug == Slugify(path) {
 			add(h.Line)
 		}
@@ -107,9 +103,9 @@ func Targets(body, ref string) []Target {
 	return out
 }
 
-// pathOf is h's heading path: the text of each enclosing heading below H1,
+// PathOf is h's heading path: the text of each enclosing heading below H1,
 // outermost first, then its own, joined with " > ".
-func pathOf(headings []Heading, h Heading) string {
+func PathOf(headings []Heading, h Heading) string {
 	parts := []string{h.Text}
 	level := h.Level
 	for _, o := range slices.Backward(headings) {

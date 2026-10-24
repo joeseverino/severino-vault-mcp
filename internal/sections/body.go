@@ -42,6 +42,22 @@ func (b *Body) NextHeading(at int) int {
 	return len(b.Lines)
 }
 
+// BlockEnd is the line of the first heading after the heading at line at of
+// its level or higher, or len(Lines): where the block it opens ends.
+func (b *Body) BlockEnd(at int) int {
+	hs := b.Headings()
+	level := 7
+	for _, h := range hs {
+		if h.Line == at {
+			level = h.Level
+		}
+		if h.Line > at && h.Level <= level {
+			return h.Line
+		}
+	}
+	return len(b.Lines)
+}
+
 // Under is the nearest heading above line at, of any level, or false.
 func (b *Body) Under(at int) (Heading, bool) {
 	var out Heading

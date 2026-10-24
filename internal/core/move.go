@@ -35,6 +35,9 @@ type MoveArgs struct {
 // A doc moves into the archive only once it is archived (a task: closed);
 // Archive sets status: archived in the same call.
 func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	d, msg, steps := moveSource(v, a)
 	if d == nil {
 		return failNext(msg, steps...)

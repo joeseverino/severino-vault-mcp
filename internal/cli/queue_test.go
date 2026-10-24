@@ -79,7 +79,7 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 		t.Fatal(exit, errb)
 	}
 
-	// One worker across two repos: land-worker records each landing.
+	// One worker across two repos: each landing is recorded separately.
 	exit, out, _ = run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "delegated", "--agent", "a2",
 		"--text", "Span two repos", "--repos", "example-tracker,example-other")
 	if exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "item.repos")) != `["example-tracker","example-other"]` {

@@ -47,6 +47,19 @@ type Changes struct {
 	Values map[string]any
 	Lists  map[string]ListOp
 	Touch  []string
+	Unset  []string // keys removed from the block, declared or not, with any list items
+}
+
+// UnsetKey is the argument, on every surface, that removes fields by name.
+const UnsetKey = "unset"
+
+// UnsetHelp describes the argument.
+const UnsetHelp = "Field names to remove from the block, with any list items. A leftover key the profile no longer declares can be removed; a field the doc requires cannot."
+
+// Unsetting is c with fields to remove from the block.
+func (c Changes) Unsetting(names ...string) Changes {
+	c.Unset = append(slices.Clone(c.Unset), names...)
+	return c
 }
 
 // With is Changes from name/value pairs: a []string replaces a list field,
@@ -99,7 +112,9 @@ func (c Changes) Touched(name string) Changes {
 }
 
 // Empty reports no change at all.
-func (c Changes) Empty() bool { return len(c.Values) == 0 && len(c.Lists) == 0 && len(c.Touch) == 0 }
+func (c Changes) Empty() bool {
+	return len(c.Values) == 0 && len(c.Lists) == 0 && len(c.Touch) == 0 && len(c.Unset) == 0
+}
 
 // Str is a scalar field's new value as text, "" when not given.
 func (c Changes) Str(name string) string {

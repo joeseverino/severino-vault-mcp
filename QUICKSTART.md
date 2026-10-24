@@ -199,35 +199,13 @@ Rerun `go install -trimpath ./cmd/severino-vault-mcp` after pulling new repo cha
 
 ## 8. Optional: Unlock Restricted Docs With Touch ID
 
-By default, `restricted` docs return metadata only.
-
-A restricted body is released for one request when a 1Password read of a
-dedicated unlock item succeeds. The read goes through the 1Password desktop
-app, so it asks for Touch ID every time.
-
-1. In the 1Password app, turn on Settings > Developer > Integrate with
-   1Password CLI, and install the `op` CLI.
-2. Create a dedicated item (any password field will do) in a vault that no
-   service account can read. A service account that could read it would
-   approve its own unlock.
-3. Point the config at it:
-
-   ```toml
-   [restricted]
-   unlock_ref = "op://Private-Vault/Unlock-Item/password"
-   ```
-
-   or set `SVMC_RESTRICTED_UNLOCK_REF` in the MCP client's `env`.
-
-4. Check the read prompts for Touch ID:
-
-   ```bash
-   op read --no-newline "op://Private-Vault/Unlock-Item/password" >/dev/null && echo ok
-   ```
-
-Start the MCP server without `OP_SERVICE_ACCOUNT_TOKEN` in its environment:
-while it is set, every unlock is refused. The value read is discarded at once
-and never logged; the audit log records each attempt and its result.
+By default, `restricted` docs return metadata only. To release one body per
+request on macOS, set `[restricted].unlock_ref` (or
+`SVMC_RESTRICTED_UNLOCK_REF` in the MCP client's `env`) to the `op://`
+reference of a dedicated 1Password item, and check that
+`op read --no-newline "<that reference>" >/dev/null && echo ok` prompts for
+Touch ID. The conditions, the setup rationale and the audit log are in
+[`docs/ai-safety-security.md`](docs/ai-safety-security.md#secret-adjacent-release-flow).
 
 ## 9. Common Adoption Checks
 

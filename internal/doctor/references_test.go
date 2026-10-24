@@ -136,3 +136,20 @@ func TestAMissingCheckoutIsReportedOnce(t *testing.T) {
 		t.Fatalf("want one note at the project's index naming %s, got %+v", missing, told)
 	}
 }
+
+// A closed log entry and a finished queue item record the past: code they
+// name is not checked, while an open entry is.
+func TestClosedEntriesAreNotCheckedForCode(t *testing.T) {
+	root := tk.FakeVault(t)
+	projectIndex(t, root, "Example", checkout(t))
+	tk.Doc(t, filepath.Join(root, "03 Runbooks", "Lessons.md"), noteFront("rb-lessons", "active", "runbook", "Example"),
+		"# Lessons\n\n- Moved `internal/gone.go`. → fixed: queue it\n- Still editing `internal/gone.go` by hand.\n")
+	tk.Doc(t, filepath.Join(root, "03 Runbooks", "Queue History.md"), noteFront("rb-queue-history", "active", "runbook", "Example"),
+		"# Queue\n\n- [x] Moved `internal/gone.go` #queue/next  [id:: qh-1]\n- [-] Dropped `internal/gone.go` #queue/next  [id:: qh-2]\n")
+	if got := referenceWarnings(root, "03 Runbooks/Lessons.md"); len(got) != 1 && !strings.Contains(got[0], "gone.go") {
+		t.Errorf("want one warning for the open entry, got %q", got)
+	}
+	if got := referenceWarnings(root, "03 Runbooks/Queue History.md"); len(got) != 0 {
+		t.Errorf("want no warnings for finished items, got %q", got)
+	}
+}

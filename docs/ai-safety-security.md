@@ -38,7 +38,7 @@ vaults:
 
 The local-model path is still not a hard sandbox. A trusted local MCP host is
 required, and a compromised host can request allowed tools. `restricted`
-docs therefore remain withheld unless a Touch ID approval through 1Password succeeds.
+docs therefore remain withheld unless the unlock below succeeds.
 
 ## Sensitivity Levels
 
@@ -47,12 +47,15 @@ docs therefore remain withheld unless a Touch ID approval through 1Password succ
 | `public` | Released. |
 | `internal` | Released. |
 | `sensitive` | Released with advisory text. |
-| `restricted` | Withheld by default. Released only through `read_doc` after explicit request and a Touch ID unlock through 1Password. |
+| `restricted` | Metadata only. The body is released for one read, only through `read_doc` after an explicit request and the unlock below. |
 
 `restricted` is for docs near credentials, keys, CA procedures, rotation
 steps, or other material that should not casually enter an AI chat transcript.
 
 ## Secret-Adjacent Release Flow
+
+The unlock is macOS only: it needs the 1Password desktop app (Touch ID) and the
+`op` CLI. On other platforms restricted bodies stay withheld.
 
 The model can request a body, but the local machine authorizes it:
 

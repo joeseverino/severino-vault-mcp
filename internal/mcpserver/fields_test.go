@@ -39,7 +39,7 @@ func propKeys(tool map[string]any) []string {
 func TestFrontmatterToolArgumentsAreTheProfilesFields(t *testing.T) {
 	reg, _ := labsAndEdu(t)
 	got := tools(t, connect(t, reg))
-	set := []string{"relative_path", "vault"}
+	set := []string{"relative_path", "unset", "vault"}
 	create := []string{"body", "doc_id", "heading", "include_restricted", "mode", "relative_path", "vault"}
 	for _, f := range schema.Union(schema.Labs, schema.Education) {
 		switch {

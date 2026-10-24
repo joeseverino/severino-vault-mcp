@@ -44,13 +44,12 @@ Authoring patterns
 ==================
 
 Private-link tooltip:
-  For links to private services (Tailscale-only dashboards, internal
-  tools), use a standard markdown link with a `"private: "` title
+  For links to private services (internal dashboards and tools), use a standard markdown link with a `"private: "` title
   prefix. On click, a small floating tooltip shows the message instead
   of navigating, so public visitors see why the link exists without
   hitting a connection error.
 
-      [Severino HQ](https://hq.jseverino.com "private: this site only works on my tailnet")
+      [Link text](https://example.com "private: why the link is private")
 
   The `"private: "` prefix is the marker. `src/lib/content.ts` rewrites
   any matching link to `<a ... data-private-tooltip="message">` during

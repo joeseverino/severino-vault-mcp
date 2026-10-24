@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -422,16 +423,31 @@ func (c *Ctx) emit(result *jsonx.Obj, pretty bool) int {
 
 func (c *Ctx) labs() *vault.Loader { return vault.NewLoader(config.Load("", c.Env)) }
 
+// readLabs runs f on the labs loader, or emits the unreadable-vault failure
+// when this process cannot read the vault.
+func (c *Ctx) readLabs(p Parsed, f func(l *vault.Loader) *jsonx.Obj) int {
+	l := c.labs()
+	if fail := core.Unreadable("labs", l); fail != nil {
+		return c.emit(fail, p.Bool("pretty"))
+	}
+	return c.emit(f(l), p.Bool("pretty"))
+}
+
 func runDoctor(c *Ctx, p Parsed) int {
-	return doctor.Run(c.Stdout, config.Load("", c.Env), schema.Labs, p.Bool("propose"))
+	cfg := config.Load("", c.Env)
+	if fail := core.Unreadable("labs", vault.NewLoader(cfg)); fail != nil {
+		fmt.Fprintln(c.Stdout, jsonx.Dumps(fail, false))
+		return 1
+	}
+	return doctor.Run(c.Stdout, cfg, schema.Labs, p.Bool("propose"))
 }
 
 func runTouchReviewed(c *Ctx, p Parsed) int {
-	return c.emit(write.TouchReviewed(c.labs(), p.Str("relative_path")), p.Bool("pretty"))
+	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj { return write.TouchReviewed(l, p.Str("relative_path")) })
 }
 
 func runBackfillAliases(c *Ctx, p Parsed) int {
-	return c.emit(write.BackfillAliases(c.labs()), p.Bool("pretty"))
+	return c.readLabs(p, write.BackfillAliases)
 }
 
 // labsVault is the labs vault as the MCP tools see it, for the commands that
@@ -489,13 +505,18 @@ func optStr(p Parsed, k string) *string {
 }
 
 func runUpdateFrontmatter(c *Ctx, p Parsed) int {
-	return c.emit(write.SetFrontmatter(c.labs(), p.Str("relative_path"), changesFrom(p, updateArgs), schema.Labs), p.Bool("pretty"))
+	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj {
+		return write.SetFrontmatter(l, p.Str("relative_path"), changesFrom(p, updateArgs), schema.Labs)
+	})
 }
 
 func runWriteDoc(c *Ctx, p Parsed) int {
-	content, err := io.ReadAll(c.Stdin)
-	if err != nil {
-		return c.emit(jsonx.Fail("could not read stdin: "+err.Error()), p.Bool("pretty"))
+	var content []byte
+	if p.Str("mode") != "delete_section" {
+		var err error
+		if content, err = io.ReadAll(c.Stdin); err != nil {
+			return c.emit(jsonx.Fail("could not read stdin: "+err.Error()), p.Bool("pretty"))
+		}
 	}
 	return c.emit(core.WriteDoc(vaults.Labs(c.Env), core.WriteDocArgs{
 		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), DocID: p.Str("doc_id"), Heading: optStr(p, "heading"),
@@ -568,6 +589,12 @@ func runTaskDelete(c *Ctx, p Parsed) int {
 
 func runDescribe(c *Ctx, p Parsed) int { return c.emit(Describe(), p.Bool("pretty")) }
 
+// inVault reports whether a validate path may be a doc of the vault at root: a
+// vault-relative path always may; an absolute one must lie under it.
+func inVault(path, root string) bool {
+	return !filepath.IsAbs(path) || config.Under(path, strings.TrimRight(root, "/"))
+}
+
 // runValidate checks each path against the first local vault that holds it.
 // A hook runs it on every edited file, so a path no vault holds is not an error.
 func runValidate(c *Ctx, p Parsed) int {
@@ -575,6 +602,9 @@ func runValidate(c *Ctx, p Parsed) int {
 	problems := []*jsonx.Obj{}
 	for _, path := range p.List("path") {
 		for _, v := range local {
+			if fail := v.Unreadable(); fail != nil && inVault(config.ExpandUser(path), v.Config.VaultPath) {
+				return c.emit(fail, p.Bool("json"))
+			}
 			rel, found, ok := core.CheckDoc(v, config.ExpandUser(path))
 			if !ok {
 				continue
@@ -657,7 +687,7 @@ func runHQManifest(c *Ctx, p Parsed) int {
 		fmt.Fprintf(c.Stderr, "warn: %s not under vault, skipping\n", d)
 	}
 	if missing, _ := result.Get("missing_frontmatter"); len(missing.([]string)) > 0 {
-		fmt.Fprintf(c.Stderr, "warn: %d file(s) missing frontmatter (skipped) — run `hq doctor` to list them\n", len(missing.([]string)))
+		fmt.Fprintf(c.Stderr, "warn: %d file(s) missing frontmatter (skipped); run `hq doctor` to list them\n", len(missing.([]string)))
 	}
 	entries, _ := result.Get("entries")
 	fmt.Fprintln(c.Stdout, jsonx.Pretty(entries))
@@ -667,7 +697,9 @@ func runHQManifest(c *Ctx, p Parsed) int {
 }
 
 func runBrief(c *Ctx, p Parsed) int {
-	return c.emit(brief.Vault(c.labs(), p.Int("days"), p.Int("review_after"), p.Int("limit")), p.Bool("pretty"))
+	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj {
+		return brief.Vault(l, p.Int("days"), p.Int("review_after"), p.Int("limit"))
+	})
 }
 
 func runDailyWrite(c *Ctx, p Parsed) int {

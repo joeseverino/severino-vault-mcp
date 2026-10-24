@@ -271,7 +271,11 @@ type Index struct {
 	InvalidAliases  map[string]string
 	DuplicateDocIDs map[string][]string
 	Projects        []string // names a related_projects entry may hold, sorted; nil when the vault has no projects folder
-	loadedAt        time.Time
+	// Err is why the vault could not be read: its root, or an indexed folder
+	// under it, is missing, not a directory, or denied to this process. An
+	// index with Err set is not a statement about what docs exist.
+	Err      error
+	loadedAt time.Time
 }
 
 // Folder layout a related_projects entry names: a live project is a folder
@@ -383,6 +387,45 @@ func (l *Loader) Index(force bool) *Index {
 	return l.index
 }
 
+// Err is why the vault cannot be read, or nil: what Index.Err holds for the
+// current index.
+func (l *Loader) Err() error { return l.Index(false).Err }
+
+// readable is the first error reading the vault root or an indexed folder
+// under it, or nil. A configured folder that does not exist is a vault
+// without it; one that exists and cannot be listed is an error.
+func (l *Loader) readable() error {
+	root := l.Config.VaultPath
+	if _, err := os.ReadDir(root); err != nil {
+		return err
+	}
+	dirs := l.Config.SearchDirs()
+	if l.Config.ArchiveDir != "" {
+		dirs = append(dirs, l.Config.ArchiveDir)
+	}
+	for _, sub := range dirs {
+		if sub == "." {
+			continue
+		}
+		top := filepath.Join(root, sub)
+		if !fsx.IsDir(top) {
+			continue
+		}
+		if err := filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && p != top && (strings.HasPrefix(d.Name(), ".") || skipDirParts[d.Name()]) {
+				return filepath.SkipDir
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SiteContentPrefixes are the doc_id prefixes of the site's content folders,
 // whose `<folder>/<slug>/index.md` notes carry no doc_id of their own. They
 // are also the ids the HQ manifest gives the same notes.
@@ -402,6 +445,10 @@ func siteContentID(rel string) string {
 
 func (l *Loader) build() *Index {
 	idx := newIndex()
+	if err := l.readable(); err != nil {
+		idx.Err = err
+		return idx
+	}
 	for _, p := range MarkdownFiles(l.Config.VaultPath, l.Config.SearchDirs()) {
 		if d := l.readDoc(p); d != nil {
 			idx.add(d)
