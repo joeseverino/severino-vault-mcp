@@ -27,7 +27,7 @@ var floors = struct {
 	hit1, hit3, mrr, zeroMax float64
 	findP90Max, readP90Max   int
 	sectP90Max               int
-}{hit1: 0.80, hit3: 0.91, mrr: 0.86, zeroMax: 0.05, findP90Max: 650, readP90Max: 700, sectP90Max: 150}
+}{hit1: 0.90, hit3: 0.97, mrr: 0.94, zeroMax: 0.05, findP90Max: 680, readP90Max: 300, sectP90Max: 130}
 
 func TestEvalFloors(t *testing.T) {
 	cases, root := fixture(t)

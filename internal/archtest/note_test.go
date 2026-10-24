@@ -70,19 +70,13 @@ func TestOneCoercion(t *testing.T) {
 			if fn.Name.Name != "CoerceList" && listCoercion(fn) {
 				t.Errorf("%s:%d: %s turns a value into a []string by hand; use vault.CoerceList", s.rel, s.line(fn), fn.Name.Name)
 			}
-			stats, isDir, isRegular := false, false, false
+			isDir, isRegular := statChecks(fn.Body, osName)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
 					return true
 				}
 				switch {
-				case isPkgCall(call, osName, "Stat"):
-					stats = true
-				case isMethodCall(call, "IsDir"):
-					isDir = true
-				case isMethodCall(call, "IsRegular"):
-					isRegular = true
 				case isBuiltinMake(call, "any") && !in(s.rel, "internal/jsonx"):
 					t.Errorf("%s:%d: builds a []any by hand; use jsonx.Strings", s.rel, s.line(call))
 				case isPkgCall(call, stringsName, "Contains") && fn.Name.Name != "containsFold":
@@ -92,12 +86,71 @@ func TestOneCoercion(t *testing.T) {
 				}
 				return true
 			})
-			if stats && isDir && !in(s.rel, "internal/fsx") {
+			if isDir && !in(s.rel, "internal/fsx") {
 				t.Errorf("%s:%d: %s checks for a folder with os.Stat; use fsx.IsDir", s.rel, s.line(fn), fn.Name.Name)
 			}
-			if stats && isRegular && !in(s.rel, "internal/fsx") {
+			if isRegular && !in(s.rel, "internal/fsx") {
 				t.Errorf("%s:%d: %s checks for a file with os.Stat; use fsx.IsFile", s.rel, s.line(fn), fn.Name.Name)
 			}
+		}
+	}
+}
+
+// statChecks reports whether body asks an os.Stat result whether it is a
+// folder or a regular file. Only a value that came from os.Stat counts: a
+// DirEntry or FileInfo from a directory walk has these methods too, and is
+// not a coercion.
+func statChecks(body *ast.BlockStmt, osName string) (isDir, isRegular bool) {
+	stat := map[string]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Rhs) != 1 || len(as.Lhs) == 0 {
+			return true
+		}
+		if call, ok := as.Rhs[0].(*ast.CallExpr); ok && isPkgCall(call, osName, "Stat") {
+			if id, ok := as.Lhs[0].(*ast.Ident); ok {
+				stat[id.Name] = true
+			}
+		}
+		return true
+	})
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (sel.Sel.Name != "IsDir" && sel.Sel.Name != "IsRegular") {
+			return true
+		}
+		if !fromStat(sel.X, stat, osName) {
+			return true
+		}
+		isDir = isDir || sel.Sel.Name == "IsDir"
+		isRegular = isRegular || sel.Sel.Name == "IsRegular"
+		return true
+	})
+	return isDir, isRegular
+}
+
+// fromStat reports whether e is, or is a method chain on, an os.Stat result
+// or a variable holding one.
+func fromStat(e ast.Expr, stat map[string]bool, osName string) bool {
+	for {
+		switch x := e.(type) {
+		case *ast.Ident:
+			return stat[x.Name]
+		case *ast.SelectorExpr:
+			e = x.X
+		case *ast.CallExpr:
+			if isPkgCall(x, osName, "Stat") {
+				return true
+			}
+			e = x.Fun
+		case *ast.ParenExpr:
+			e = x.X
+		default:
+			return false
 		}
 	}
 }
@@ -292,6 +345,37 @@ func other(o *jsonx.Obj, k string) string { return "x" }
 		}
 		if got := fieldGetter(fn, "jsonx"); got != want[fn.Name.Name] {
 			t.Errorf("fieldGetter(%s) = %v, want %v", fn.Name.Name, got, want[fn.Name.Name])
+		}
+	}
+}
+
+func TestStatChecksSeesOnlyAStatResult(t *testing.T) {
+	const src = `package p
+import ("io/fs"; "os"; "path/filepath")
+func walk(root string) error {
+	if _, err := os.Stat(root); err != nil { return err }
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if d.IsDir() { return nil }
+		return nil
+	})
+}
+func viaVar(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
+func viaMode(p string) bool { fi, _ := os.Stat(p); return fi.Mode().IsRegular() }
+func direct(p string) bool { fi, _ := os.Stat(p); _ = fi; return os.Stat(p) != nil }
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "p.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][2]bool{"walk": {false, false}, "viaVar": {true, false}, "viaMode": {false, true}, "direct": {false, false}}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		dir, reg := statChecks(fn.Body, "os")
+		if got := [2]bool{dir, reg}; got != want[fn.Name.Name] {
+			t.Errorf("statChecks(%s) = %v, want %v", fn.Name.Name, got, want[fn.Name.Name])
 		}
 	}
 }

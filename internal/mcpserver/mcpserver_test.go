@@ -371,3 +371,12 @@ func TestToolNamesMatchTheGolden(t *testing.T) {
 		t.Fatalf("tool names drifted:\n%s", got)
 	}
 }
+
+func TestQueueLinkKeysGivenAtTheTopLevelAnswerWithTheLinksForm(t *testing.T) {
+	reg, _ := labsOnly(t)
+	r, isErr := call(t, connect(t, reg), "queue", map[string]any{"action": "add", "kind": "next", "text": "x", "branch": "pass/x"})
+	out := jsonx.Compact(r)
+	if !isErr || !strings.Contains(out, `links={\"branch\":\"pass/x\"}`) || strings.Contains(out, `, branch=`) {
+		t.Fatal(out)
+	}
+}

@@ -62,6 +62,26 @@ func TestWriteDocCreatesADocValidatePasses(t *testing.T) {
 	}
 }
 
+// A bullet starts with a dash, so its text goes as --old-text=value; the
+// mode reads no stdin.
+func TestWriteDocReplaceTextTakesABulletFromFlags(t *testing.T) {
+	root := tk.FakeVault(t)
+	tk.MultisectionDoc(t, root)
+	path := filepath.Join(root, "03 Runbooks", "Backup Ops.md")
+	tk.Write(t, path, tk.Read(t, path)+"\n- Waiting on upstream\n")
+	code, out, _ := run(t, root, "ignored stdin", "write-doc", "--mode", "replace_text", "--doc-id", "rb-backup-ops",
+		"--old-text=- Waiting on upstream", "--new-text=- Done upstream")
+	if code != 0 || !strings.Contains(out, `"mode":"replace_text"`) {
+		t.Fatal(code, out)
+	}
+	if text := tk.Read(t, path); !strings.HasSuffix(text, "\n- Done upstream\n") || strings.Contains(text, "ignored stdin") {
+		t.Fatalf("%q", text)
+	}
+	if code, out, _ := run(t, root, "", "validate", "03 Runbooks/Backup Ops.md"); code != 0 || out != "" {
+		t.Fatal(code, out)
+	}
+}
+
 func TestValidatePassesValidDocsSilently(t *testing.T) {
 	root := tk.FakeVault(t)
 	code, out, _ := run(t, root, "", "validate", "03 Runbooks/Add Nginx Proxy Host.md", "02 Infrastructure/Local PKI.md")

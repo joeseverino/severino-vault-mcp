@@ -683,16 +683,19 @@ func Sorted(v []string) []string { return slices.Sorted(slices.Values(v)) }
 // AsDict is the shape schema --json prints and HQ commits: sets sorted,
 // ordered fields as declared.
 func (p *Profile) AsDict() *jsonx.Obj {
-	return jsonx.New(
+	o := jsonx.New(
 		"doc_types", Sorted(p.DocTypes),
 		"environments", Sorted(p.Environments),
 		"statuses", Sorted(p.Statuses),
 		"sensitivities", Sorted(p.Sensitivities),
 		"doc_id_prefixes", slices.Clone(p.DocIDPrefixes),
 		"required_fields", slices.Clone(p.RequiredFields),
-		"task_statuses", Sorted(p.TaskStatuses),
-		"task_required_fields", slices.Clone(p.TaskRequiredFields),
 	)
+	if len(p.TaskStatuses) > 0 || len(p.TaskRequiredFields) > 0 {
+		o.Set("task_statuses", Sorted(p.TaskStatuses))
+		o.Set("task_required_fields", slices.Clone(p.TaskRequiredFields))
+	}
+	return o
 }
 
 // ContractDict is the complete versioned contract.
@@ -999,6 +1002,10 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 	list := func(k string) ([]string, error) {
 		v, ok := c.Get(k)
 		if !ok {
+			// A profile with no task doc type omits its task keys.
+			if strings.HasPrefix(k, "task_") {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("profile contract is missing %s", k)
 		}
 		if _, isList := v.([]any); !isList {

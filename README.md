@@ -162,14 +162,15 @@ Shared, each taking `vault`:
 | `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), closed, dropped; a box ticked in Obsidian reads as closed. Each item carries the date it was filed (created); a worker's item may carry base (the branch it lands on), owns (the paths its worker owns) and transcript (the absolute path of the worker transcript holding its brief and report). |
 | `read_doc` | Read a vault doc's markdown body, gated by its sensitivity. |
 | `set_frontmatter` | Create or update a doc's frontmatter, validated against the vault's schema. |
-| `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's schema. |
+| `write_doc` | Create a registered doc, or edit a section or a passage of its body, validated against the vault's schema. |
 <!-- tools:end -->
 
 A failure is `{"ok": false, "error": ...}` plus `next_steps`, the calls that
 recover from it, each naming one of these tools; a `find` with no hits carries
 them too. `find` and `read_doc` ask Claude Code to load them upfront
-(`anthropic/alwaysLoad`), and `read_doc` sets
-`anthropic/maxResultSizeChars` so a long doc stays inline.
+(`anthropic/alwaysLoad`). `read_doc` answers a long doc with its outline
+and lead, so every default answer fits under Claude Code's 50,000-character
+inline limit; only a whole body asked for with `fields=["body"]` can pass it.
 
 How an agent should use them (find before prose, answer in the doc's words,
 the sensitivity rules, writes) is the `vault` skill, `skills/vault/SKILL.md`;

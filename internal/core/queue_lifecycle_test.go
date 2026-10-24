@@ -158,3 +158,56 @@ func TestAnItemCarriesItsCreatedDateBaseAndOwns(t *testing.T) {
 		}
 	}
 }
+
+// A claim with kind delegated also takes a decision, when the orchestrator
+// (main) owns it or nobody does; any other owner keeps it.
+func TestAClaimTakesTheOrchestratorsDecision(t *testing.T) {
+	root, v := queueVault(t)
+	claim := func(id, agent string) *jsonx.Obj {
+		return core.Queue(v, core.QueueArgs{Action: "set", ID: id, Claim: true, Owner: new("worker"), Agent: agent, Kind: "delegated"})
+	}
+	owned := add(t, v, "Example Tracker", "decision", "Pick the store", func(a *core.QueueArgs) { a.Owner = new("main") })
+	r := mustOK(t, claim(owned, "a1"))
+	if tk.Get(r, "item.kind") != "delegated" || tk.Get(r, "item.owner") != "worker" || tk.Get(r, "item.agent") != "a1" ||
+		tk.Get(r, "item.id") != owned || tk.Get(r, "item.text") != "Pick the store" || tk.Get(r, "item.status") != "open" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	unowned := add(t, v, "Example Tracker", "decision", "Pick the index")
+	if r := mustOK(t, claim(unowned, "a2")); tk.Get(r, "item.kind") != "delegated" || tk.Get(r, "item.agent") != "a2" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	joes := add(t, v, "Example Tracker", "decision", "Joe decides", func(a *core.QueueArgs) { a.Owner = new("joe") })
+	path := filepath.Join(root, trackerQueue)
+	before := tk.Read(t, path)
+	r = claim(joes, "a3")
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "joe") || r.Str("owner") != "joe" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if tk.Read(t, path) != before {
+		t.Fatal("a refused claim changed the note")
+	}
+	// Without a claim a decision still does not become delegated.
+	if r := core.Queue(v, core.QueueArgs{Action: "set", ID: joes, Kind: "delegated", Agent: "a3"}); r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", Agent: "a1", Resolution: "example-tracker@abc1234"}))
+	if got := tk.Get(mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Status: "closed", Full: true})), "items.0.id"); got != owned {
+		t.Fatal(got)
+	}
+}
+
+// A done item is not brought back by a status write or a claim.
+func TestADoneItemIsNotReopenedByStatusOrClaim(t *testing.T) {
+	_, v := queueVault(t)
+	id := add(t, v, "Example Tracker", "next", "Finished")
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", ID: id, Resolution: "example-tracker@abc1234"}))
+	for _, a := range []core.QueueArgs{
+		{Action: "set", ID: id, Status: "open"},
+		{Action: "set", ID: id, Claim: true, Owner: new("worker"), Agent: "a1"},
+	} {
+		r := core.Queue(v, a)
+		if r.Bool("ok") || !strings.Contains(r.Str("error"), "closed") || !r.Has("next_steps") {
+			t.Fatal(jsonx.Compact(r))
+		}
+	}
+}

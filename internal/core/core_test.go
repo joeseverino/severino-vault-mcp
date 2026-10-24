@@ -780,7 +780,7 @@ func TestFindServesReferenceAndReadOnlyFoldersAndValidateSkipsReadOnly(t *testin
 
 func TestFindTextFallsBackToRelevanceOnZeroHits(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
-	r := findBy(v, "nginx proxy zzzunmatched", "text")
+	r := findBy(v, "network-operations zzzunmatched", "text")
 	if tk.Get(r, "mode") != "text" || tk.Get(r, "fallback") != "relevance" ||
 		!slices.Contains(tk.IDs(tk.Hits(r, "hits")), "rb-add-nginx-proxy-host") {
 		t.Fatal(jsonx.Compact(r))

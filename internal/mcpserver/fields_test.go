@@ -40,7 +40,7 @@ func TestFrontmatterToolArgumentsAreTheProfilesFields(t *testing.T) {
 	reg, _ := labsAndEdu(t)
 	got := tools(t, connect(t, reg))
 	set := []string{"relative_path", "unset", "vault"}
-	create := []string{"body", "doc_id", "heading", "include_restricted", "mode", "relative_path", "vault"}
+	create := []string{"body", "doc_id", "heading", "include_restricted", "mode", "new_text", "old_text", "relative_path", "vault"}
 	for _, f := range schema.Union(schema.Labs, schema.Education) {
 		switch {
 		case f.IsList():

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
@@ -228,7 +229,7 @@ type FindArgs struct {
 // HitFields are the fields a find hit can carry.
 var HitFields = append(append(typed("score", tInt), metaFields...), append(typed(
 	"heading", tStr, "section", tStr, "heading_path", tStr, "section_summary", tStr, "section_score", tInt,
-	"match_count", tInt, "snippet", tStr),
+	"match_count", tInt, "missing_words", tList, "snippet", tStr),
 	list("snippets", typed("line_number", tInt, "kind", tStr, "text", tStr)), Field{Name: "advisory", Type: tStr})...)
 
 // metaFields are a doc's frontmatter as hits and read_doc carry it.
@@ -238,10 +239,12 @@ var metaFields = typed("doc_id", tStr, "title", tStr, "doc_type", tStr, "system"
 // leanHit is a hit by default: enough to pick one and read its section.
 // heading is the last part of heading_path; section stays because
 // heading_path neither names the preamble nor tells repeated headings apart.
-var leanHit = mustMask(HitFields, "doc_id", "title", "heading_path", "section", "section_summary", "score")
+// missing_words, on a text hit holding only some of the query's words, says
+// what the hit does not answer.
+var leanHit = mustMask(HitFields, "doc_id", "title", "heading_path", "section", "section_summary", "score", "missing_words")
 
 // findEnvelope is what a masked find keeps around its hits.
-var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match_count", "words", "recommended", "hits", "next_steps"}
+var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match_count", "words", "ranking", "exact_match", "recommended", "hits", "truncated", "next_steps"}
 
 // Keep is the doc filter System and Project describe; nil when neither is set.
 func (a FindArgs) Keep() query.Keep {
@@ -286,7 +289,7 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 	}
 	m, err := a.selection(HitFields, leanHit)
 	if err != nil {
-		return failNext(err.Error(), withoutFields("find", "query", q))
+		return failNext(err.Error(), fieldSteps(q, a, err)...)
 	}
 	keep, filtered := a.Keep(), len(a.filters().Keys()) > 0
 	var resp *jsonx.Obj
@@ -335,19 +338,22 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 		out.Set("filters", f)
 	}
 	out.Merge(resp)
+	if !out.Failed() {
+		rankExactFirst(v, out, q, a, keep)
+	}
 	if n, _ := out.Get("match_count"); n == 0 {
 		steer(out, v.emptyFind(q, a)...)
 	}
-	if m == nil {
-		return out
+	if m != nil {
+		out = keepOnly(out, findEnvelope...)
+		if rec, ok := out.Get("recommended"); ok {
+			// The quick index's row: what to run, and the doc it points at.
+			out.Set("recommended", keepOnly(rec.(*jsonx.Obj), "intent", "command", "target_doc_id"))
+		}
+		// A sensitive hit's advisory travels with it whatever the mask.
+		cutEach(out, "hits", m.with("advisory"))
 	}
-	out = keepOnly(out, findEnvelope...)
-	if rec, ok := out.Get("recommended"); ok {
-		// The quick index's row: what to run, and the doc it points at.
-		out.Set("recommended", keepOnly(rec.(*jsonx.Obj), "intent", "command", "target_doc_id"))
-	}
-	// A sensitive hit's advisory travels with it whatever the mask.
-	cutEach(out, "hits", m.with("advisory"))
+	budget(out, q, a)
 	return out
 }
 
@@ -413,48 +419,118 @@ func unlock(v *Vault, _, _ string) (bool, string, string) {
 	return true, "approved", unlockMessages["approved"]
 }
 
-// narrow replaces the body with the sections refs name, or, when one names
-// no section, with the doc's section list and no text at all. A heading's
-// section is its whole block, the span write_doc edits for the same ref
-// (sections.Targets); a part's slug reads that part.
-func narrow(base *jsonx.Obj, d *vault.Doc, refs []string) *jsonx.Obj {
+// narrow replaces the body with the sections refs name, resolved by
+// sections.Address, or, when one names no section or several, with the
+// doc's outline and no text at all. A heading's section is its whole block,
+// the span write_doc edits for the same ref (sections.Targets); a part's
+// slug reads that part.
+func narrow(base *jsonx.Obj, d *vault.Doc, refs []string, available []*jsonx.Obj) *jsonx.Obj {
 	base.Delete("body")
 	var found []*jsonx.Obj
-	var missing []string
+	var missing, problems, candidates []string
 	for _, ref := range refs {
-		if sec := sections.Resolve(d.Sections, ref); sec != nil && sec.Level == 0 {
-			found = append(found, jsonx.New("section", sec.Slug, "heading_path", sec.HeadingPath, "body", sec.Body))
-			continue
-		}
-		targets := sections.Targets(d.Body, ref)
-		if len(targets) == 0 {
+		targets := sections.Address(d.Body, ref)
+		switch len(targets) {
+		case 0:
 			missing = append(missing, ref)
-			continue
+		case 1:
+			t := targets[0]
+			found = append(found, jsonx.New("section", t.Name(), "heading_path", t.Path, "body", t.Span(d.Body)))
+		default:
+			names := make([]string, len(targets))
+			for i, t := range targets {
+				names[i] = t.Name()
+			}
+			problems = append(problems, fmt.Sprintf("%q names %d sections: %s", ref, len(targets), pystr.Quoted(names)))
+			candidates = append(candidates, names...)
 		}
-		t := targets[0]
-		found = append(found, jsonx.New("section", t.Name(), "heading_path", t.Path, "body", t.Span(d.Body)))
 	}
+	if len(missing) == 0 && len(candidates) == 0 {
+		base.Set("sections", found)
+		return base
+	}
+	base.Set("body_released", false)
 	if len(missing) > 0 {
-		base.Set("body_released", false)
-		base.Set("section_error", fmt.Sprintf("no section %s in %s", strings.Join(reprs(missing), ", "), d.DocID))
-		available := query.AvailableSections(d)
-		base.Set("available_sections", available)
-		if len(available) == 0 {
-			return steer(base, Call("read_doc", "doc_id", d.DocID)+" without sections; the doc has none")
-		}
-		return steer(base, Call("read_doc", "doc_id", d.DocID, "sections", []string{available[0].Str("section")})+
-			" or another section from available_sections")
+		problems = append([]string{fmt.Sprintf("no section %s in %s", pystr.Quoted(missing), d.DocID)}, problems...)
 	}
-	base.Set("sections", found)
-	return base
+	base.Set("section_error", strings.Join(problems, "; "))
+	if len(candidates) > 0 {
+		base.Set("candidates", jsonx.Strings(candidates))
+		return steer(base, Call("read_doc", "doc_id", d.DocID, "sections", []string{candidates[0]})+
+			" or another name from candidates")
+	}
+	base.Set("available_sections", available)
+	if len(available) == 0 {
+		return steer(base, Call("read_doc", "doc_id", d.DocID)+" without sections; the doc has none")
+	}
+	return steer(base, Call("read_doc", "doc_id", d.DocID, "sections", []string{available[0].Str("section")})+
+		" or another section from available_sections, by its slug, heading path or 1-based position")
 }
 
-func reprs(ss []string) []string {
-	out := make([]string, 0, len(ss))
-	for _, s := range ss {
-		out = append(out, strconv.Quote(s))
+// outline is the doc's sections in order, each with the size in characters
+// of what reading it by its slug returns, so a caller can pick the part it
+// needs before paying for it.
+func outline(d *vault.Doc) []*jsonx.Obj {
+	out := []*jsonx.Obj{}
+	for _, e := range sections.Outline(d.Body) {
+		out = append(out, jsonx.New("section", e.Section.Slug, "heading_path", e.Section.HeadingPath,
+			"chars", utf8.RuneCountInString(e.Target.Span(d.Body))))
 	}
 	return out
+}
+
+// BoundedBodyChars is the largest body a read_doc call with no sections and
+// no fields returns whole: about 5,000 tokens, a short runbook or note read
+// in one call. Past it the answer is the outline and the lead, a tenth of
+// that or less, and the caller picks sections or asks for fields=["body"].
+// Below it the outline round trip would cost more than the body it saves.
+const BoundedBodyChars = 20_000
+
+// leadChars caps the lead a bounded read returns: the text before the first
+// section heading, cut at a line, enough to say what the doc is for.
+const leadChars = 2_000
+
+// bound replaces a long body with its lead and outline, and steers the
+// caller to a section or to the whole body, which fields=["body"] returns.
+func bound(base *jsonx.Obj, d *vault.Doc, entries []*jsonx.Obj) *jsonx.Obj {
+	if utf8.RuneCountInString(d.Body) <= BoundedBodyChars {
+		return base
+	}
+	base.Delete("body")
+	base.Set("truncated", true)
+	base.Set("lead", lead(d))
+	pick := ""
+	for _, e := range entries {
+		if e.Str("heading_path") != "" {
+			pick = e.Str("section")
+			break
+		}
+	}
+	var steps []string
+	if pick != "" {
+		steps = append(steps, Call("read_doc", "doc_id", d.DocID, "sections", []string{pick})+
+			" for one part of the outline, by slug, heading path or 1-based position")
+	}
+	steps = append(steps, Call("read_doc", "doc_id", d.DocID, "fields", []string{"body"})+
+		fmt.Sprintf(" for the whole body, %d characters", utf8.RuneCountInString(d.Body)))
+	return steer(base, steps...)
+}
+
+// lead is the text before the doc's first section heading, up to leadChars
+// and cut at a line.
+func lead(d *vault.Doc) string {
+	if len(d.Sections) == 0 || d.Sections[0].Level != 0 {
+		return ""
+	}
+	text := d.Sections[0].Body
+	if utf8.RuneCountInString(text) <= leadChars {
+		return text
+	}
+	cut := pystr.Prefix(text, leadChars)
+	if i := strings.LastIndex(cut, "\n"); i > 0 {
+		cut = cut[:i]
+	}
+	return cut
 }
 
 // ReadArgs are read_doc's options. Sections, when set, returns those
@@ -466,9 +542,9 @@ type ReadArgs struct {
 }
 
 // DocFields are the fields read_doc can return. outline is the doc's
-// sections, slug and heading path, without their text.
+// sections, slug, heading path and size, without their text.
 var DocFields = append(append(typed("vault", tStr), metaFields...),
-	Field{Name: "body", Type: tStr}, list("outline", typed("section", tStr, "heading_path", tStr)))
+	Field{Name: "body", Type: tStr}, list("outline", typed("section", tStr, "heading_path", tStr, "chars", tInt)))
 
 // leanDoc is read_doc by default: the body, and the frontmatter an agent acts
 // on (whether the doc is current and how old its review is).
@@ -477,7 +553,7 @@ var leanDoc = mustMask(DocFields, "doc_id", "title", "status", "last_reviewed", 
 // gateKeys always survive a mask: the sensitivity gate's answer, how the doc
 // was resolved, and the requested sections.
 var gateKeys = []string{"found", "resolved_from_alias", "body_released", "advisory", "unlock", "override_used",
-	"section_error", "available_sections", "sections", "next_steps"}
+	"truncated", "lead", "section_error", "candidates", "available_sections", "sections", "next_steps"}
 
 // ReadDoc reads a doc's body behind the sensitivity gate.
 func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
@@ -492,17 +568,23 @@ func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
 		return failNext("sections: give at least one section slug or heading path, or omit sections for the whole body",
 			Call("read_doc", "doc_id", docID, "fields", []string{"outline"})+" to list the sections")
 	}
-	o := jsonx.New("vault", v.Name).Merge(readDoc(v, docID, a))
+	// Only the lean default is bounded: fields that name body, and the
+	// CLI's full view, ask for the whole of it.
+	bounded := a.Fields == nil && !a.Full
+	o := jsonx.New("vault", v.Name).Merge(readDoc(v, docID, a, bounded))
 	if m == nil || !o.Bool("found") {
 		return o
 	}
-	if _, wantsOutline := m["outline"]; !wantsOutline {
+	keep := m.with(gateKeys...)
+	if o.Bool("truncated") {
+		keep = keep.with("outline")
+	} else if _, wantsOutline := m["outline"]; !wantsOutline {
 		o.Delete("outline")
 	}
-	return cut(o, m.with(gateKeys...)).(*jsonx.Obj)
+	return cut(o, keep).(*jsonx.Obj)
 }
 
-func readDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
+func readDoc(v *Vault, docID string, a ReadArgs, bounded bool) *jsonx.Obj {
 	d, alias := lookupDoc(v, docID)
 	if d == nil {
 		return notFound(v, docID)
@@ -522,27 +604,31 @@ func readDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
 			return withheld(base, result, msg)
 		}
 		base.Set("override_used", true)
-		return release(base, d, a.Sections, gate.Advisory(d.Sensitivity, true))
+		return release(base, d, a.Sections, gate.Advisory(d.Sensitivity, true), bounded)
 	}
 	advisory := ""
 	if d.Sensitivity == gate.Sensitive {
 		advisory = gate.Advisory(d.Sensitivity, false)
 	}
-	return release(base, d, a.Sections, advisory)
+	return release(base, d, a.Sections, advisory, bounded)
 }
 
 // release adds what the gate let through: the body (or the requested
-// sections) and the outline. A withheld doc gets neither, since headings can
-// say as much as the text under them.
-func release(base *jsonx.Obj, d *vault.Doc, refs []string, advisory string) *jsonx.Obj {
+// sections, or, bounded, a long body's lead) and the outline. A withheld doc
+// gets neither, since headings can say as much as the text under them.
+func release(base *jsonx.Obj, d *vault.Doc, refs []string, advisory string, bounded bool) *jsonx.Obj {
+	entries := outline(d)
 	base.Set("body", d.Body)
-	base.Set("outline", query.AvailableSections(d))
+	base.Set("outline", entries)
 	base.Set("body_released", true)
 	if advisory != "" {
 		base.Set("advisory", advisory)
 	}
 	if refs != nil {
-		return narrow(base, d, refs)
+		return narrow(base, d, refs, entries)
+	}
+	if bounded {
+		return bound(base, d, entries)
 	}
 	return base
 }
@@ -583,24 +669,28 @@ func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
 }
 
 // WriteDocModes are write_doc's modes; the first is the default.
-var WriteDocModes = []string{"create", "replace_section", "append_section", "delete_section"}
+var WriteDocModes = []string{"create", "replace_section", "append_section", "delete_section", "replace_text"}
 
 // WriteDocArgs are write_doc's arguments. DocID is the new doc's id on
 // create and names the doc a section mode edits; New carries the rest of the
 // frontmatter a create writes. Heading nil is not given; "" is the preamble,
-// the text before the first heading.
+// the text before the first heading. OldText and NewText are replace_text's;
+// NewText nil is not given, "" removes OldText.
 type WriteDocArgs struct {
 	Mode              string
 	RelativePath      string
 	DocID             string
 	Heading           *string
 	Body              string
+	OldText           string
+	NewText           *string
 	IncludeRestricted bool
 	New               write.Changes
 }
 
-// WriteDoc creates a registered doc, or edits one section of its body, with
-// the frontmatter validated against v's profile either way.
+// WriteDoc creates a registered doc, edits one section of its body, or
+// replaces one passage of text in it, with the frontmatter validated against
+// v's profile either way.
 func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 	if f := v.Unreadable(); f != nil {
 		return f
@@ -621,13 +711,17 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			}
 			return failNext(`mode "create" requires relative_path`, v.writable(name+".md"))
 		}
+		if a.OldText != "" || a.NewText != nil {
+			return failNext(`old_text and new_text only apply to mode "replace_text"`,
+				Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" without them")
+		}
 		if a.Heading != nil {
 			return failNext("heading only applies to the section modes",
 				Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" without heading",
 				Call("write_doc", "mode", "replace_section", "relative_path", a.RelativePath, "heading", heading)+" to edit an existing doc")
 		}
 		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New.Set("doc_id", a.DocID), v.Profile), v.createSteps(a.RelativePath, a.DocID))
-	case "replace_section", "append_section", "delete_section":
+	case "replace_section", "append_section", "delete_section", "replace_text":
 	default:
 		return failNext(fmt.Sprintf("unknown mode %q; one of %s", a.Mode, strings.Join(WriteDocModes, ", ")),
 			Call("write_doc", "mode", WriteDocModes[0])+" or another listed mode")
@@ -641,7 +735,16 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			Call("set_frontmatter", "relative_path", pathOf(v, a.DocID, a.RelativePath))+" with the frontmatter fields",
 			Call("write_doc", "mode", a.Mode, "doc_id", target)+" with only heading and body")
 	}
-	if a.Heading == nil {
+	if a.Mode != "replace_text" && (a.OldText != "" || a.NewText != nil) {
+		return failNext(`old_text and new_text only apply to mode "replace_text"`,
+			Call("write_doc", "mode", "replace_text", "doc_id", target, "old_text", a.OldText, "new_text", "...")+" to replace one passage",
+			Call("write_doc", "mode", a.Mode, "doc_id", target)+" with only heading and body")
+	}
+	if a.Mode == "replace_text" {
+		if f := textArgs(a, target); f != nil {
+			return f
+		}
+	} else if a.Heading == nil {
 		return failNext(fmt.Sprintf("mode %q requires heading (\"\" for the text before the first heading)", a.Mode),
 			Call("read_doc", "doc_id", target, "fields", []string{"outline"})+" to list its headings")
 	}
@@ -654,18 +757,29 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return failNext(err, steps...)
 	}
 	if d.Sensitivity == gate.Restricted {
-		retry := Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", heading, "include_restricted", true)
+		retryArgs := []any{"mode", a.Mode, "doc_id", d.DocID}
+		if a.Heading != nil {
+			retryArgs = append(retryArgs, "heading", heading)
+		}
+		retry := Call("write_doc", append(retryArgs, "include_restricted", true)...)
+		same := " with the same body"
+		if a.Mode == "replace_text" {
+			same = " with the same old_text and new_text"
+		}
 		if !a.IncludeRestricted {
 			return failNext(d.DocID+" is restricted; rerun with include_restricted=True, which also needs a Touch ID approval through 1Password",
-				retry+" with the same body, from the main session, only if the user asked for this edit")
+				retry+same+", from the main session, only if the user asked for this edit")
 		}
 		allowed, result, msg := unlock(v, d.DocID, d.Title)
 		gate.AuditUnlock(v.Config.RestrictedAuditLog, d.DocID, result)
 		if !allowed {
-			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+" with the same body, once the user has fixed the unlock")
+			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+same+", once the user has fixed the unlock")
 		}
 	}
 	var out *jsonx.Obj
+	if a.Mode == "replace_text" {
+		return replaceTextSteps(v, d, a, write.ReplaceText(v.Loader, d.RelativePath, a.Heading, a.OldText, *a.NewText, v.Profile))
+	}
 	if a.Mode == "delete_section" {
 		out = write.DeleteSection(v.Loader, d.RelativePath, heading, v.Profile)
 	} else {
@@ -688,6 +802,69 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return steer(out, steps...)
 	}
 	return guide(out, v.sectionSteps(d, a.Mode))
+}
+
+// textArgs checks replace_text's arguments before the doc is looked up.
+func textArgs(a WriteDocArgs, target string) *jsonx.Obj {
+	retry := func(args ...any) string {
+		return Call("write_doc", append([]any{"mode", "replace_text", "doc_id", target}, args...)...)
+	}
+	switch {
+	case a.Body != "":
+		return failNext(`mode "replace_text" takes old_text and new_text, not body`,
+			retry("old_text", "...", "new_text", "...")+" without body",
+			Call("write_doc", "mode", "replace_section", "doc_id", target, "heading", "...")+" to replace a whole section with body")
+	case a.OldText == "":
+		return failNext(`mode "replace_text" requires old_text: the exact text to replace, copied from read_doc`,
+			Call("read_doc", "doc_id", target)+" to copy the passage")
+	case a.NewText == nil:
+		return failNext(`mode "replace_text" requires new_text ("" removes old_text)`,
+			retry("old_text", a.OldText, "new_text", "..."))
+	case *a.NewText == a.OldText:
+		return failNext("new_text is the same as old_text; nothing to change",
+			retry("old_text", a.OldText, "new_text", "...")+" with the text it should become")
+	}
+	return nil
+}
+
+// replaceTextSteps gives a replace_text result the calls that recover from
+// its failures: a narrower heading for a passage that occurs more than once,
+// the doc's text for one that does not occur.
+func replaceTextSteps(v *Vault, d *vault.Doc, a WriteDocArgs, out *jsonx.Obj) *jsonx.Obj {
+	retry := func(args ...any) string {
+		return Call("write_doc", append([]any{"mode", "replace_text", "doc_id", d.DocID}, args...)...)
+	}
+	if c, ok := out.Get("candidates"); ok {
+		var steps []string
+		for _, n := range vault.CoerceList(c) {
+			steps = append(steps, retry("heading", n)+" with the same old_text and new_text")
+		}
+		return steer(out, steps...)
+	}
+	if !out.Failed() || !out.Has("count") {
+		return guide(out, v.sectionSteps(d, a.Mode))
+	}
+	read := Call("read_doc", "doc_id", d.DocID)
+	if a.Heading != nil {
+		read = Call("read_doc", "doc_id", d.DocID, "sections", []string{*a.Heading})
+	}
+	if out.Int("count") == 0 {
+		if strings.Contains(out.Str("error"), "set_frontmatter") {
+			return steer(out, Call("set_frontmatter", "relative_path", d.RelativePath)+" with the field to change")
+		}
+		steps := []string{read + " and copy the passage exactly"}
+		if a.Heading != nil {
+			steps = append(steps, retry("old_text", a.OldText, "new_text", *a.NewText)+" without heading to search the whole body")
+		}
+		return steer(out, steps...)
+	}
+	steps := []string{read + fmt.Sprintf(", then the same call with an old_text long enough that only one of its %d matches contains it", out.Int("count"))}
+	if s, ok := out.Get("sections"); ok {
+		for _, n := range vault.CoerceList(s) {
+			steps = append(steps, retry("heading", n)+" with the same old_text and new_text, if the one you mean is there")
+		}
+	}
+	return steer(out, steps...)
 }
 
 // noProfile is the step for a vault without a schema profile.

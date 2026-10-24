@@ -36,9 +36,10 @@ func argFailure(tool *mcp.Tool, raw json.RawMessage, err error) *mcp.CallToolRes
 
 // prop is the part of an argument's schema a step needs.
 type prop struct {
-	Type  any   `json:"type"`
-	Enum  []any `json:"enum"`
-	Const any   `json:"const"`
+	Type        any    `json:"type"`
+	Enum        []any  `json:"enum"`
+	Const       any    `json:"const"`
+	Description string `json:"description"`
 }
 
 func (p prop) takes(t string) bool {
@@ -92,6 +93,10 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 		var renamed, dropped []string
 		for _, u := range e.unknown {
 			v := given.Pop(u)
+			if tool.Name == "queue" && linkArgStep(given, u, v) {
+				renamed = append(renamed, strconv.Quote(u)+" goes inside links")
+				continue
+			}
 			if to := closestArg(u, valid); to != "" && !given.Has(to) {
 				if s, isStr := v.(string); isStr && props[to].takes("array") && !props[to].takes("string") {
 					v = []any{s}
@@ -115,19 +120,29 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 	case e.arg == "items":
 		return []string{tool.Name + "(items=[...]) with each change's fields inside its own item, fixed as the error says"}
 	case e.missing:
-		return []string{render(given) + " with " + e.arg + " set"}
+		given.Set(e.arg, "...")
+		step := render(given) + " with " + e.arg + " set"
+		if d := props[e.arg].Description; d != "" {
+			step += ": " + strings.ToLower(d[:1]) + d[1:]
+		}
+		return []string{step}
 	}
 	bad, _ := given.Get(e.arg)
 	given.Delete(e.arg)
 	// find's filters are arguments of their own, not ways to match.
-	if s, _ := bad.(string); tool.Name == "find" && e.arg == "by" && (s == "system" || s == "project") {
-		q := given.Str("query")
-		if q == "" {
-			q = "..."
+	if tool.Name == "find" && e.arg == "by" {
+		s, _ := bad.(string)
+		if slices.Contains(findFilters, s) {
+			q := given.Str("query")
+			if q == "" {
+				q = "..."
+			}
+			given.Set(s, q)
+			return []string{render(given) + " to keep docs whose " + s + " matches; by is how query matches, " +
+				strconv.Quote(core.FindModes[0]) + " or " + strconv.Quote(core.FindModes[1])}
 		}
-		given.Set(s, q)
-		return []string{render(given) + " to keep docs whose " + s + " matches; by is how query matches, " +
-			strconv.Quote(core.FindModes[0]) + " or " + strconv.Quote(core.FindModes[1])}
+		return []string{render(given) + " with by one of " + jsonx.Compact(props[e.arg].Enum) + " (how query matches), or without it for the default",
+			render(given.Set("system", "...")) + " to keep docs by a field instead: system=, project= or doc_type=, each its own argument"}
 	}
 	step := render(given) + " with " + e.arg + " " + want(props[e.arg], e.msg)
 	if !slices.Contains(required, e.arg) {
@@ -135,6 +150,10 @@ func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
 	}
 	return []string{step}
 }
+
+// findFilters are find's arguments that narrow by a doc field, which agents
+// pass as a by value.
+var findFilters = []string{"system", "project"}
 
 // want says what an argument takes.
 func want(p prop, msg string) string {

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
@@ -59,5 +61,23 @@ func TestTheVaultSkillNamesEveryRegisteredTool(t *testing.T) {
 	}
 	if got := skillProblems(strings.ReplaceAll(text, "`log_entries`", "the log tool"), registered); !slices.Equal(got, []string{"skill does not name log_entries"}) {
 		t.Fatalf("a skill missing a tool must fail: %v", got)
+	}
+}
+
+// The skill and the tool contract state read_doc's bound as a number; it is
+// core.BoundedBodyChars, so a change to the constant fails here until both
+// say the new one.
+func TestTheDocsStateTheReadBound(t *testing.T) {
+	n := core.BoundedBodyChars
+	want := fmt.Sprintf("%d,%03d", n/1000, n%1000)
+	wd, _ := os.Getwd()
+	for _, rel := range []string{"skills/vault/SKILL.md", "docs/ai-tool-contract.md"} {
+		raw, err := os.ReadFile(filepath.Join(wd, "..", "..", rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), want+" characters") && !strings.Contains(string(raw), "("+want+") characters") {
+			t.Errorf("%s does not state read_doc's bound, %s characters", rel, want)
+		}
 	}
 }

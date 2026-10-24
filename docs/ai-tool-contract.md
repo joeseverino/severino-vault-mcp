@@ -15,19 +15,21 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | User intent | First tool/resource | Then |
 |---|---|---|
 | Broad process question | `vault://labs/quick-index` | Read the target `vault://labs/doc/{doc_id}`. |
-| Specific runbook question | `find` | `read_doc` on the top hit with `sections=[<the hit's section>]`; the whole body when the section isn't enough. Quote commands exactly. |
+| Specific runbook question | `find` | `read_doc` on the top hit with `sections=[<the hit's section>]`; more sections, or `fields=["body"]`, when the section isn't enough. Quote commands exactly. |
 | Known doc ID | `read_doc` or `vault://{vault}/doc/{doc_id}` | Respect the sensitivity policy. |
 | System context | `find(query, system="...")` | Read the selected doc before summarizing. |
 | Docs for a project | `find(query, project="...")` | Read before summarizing. |
 | Queue notes (`doc_type: queue`) | `find(query, doc_type="queue")` | `find` leaves them out otherwise; `queue` is the tool to work them. |
-| Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
+| Body search | `find(by="text")` | Docs holding any of the words, ranked by relevance; `missing_words` on a partial hit, `ranking` says how. Snippets are for discovery; read the doc before final instructions. |
+| A doc named by its doc_id, title or alias | `find(query=<the name>)` | That doc ranks first in either mode, with `exact_match` and a `read_doc` step. |
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
+| A sentence or bullet in a doc | `write_doc(mode="replace_text", old_text=..., new_text=...)` | `old_text` must occur once; `heading` narrows where it is looked for. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
 | Move or rename a doc | `move_doc(doc_id, to)` | Path links follow; read `links` and `skipped_restricted`. Never move a vault file with the shell. |
 | Move or rename a folder or project; retire one | `move_folder(from, to)` (`to` in `99 Archive/` with `archive=true` to retire) | Path links and `related_projects` follow; read `links`, `skipped_restricted` and `failed`. |
 | Archived docs | `find(query, include_archived=true)` | `find` leaves `99 Archive` out otherwise. |
 | A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
-| Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
+| Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; `action="annotate"` rewrites a closed one's resolution, or reopens it with `reopen=true`; never read or edit the log whole. |
 | Work to track: next, delegated, a decision, a follow-up | `queue(action="add", cwd=..., kind=..., text=...)` | `queue(action="list", cwd=...)` to see it; `set`, `close` by `id` (or `agent`). Never keep it in scratch files. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
 
@@ -39,8 +41,15 @@ strings, each starting with a call to a registered tool, such as
 `find(query="...")` for an unknown doc_id or
 `read_doc(doc_id="...", fields=["outline"])` for a heading that isn't there.
 `read_doc`'s not-found and withheld answers, and a `find` with no hits, carry
-them too. An argument the schema refuses (an unknown name, a wrong type, a
-value outside its enum, a missing required one) fails the same way. Take a
+them too; when a `system`, `project` or `doc_type` filter matches no doc, the
+first steps are the same `find` with the closest values the vault holds. A
+`find` result is held to 12,000 characters (`core.FindBudget`): past it,
+snippets shrink to their matched lines and then go, then hits go from the
+bottom, and `truncated` (`budget_chars`, `snippets_trimmed`, `hits_dropped`)
+with `next_steps` says what was cut and the calls that get it. An argument the schema refuses (an unknown name, a wrong type, a
+value outside its enum, a missing required one) fails the same way, its step
+the corrected call: a filter given as `by` becomes that argument, a refused
+`fields` name becomes the field it most plausibly meant. Take a
 next step before guessing.
 
 A vault this process cannot read (its path is missing, not a directory, or
@@ -117,7 +126,12 @@ Ids are `<prefix>-<n>`, issued under the note's lock as one more than the
 largest `n` written as an id field (`[id:: …]`, `(id:: …)` or `🆔 …`) in any
 queue note, read from the text, so no id is issued twice. `set` and `close`
 name an item by `id`, or by `agent` when that agent holds one open item;
-an agent holding several is refused with their ids.
+an agent holding several is refused with their ids. One id per call: an id
+that is not `<prefix>-<n>` (several joined by spaces, say) is refused with the
+form, and an id whose prefix no queue uses is refused with the prefixes in
+use, naming the project's own when the id starts with the project's name. A
+link key (`branch`, `pr`, `commit`, `slug`) given at the top level of the MCP
+call is refused with the call that puts it inside `links`.
 
 ### Line grammar
 
@@ -165,8 +179,8 @@ grammar and its tests; `Parse(Format(item)) == item`.
 - A field the queue does not own (Tasks' `[completion:: …]` or `✅ …` on a
   box ticked in Obsidian, say) is kept as written. A ticked item is closed
   without a resolution until `close` records one and files it under
-  `## Closed`; reopening it with `set` drops the resolution and the done
-  and cancelled dates.
+  `## Closed`. A closed or dropped item is not reopened: `set` with a status
+  or a claim refuses it and names `add` for the work as a new item.
 
 ```
 - [/] Build the store ([[Store Design|notes]]) #queue/delegated #owner/worker  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
@@ -216,7 +230,9 @@ them. `describe` lists every flag.
   --kind delegated --branch <branch>`, one locked edit. The claim is
   refused when another agent holds the item (the refusal carries `agent`),
   another owner does (`owner`), or the item is done; it leaves the item
-  `open`. Landing closes it with `queue close --agent <agent id>
+  `open`. With `--kind delegated` it also takes a `decision` item that
+  `main` owns or nobody owns, keeping its id and text; a decision owned by
+  anyone else is refused with that `owner`. Landing closes it with `queue close --agent <agent id>
   --resolution <repo>@<sha>`.
 - A brief without one files its worker with `queue add --agent <agent id>
   --text <goal>`; when that agent already holds an open item with that text
@@ -313,13 +329,41 @@ verdict on every fixture doc; `tests/golden/labs.schema.json` pins the labs
 schema. `schema --json` (the enum sets HQ commits) is a separate, frozen
 shape.
 
+## Reading a doc
+
+`read_doc` with no `sections` and no `fields` returns a body of up to
+`core.BoundedBodyChars` (20,000) characters whole. Past that it returns
+`truncated: true`, the `lead` (the text before the first section heading, cut
+at a line near 2,000 characters), the `outline`, and `next_steps` naming a
+sections read and `fields=["body"]`, which returns the whole body at any size.
+The CLI's `read` prints the whole body.
+
+The `outline` (also `fields=["outline"]`) lists each section in order:
+`section` (its slug), `heading_path`, and `chars`, the size of what reading
+that entry returns.
+
+`sections` takes, for each entry, one of:
+
+- a section slug, a part's slug (`-part-N`), a heading path (`Parent >
+  Child`) or a heading's text, case aside;
+- the slug of the text before the first heading (usually `overview`);
+- a 1-based position in the outline (`"3"`), when no heading has that text;
+- a prefix of section slugs that names one section, or one section and the
+  sections inside it (then the outer one).
+
+One resolver, `sections.Address`, reads every form. A name that matches no
+section returns `section_error` and `available_sections` (the outline); one
+that matches several returns `section_error` and `candidates`, the names that
+each read one of them. Neither releases text.
+
 ## Section edits
 
 `write_doc` modes `replace_section`, `append_section` and `delete_section` (CLI
 `write-doc --mode`) edit one section of a registered doc, and a section is what
 `read_doc` returns for it: `heading` takes a section slug, a `heading_path`
 as `find` and the outline give it (`Parent > Child`), or a heading's text,
-resolved the way `read_doc`'s `sections` resolves them.
+resolved as `read_doc` resolves those forms. An outline position or a slug
+prefix names a section for a read only.
 
 - A heading, by its text, heading path or section slug, names its whole
   block: the heading and everything up to the next heading of the same or a
@@ -345,6 +389,28 @@ error and `candidates` list each one's heading path, or its slug where two
 paths are the same, and a step per candidate), and a body whose first
 non-blank line is the section's own heading line, same level and text (send
 the body without it).
+
+## Text edits
+
+`write_doc` mode `replace_text` (CLI `write-doc --mode replace_text
+--old-text ... --new-text ...`, no stdin) changes one passage of a
+registered doc's body: a sentence, a bullet, a line.
+
+- `old_text` is matched byte for byte, whitespace and line breaks included,
+  and must occur exactly once; overlapping matches count separately. With
+  `heading` (resolved as the section modes resolve it, `""` for the text
+  before the first heading) only that block, heading line included, is
+  searched.
+- `new_text` replaces it; `""` removes it. Include the trailing line break
+  in `old_text` to remove a whole line. `new_text` equal to `old_text` is
+  refused.
+- Refused with `count` and `next_steps`: no match (the error says whether
+  the text occurs elsewhere in the body, or only in the frontmatter, which
+  this mode never searches or edits; `set_frontmatter` changes that), and
+  several matches (`sections` lists the heading paths they fall under when
+  those differ, with a step per heading).
+- Same lock, `last_reviewed` rule and result shape as `replace_section`,
+  with `mode: "replace_text"` and `heading` when given.
 
 ## Moving a doc
 

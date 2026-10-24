@@ -93,10 +93,6 @@ var tagKeys = map[string]string{"queue": "kind", "owner": "owner"}
 // stops Tasks' parse short of the id.
 var tasksKeys = []string{"start", "scheduled", "due", "completion", "cancelled", "priority", "repeat", "onCompletion"}
 
-// doneKeys are the fields Tasks and Dataview add on a tick, dropped again when
-// the item reopens.
-var doneKeys = []string{"completion", "cancelled"}
-
 // Item is one queue line. Owner "" is unowned; Links holds only the keys
 // given. Created is the date the item was filed (YYYY-MM-DD). Base is the
 // branch its work lands on, Owns the paths its worker owns and Transcript
@@ -423,19 +419,6 @@ func OneLine(name, s string) error {
 		return fmt.Errorf("%s has surrounding space", name)
 	}
 	return nil
-}
-
-// Reopen moves a done item back to status, dropping its resolution and the
-// done and cancelled dates a tick added, as Tasks does when a box is unticked.
-func (it *Item) Reopen(status string) {
-	it.Status, it.Resolution = status, ""
-	var keep []string
-	for _, x := range it.Extra {
-		if f, _ := lastField(x); !slices.Contains(doneKeys, f.key) && !strings.HasPrefix(x, "✅") && !strings.HasPrefix(x, "❌") {
-			keep = append(keep, x)
-		}
-	}
-	it.Extra = keep
 }
 
 // owned reports whether the queue owns field key.

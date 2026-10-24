@@ -290,14 +290,6 @@ func ParseCap(body string, bodyStartLine, cap int) []Section {
 	return out
 }
 
-// Resolve is the first section Matches finds for ref, or nil.
-func Resolve(secs []Section, ref string) *Section {
-	if m := Matches(secs, ref); len(m) > 0 {
-		return m[0]
-	}
-	return nil
-}
-
 // Matches are the sections ref names: the one whose slug it is, else every
 // section whose heading path or heading it is, case aside, or whose slug is
 // ref's slug.

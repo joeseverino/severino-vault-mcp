@@ -130,7 +130,7 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 |---|---|
 | `vault://{vault}/quick-index` | The vault's navigation hub (`doc_id: report-playbook-mcp-index`). |
 | `vault://{vault}/doc/{doc_id}` | One doc body, subject to sensitivity. |
-| `find` | `by`: `relevance` (ranked sections plus Quick Index hints) or `text` (several words match docs holding all of them, any order; one token or a regex goes to ripgrep; zero hits fall back to relevance; restricted never searched). `system` and `project` filter either mode by a case-insensitive substring of the `system` field or a `related_projects` entry; a filtered search skips the Quick Index hints. |
+| `find` | `by`: `relevance` (ranked sections plus Quick Index hints) or `text` (several words match docs holding any of them, ranked by BM25 relevance to all of them, a partial hit naming its `missing_words`; one token or a regex goes to ripgrep; zero hits fall back to relevance; restricted never searched). `system` and `project` filter either mode by a case-insensitive substring of the `system` field or a `related_projects` entry; a filtered search skips the Quick Index hints. |
 | `read_doc` | One doc or one section, by `doc_id` or alias, with sensitivity enforced. |
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
 | `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's profile. |

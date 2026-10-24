@@ -5,6 +5,7 @@ package query
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,15 +101,6 @@ func FindSections(l *vault.Loader, query string, limit int, keep Keep) *jsonx.Ob
 	return jsonx.New("query", query, "indexed_doc_count", len(idx.Docs), "hits", hits)
 }
 
-// AvailableSections lists a doc's section slugs.
-func AvailableSections(d *vault.Doc) []*jsonx.Obj {
-	out := []*jsonx.Obj{}
-	for _, s := range d.Sections {
-		out = append(out, jsonx.New("section", s.Slug, "heading_path", s.HeadingPath))
-	}
-	return out
-}
-
 // RecentChanges lists commits touching the indexed and read-only dirs (metadata only).
 func RecentChanges(l *vault.Loader, days, limit int) *jsonx.Obj {
 	days = Clamp(days, 1, 365)
@@ -179,7 +171,8 @@ func QueryWords(query string, caseSensitive bool) []string {
 }
 
 // SearchBody searches indexed doc bodies: a multi-word query matches docs
-// whose body holds every word, anything else is a ripgrep pattern. Matches
+// whose body holds any of its words, those holding the most first; anything
+// else is a ripgrep pattern. Matches
 // inside frontmatter are dropped, restricted bodies are never searched, and
 // only the docs keep accepts are returned or counted.
 func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSensitive bool, keep Keep) *jsonx.Obj {
@@ -407,10 +400,14 @@ func sectionAt(d *vault.Doc, n int) *sections.Section {
 	return at
 }
 
-// searchWords ranks the docs whose body holds every word, in any order. A
-// doc's score is its best section's: the words that section covers, then
-// their occurrences per thousand words, so a short section about the query
-// beats a long doc that mentions each word once.
+// searchWords ranks the docs whose body holds any of the words by their
+// BM25 relevance to every word, the way relevance mode ranks (search.Rank),
+// so a long phrase still finds the docs that answer most of it, and a short
+// doc about the query beats a long one that mentions each word once. Ties go
+// to the doc holding more of the words, then to its best section: the words
+// that section covers, then their occurrences per thousand words. A hit whose
+// body lacks some words lists them as missing_words, and ranking says how
+// the hits were ordered.
 func searchWords(l *vault.Loader, query string, words []string, limit int, caseSensitive bool, keep Keep) *jsonx.Obj {
 	fold := func(s string) string {
 		if caseSensitive {
@@ -419,24 +416,30 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 		return strings.ToLower(s)
 	}
 	type docHits struct {
-		hit          *jsonx.Obj
-		score, count int
-		lr, title    string
+		hit                   *jsonx.Obj
+		covered, score, count int
+		rel                   float64
+		lr, title             string
 	}
 	var hits []docHits
 	restricted := 0
-	for _, d := range keep.docs(l.Index(false).WithArchived()) {
+	docs := keep.docs(l.Index(false).WithArchived())
+	rel := map[*vault.Doc]float64{}
+	for _, h := range search.RankTerms(docs, search.Tokenize(strings.Join(words, " ")), len(docs)) {
+		rel[h.Doc] = h.Score
+	}
+	for _, d := range docs {
 		if !search.Searchable(d) {
 			restricted++
 			continue
 		}
 		body := fold(d.Body)
 		count := 0
+		var missing []string
 		for _, w := range words {
 			n := strings.Count(body, w)
 			if n == 0 {
-				count = 0
-				break
+				missing = append(missing, w)
 			}
 			count += n
 		}
@@ -458,12 +461,21 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 				hit.Set("snippet", snippets[0].Str("text"))
 			}
 		}
+		if len(missing) > 0 {
+			hit.Set("missing_words", missing)
+		}
 		if d.Sensitivity == gate.Sensitive {
 			hit.Set("advisory", gate.Advisory(d.Sensitivity, false))
 		}
-		hits = append(hits, docHits{jsonx.New("score", score).Merge(hit), score, count, d.LastReviewed, d.Title})
+		hits = append(hits, docHits{jsonx.New("score", score).Merge(hit), len(words) - len(missing), score, count, rel[d], d.LastReviewed, d.Title})
 	}
 	slices.SortStableFunc(hits, func(a, b docHits) int {
+		if a.rel != b.rel {
+			return cmp.Compare(b.rel, a.rel)
+		}
+		if a.covered != b.covered {
+			return b.covered - a.covered
+		}
 		if a.score != b.score {
 			return b.score - a.score
 		}
@@ -476,19 +488,37 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 		return strings.Compare(b.title, a.title)
 	})
 	out := []*jsonx.Obj{}
-	total := 0
+	total, all := 0, 0
 	for _, h := range hits[:min(len(hits), Clamp(limit, 1, 50))] {
 		out = append(out, h.hit)
 		total += h.count
+		if h.covered == len(words) {
+			all++
+		}
 	}
-	return jsonx.New(
-		"query", query,
-		"words", slices.Clone(words),
+	o := jsonx.New("query", query, "words", slices.Clone(words))
+	if r := wordRanking(len(words), all, len(out)); r != "" {
+		o.Set("ranking", r)
+	}
+	return o.Merge(jsonx.New(
 		"doc_count", len(out),
 		"total_match_count", total,
 		"excluded", jsonx.New("restricted_skipped", restricted, "unindexed_skipped", 0),
 		"hits_by_doc", out,
-	)
+	))
+}
+
+// wordRanking says how searchWords ordered n hits, all of which hold every
+// one of the query's words; empty for no hits.
+func wordRanking(words, all, n int) string {
+	switch {
+	case n == 0:
+		return ""
+	case all == n:
+		return fmt.Sprintf("every hit's body holds all %d words; ranked by relevance to them", words)
+	}
+	return fmt.Sprintf("%d of %d hits hold all %d words; every hit holds at least one, ranked by relevance to all of them, "+
+		"and missing_words lists the ones its body lacks", all, n, words)
 }
 
 func bestWordSection(secs []sections.Section, words []string, fold func(string) string) (*sections.Section, int) {

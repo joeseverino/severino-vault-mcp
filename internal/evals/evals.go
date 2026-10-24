@@ -27,13 +27,19 @@ type Case struct {
 	Mode   string   `json:"mode"` // relevance or text
 	Want   []string `json:"want"`
 	Source string   `json:"source,omitempty"`
-	// System and Project narrow the search as find's filters of the same names do.
-	System  string `json:"system,omitempty"`
-	Project string `json:"project,omitempty"`
+	// System, Project, DocType and IncludeArchived narrow or widen the
+	// search as find's arguments of the same names do.
+	System          string `json:"system,omitempty"`
+	Project         string `json:"project,omitempty"`
+	DocType         string `json:"doc_type,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
 }
 
 // Filter is a case's narrowing of the search.
-type Filter struct{ System, Project string }
+type Filter struct {
+	System, Project, DocType string
+	IncludeArchived          bool
+}
 
 // LoadCases reads a case file and checks every case is scorable.
 func LoadCases(path string) ([]Case, error) {
@@ -144,7 +150,7 @@ type Metrics struct {
 func Run(b Backend, cases []Case) (Report, error) {
 	r := Report{Backend: b.Name()}
 	for _, c := range cases {
-		f, err := b.Find(c.Query, c.Mode, Filter{c.System, c.Project}, Limit)
+		f, err := b.Find(c.Query, c.Mode, Filter{c.System, c.Project, c.DocType, c.IncludeArchived}, Limit)
 		if err != nil {
 			return r, fmt.Errorf("%s: case %s: %w", b.Name(), c.ID, err)
 		}

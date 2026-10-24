@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "e649cf2e12297c899c4d48d5d6aa3a7b4f20ff1e90881bbbc91c91e4ed83c818"
+const labsFingerprint = "051bb175158c21f5742eb6695e62807ef072647784c7ee644e90bca954678e83"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -150,5 +150,28 @@ func TestEducationIsADistinctContract(t *testing.T) {
 func TestLabsFingerprintIsPinned(t *testing.T) {
 	if got := Labs.Fingerprint(); got != labsFingerprint {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestAsDictOmitsTaskKeysForAProfileWithoutTasksAndFromContractReadsEither(t *testing.T) {
+	if Labs.AsDict().Has("task_statuses") || Labs.AsDict().Has("task_required_fields") {
+		t.Fatal(jsonx.Compact(Labs.AsDict()))
+	}
+	p := *Labs
+	p.TaskStatuses, p.TaskRequiredFields = []string{"todo", "done"}, []string{"doc_id"}
+	if !p.AsDict().Has("task_statuses") || !p.AsDict().Has("task_required_fields") {
+		t.Fatal(jsonx.Compact(p.AsDict()))
+	}
+	for name, c := range map[string]*jsonx.Obj{"without": Labs.ContractDict(), "with": p.ContractDict()} {
+		if _, err := FromContract(c); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	c := Labs.ContractDict()
+	c.Delete("task_statuses")
+	c.Delete("task_required_fields")
+	c.Delete("task_fields")
+	if _, err := FromContract(c); err != nil {
+		t.Fatal(err)
 	}
 }

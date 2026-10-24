@@ -44,6 +44,11 @@
     {"id": "redirect-uri-text", "query": "oidc redirect uri", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-keywords"},
     {"id": "invalid-client-text", "query": "invalid_client", "mode": "text", "want": ["rb-add-oidc-client"], "source": "text-token"},
     {"id": "deploy-proofs-title", "query": "deploy proof room", "mode": "relevance", "want": ["rb-deploy-proof-room"], "source": "title-names-the-query"},
-    {"id": "deploy-proofs-project", "query": "deploy", "mode": "relevance", "project": "proof-room", "want": ["rb-deploy-proof-room"], "source": "title-names-the-query"}
+    {"id": "deploy-proofs-project", "query": "deploy", "mode": "relevance", "project": "proof-room", "want": ["rb-deploy-proof-room"], "source": "title-names-the-query"},
+    {"id": "doc-id-query", "query": "rb-bump-container-image", "mode": "relevance", "want": ["rb-bump-container-image"], "source": "doc-id-as-query"},
+    {"id": "doc-id-query-text", "query": "rb-restore-from-backup", "mode": "text", "want": ["rb-restore-from-backup"], "source": "doc-id-as-query"},
+    {"id": "title-query-press", "query": "Check the Press Queue From a Phone", "mode": "relevance", "want": ["rb-press-queue-from-phone"], "source": "title-as-query"},
+    {"id": "title-query-hub", "query": "Quire", "mode": "relevance", "want": ["infra-quire"], "source": "title-as-query"},
+    {"id": "title-query-text", "query": "Port Map", "mode": "text", "want": ["note-port-map"], "source": "title-as-query"}
   ]
 }

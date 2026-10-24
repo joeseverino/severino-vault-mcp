@@ -146,7 +146,8 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		{"find", c{"query": "wiki", "by": "fuzzy"}, `find(query="wiki") with by one of ["relevance","text"]`},
 		{"find", c{"query": "wiki", "limit": "many"}, `find(query="wiki") with limit as a valid integer`},
 		{"find", c{"query": 7}, ""},
-		{"find", c{}, `find() with query set`},
+		{"find", c{}, `find(query="...") with query set: what to look for`},
+		{"read_doc", c{}, `read_doc(doc_id="...") with doc_id set`},
 		{"find", c{"query": "wiki", "vault": "nope"}, `find(query="wiki") with vault `},
 		{"find", c{"query": "wiki", "sytem": "Example"}, `find(query="wiki", system="Example")`},
 		{"find", c{"query": "wiki", "zzzz": 1}, `find(query="wiki"): without "zzzz"`},
@@ -172,5 +173,37 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 	// A step that names an unregistered tool fails the check.
 	if p := stepProblems(jsonx.New("next_steps", []any{`find_runbook(query="x")`}), registered); len(p) != 1 {
 		t.Fatalf("an unregistered tool must fail: %v", p)
+	}
+}
+
+// The argument mistakes agents make most with find each come back with the
+// call that works: a filter passed as by, a by value that is neither mode,
+// a field name hits spell differently, and a field find filters by instead.
+func TestFindArgumentTrapsNameTheFix(t *testing.T) {
+	reg, root := labsOnly(t)
+	tk.MultisectionDoc(t, root)
+	s := connect(t, reg)
+	type c = map[string]any
+	for _, tc := range []struct {
+		args c
+		step string
+	}{
+		{c{"query": "wiki", "by": "title"}, `find(query="wiki", system="...") to keep docs by a field instead: system=, project= or doc_type=`},
+		{c{"query": "wiki", "fields": []string{"title", "doc_ids"}}, `find(query="wiki", fields=["title","doc_id"])`},
+		{c{"query": "wiki", "by": "text", "fields": []string{"kind"}}, `find(query="wiki", by="text", fields=["snippets.kind"])`},
+		{c{"query": "wiki", "fields": []string{"related_projects"}}, `find(query="wiki", project="...") to keep the docs of one project`},
+	} {
+		r, _ := call(t, s, "find", tc.args)
+		raw, _ := r.Get("next_steps")
+		list, _ := raw.([]any)
+		found := false
+		for _, st := range list {
+			if str, _ := st.(string); strings.HasPrefix(str, tc.step) {
+				found = true
+			}
+		}
+		if r.Bool("ok") || !found {
+			t.Errorf("%v: want a step starting %s\n%s", tc.args, tc.step, jsonx.Compact(r))
+		}
 	}
 }

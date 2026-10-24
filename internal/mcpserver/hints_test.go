@@ -60,11 +60,15 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		{"read_doc", map[string]any{"doc_id": "no-such-doc"}},
 		{"set_frontmatter", map[string]any{"relative_path": "03 Runbooks/Missing.md"}},
 		{"write_doc", map[string]any{"body": "x", "mode": "append_section", "heading": "Nope", "doc_id": "rb-backup-ops"}},
+		{"write_doc", map[string]any{"mode": "replace_text", "old_text": "e", "new_text": "x", "doc_id": "rb-backup-ops"}},
+		{"write_doc", map[string]any{"mode": "replace_text", "old_text": " to keep things current", "new_text": "", "doc_id": "rb-backup-ops"}},
 		{"move_doc", map[string]any{"doc_id": "rb-backup-ops", "to": "02 Infrastructure/"}},
 		{"move_doc", map[string]any{"doc_id": "rb-backup-ops", "to": "00 Inbox/"}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "fields": []string{"line", "text", "closed", "resolution"}, "open_only": false}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson", "resolution": "x"}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson one", "resolution": "x"}},
+		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "annotate", "match": "lesson one", "resolution": "y"}},
+		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "annotate", "match": "lesson one", "reopen": true}},
 		{"queue", map[string]any{"action": "add", "project": "backlog", "kind": "delegated", "text": "Schema check", "agent": "a1",
 			"links": map[string]any{"branch": "pass/x"}, "blocked_by": []string{"backlog-9"}}},
 		{"queue", map[string]any{"action": "set", "agent": "a1", "status": "returned", "owner": "worker"}},
@@ -104,9 +108,10 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 }
 
 // Claude Code reads two _meta keys on a tools/list entry: anthropic/alwaysLoad
-// keeps a tool out of tool search, and anthropic/maxResultSizeChars moves the
-// point past which a result is saved to a file (default 50,000 characters,
-// ceiling 500,000).
+// keeps a tool out of tool search, and anthropic/maxResultSizeChars raises the
+// point past which a result is saved to a file (default 50,000 characters).
+// Every answer read_doc gives by default fits under that default, so no tool
+// raises it.
 func TestToolsCarryClaudeCodeLoadingHints(t *testing.T) {
 	reg, _ := labsOnly(t)
 	all := tools(t, connect(t, reg))
@@ -116,8 +121,7 @@ func TestToolsCarryClaudeCodeLoadingHints(t *testing.T) {
 		if got, _ := meta["anthropic/alwaysLoad"].(bool); got != always {
 			t.Errorf("%s alwaysLoad %v, want %v", name, meta["anthropic/alwaysLoad"], always)
 		}
-		size, sized := meta["anthropic/maxResultSizeChars"].(float64)
-		if want := slices.Contains([]string{"read_doc"}, name); sized != want || (sized && (size <= 50_000 || size > 500_000)) {
+		if _, sized := meta["anthropic/maxResultSizeChars"]; sized {
 			t.Errorf("%s maxResultSizeChars %v", name, meta["anthropic/maxResultSizeChars"])
 		}
 	}

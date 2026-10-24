@@ -2,6 +2,7 @@ package sections
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -69,11 +70,87 @@ func TestSubsplitsOversizedH2AtH3(t *testing.T) {
 	}
 }
 
-func TestResolveBySlugAndHeadingPath(t *testing.T) {
-	secs := Parse(multi, 1)
-	if Resolve(secs, "troubleshooting").Heading != "Troubleshooting" || Resolve(secs, "Routine operations").Slug != "routine-operations" ||
-		Resolve(secs, "no-such-section") != nil {
-		t.Fatal("resolve")
+// addressed is a body with every form a read can name: the text before the
+// first heading, an H2 split at its H3s, a hard-wrapped H2 and a heading
+// text two sections share.
+func addressed() string {
+	filler := strings.Repeat("Steady words fill this paragraph for the cap. ", 22)
+	long := strings.Repeat("word ", 400) + "\n"
+	return "Lead line.\n\n## Routine operations\n\nlead\n\n### Backing commands\n\n" + filler +
+		"\n\n### Restore\n\n" + filler + "\n\n## Troubleshooting\n\nresolver logs\n\n## Big\n\n" + long + long +
+		"\n## A\n\n### Shape\n\none\n\n## B\n\n### Shape\n\ntwo"
+}
+
+func TestAddressNamesASectionEveryWayAReaderWrites(t *testing.T) {
+	body := addressed()
+	out := Outline(body)
+	byName := map[string]Target{}
+	for _, e := range out {
+		byName[e.Section.Slug] = e.Target
+	}
+	if out[0].Section.Level != 0 || out[0].Target.Line != -1 || !strings.HasPrefix(out[0].Target.Span(body), "Lead line.") {
+		t.Fatalf("the outline opens with the lead: %+v", out[0])
+	}
+	routine := Targets(body, "Routine operations")[0]
+	var parts []string
+	for _, e := range out {
+		if e.Section.Part > 0 {
+			parts = append(parts, e.Section.Slug)
+		}
+	}
+	for ref, want := range map[string]Target{
+		"overview":                              out[0].Target,
+		"Troubleshooting":                       byName["troubleshooting"],
+		"troubleshooting":                       byName["troubleshooting"],
+		"  TROUBLESHOOTING ":                    byName["troubleshooting"],
+		"Routine operations > Backing commands": byName["routine-operations-backing-commands"],
+		"routine-operations-restore":            byName["routine-operations-restore"],
+		"trouble":                               byName["troubleshooting"],
+		"routine-operations-back":               byName["routine-operations-backing-commands"],
+		"routine":                               routine,
+		"Routine Op":                            routine,
+		"1":                                     out[0].Target,
+		"3":                                     out[2].Target,
+		strconv.Itoa(len(out)):                  out[len(out)-1].Target,
+		"big-part-2":                            byName["big-part-2"],
+		"Big (part 1)":                          byName["big-part-1"],
+		"Big":                                   Targets(body, "Big")[0],
+		"b-shape":                               Targets(body, "B > Shape")[0],
+	} {
+		got := Address(body, ref)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("Address(%q) = %+v, want %+v", ref, got, want)
+		}
+	}
+	if len(parts) < 2 {
+		t.Fatalf("Big does not wrap: %v", parts)
+	}
+	if routine.Start != out[1].Target.Start || routine.End != out[3].Target.End || byName["routine-operations"] != routine {
+		t.Fatalf("an H2 split at its H3s reads as its whole block: %+v", routine)
+	}
+	for _, ref := range []string{"0", "99", "no-such-section", "", "  ", "-1"} {
+		if got := Address(body, ref); len(got) != 0 {
+			t.Errorf("Address(%q) = %+v, want nothing", ref, got)
+		}
+	}
+	for ref, want := range map[string][]string{"Shape": {"a-shape", "b-shape"}, "big-p": parts} {
+		var names []string
+		for _, t := range Address(body, ref) {
+			names = append(names, t.Name())
+		}
+		if !slices.Equal(names, want) {
+			t.Errorf("Address(%q) names %v, want the ambiguous %v", ref, names, want)
+		}
+	}
+}
+
+func TestAddressPrefersAHeadingNamedAsANumberToThePosition(t *testing.T) {
+	body := "## One\n\na\n\n## 3\n\nthree\n\n## Two\n\nb"
+	if got := Address(body, "3"); len(got) != 1 || got[0].Text != "3" {
+		t.Fatalf("%+v", got)
+	}
+	if got := Address(body, "2"); len(got) != 1 || got[0].Text != "3" {
+		t.Fatalf("position 2 is the second outline entry: %+v", got)
 	}
 }
 

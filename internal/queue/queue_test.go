@@ -203,10 +203,6 @@ func TestABoxTickedInObsidianIsClosedAndKeepsItsDate(t *testing.T) {
 		if tc.extra != "" && !strings.HasSuffix(Format(it), "[dependsOn:: hq-12]  "+tc.extra) {
 			t.Errorf("rewriting dropped the date: %s", Format(it))
 		}
-		it.Reopen("open")
-		if it.Extra != nil || Format(it) != open {
-			t.Errorf("reopened %q as %s", tc.line, Format(it))
-		}
 	}
 	// A field a human adds by hand stays ahead of id, where Tasks still reads it.
 	it, ok := Parse(strings.Replace(open, "[id::", "[note:: mine]  [id::", 1) + "  [due:: 2026-11-01]")

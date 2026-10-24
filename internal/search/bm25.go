@@ -96,7 +96,12 @@ func units(docs []*vault.Doc) []*unit {
 // with a positive score once, at its best section, best first: score, then
 // most recently reviewed, then title, descending.
 func Rank(docs []*vault.Doc, query string, limit int) []Hit {
-	q := QueryTokens(query)
+	return RankTerms(docs, QueryTokens(query), limit)
+}
+
+// RankTerms is Rank over terms already chosen, for a caller whose every
+// word counts, such as a text search, where "not" is part of the query.
+func RankTerms(docs []*vault.Doc, q Set, limit int) []Hit {
 	if len(q) == 0 {
 		return nil
 	}

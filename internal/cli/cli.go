@@ -490,7 +490,7 @@ func runUpdateFrontmatter(c *Ctx, p Parsed) int {
 
 func runWriteDoc(c *Ctx, p Parsed) int {
 	var content []byte
-	if p.Str("mode") != "delete_section" {
+	if m := p.Str("mode"); m != "delete_section" && m != "replace_text" {
 		var err error
 		if content, err = io.ReadAll(c.Stdin); err != nil {
 			return c.emit(jsonx.Fail("could not read stdin: "+err.Error()), p.Bool("pretty"))
@@ -498,7 +498,7 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 	}
 	return c.emit(core.WriteDoc(vaults.Labs(c.Env), core.WriteDocArgs{
 		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), DocID: p.Str("doc_id"), Heading: optStr(p, "heading"),
-		Body: pystr.Decode(content), New: changesFrom(p, createArgs),
+		Body: pystr.Decode(content), OldText: p.Str("old_text"), NewText: optStr(p, "new_text"), New: changesFrom(p, createArgs),
 	}), p.Bool("pretty"))
 }
 
@@ -518,7 +518,7 @@ func runMoveFolder(c *Ctx, p Parsed) int {
 func runLogEntries(c *Ctx, p Parsed) int {
 	return c.emit(core.LogEntries(c.labsVault(), p.Str("doc_id"), core.LogArgs{
 		Action: p.Str("action"), OpenOnly: !p.Bool("include_closed"), Contains: p.Str("contains"), Limit: p.Int("limit"),
-		Match: p.Str("match"), Resolution: p.Str("resolution"), View: view(p),
+		Match: p.Str("match"), Resolution: p.Str("resolution"), Reopen: p.Bool("reopen"), View: view(p),
 	}), p.Bool("pretty"))
 }
 
