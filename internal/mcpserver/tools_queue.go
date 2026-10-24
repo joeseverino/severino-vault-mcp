@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
@@ -145,3 +146,19 @@ set: id (or agent, when it holds one item) and what changes; claim=true
     goes through with a warning naming it.
 close: id (or agent) and resolution; status=dropped for work not done. An
     item with repos closes once each has a repo@sha; partial=true adds some.`
+
+// linkArgStep moves a link key given at the top level of a queue call into
+// links, the form the tool takes it in. It reports whether name was one.
+func linkArgStep(given *jsonx.Obj, name string, v any) bool {
+	if !slices.Contains(queue.LinkKeys, name) {
+		return false
+	}
+	links, _ := given.Get("links")
+	o, ok := links.(*jsonx.Obj)
+	if !ok {
+		o = jsonx.New()
+		given.Set("links", o)
+	}
+	o.Set(name, v)
+	return true
+}

@@ -136,7 +136,8 @@ docs/                    architecture, safety model, tool contract, testing and 
 
 ```bash
 mise run check                  # the CI gate: cordon.checks.json's commands and cordon's repo invariants
-mise run check --only go-test   # one check, by the id its failure report names
+mise run check --only go-test   # one check by id (golangci-lint, go-vet, gofmt, golden, ...), the fast inner loop
+mise run check --list           # every check id, and which apply here
 mise run golden                 # re-emit tests/golden and diff
 mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
 ```
@@ -163,3 +164,5 @@ mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores
   `jsonx.Obj.Has` takes one key (`archtest.TestNoDottedPathReachesObjHas`).
 - Compare a written body byte for byte as `text[frontmatter.BodyOffset(text):]`;
   `frontmatter.Split` trims the trailing newline.
+- A fixture at a size edge ends without a newline, since the index trims a
+  final one from a body, and a failure message prints sizes, never the body.

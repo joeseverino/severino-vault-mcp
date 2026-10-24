@@ -47,7 +47,7 @@ func TestSchemaContractAndFingerprint(t *testing.T) {
 }
 
 func TestDescribeMatchesTheCommittedContract(t *testing.T) {
-	_, out, _ := run(t, tk.Dir(t), "", "describe")
+	_, out, _ := run(t, tk.Dir(t), "", "describe", "--pretty")
 	golden, _ := os.ReadFile(filepath.Join(goldenDir(), "cli-describe.json"))
 	if strings.TrimSpace(out) != strings.TrimSpace(string(golden)) {
 		t.Fatalf("describe drifted from tests/golden/cli-describe.json; regenerate it deliberately")
@@ -112,7 +112,7 @@ func TestFieldsNarrowTheCLIThroughTheSameMask(t *testing.T) {
 		t.Fatal(out)
 	}
 	code, out, _ = run(t, root, "", "read", "rb-add-nginx-proxy-host", "--fields", "outline")
-	if code != 0 || strings.Contains(out, `"body"`) || !strings.Contains(out, `"outline":[{"section":"goal","heading_path":"Goal"}]`) {
+	if code != 0 || strings.Contains(out, `"body"`) || !strings.Contains(out, `"outline":[{"section":"goal","heading_path":"Goal","chars":55}]`) {
 		t.Fatal(out)
 	}
 	if code, out, _ = run(t, root, "", "find", "nginx", "--fields", "zzcanary"); code != 1 || strings.Contains(out, "zzcanary") {

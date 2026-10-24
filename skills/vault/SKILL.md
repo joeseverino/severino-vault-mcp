@@ -15,21 +15,31 @@ adds. Every shared tool takes `vault` (default labs).
    `find` before writing any prose, then `read_doc` on the best hit, and
    answer in the doc's own words at the doc's length. Quote commands
    verbatim. Never substitute a generic tutorial for an existing doc.
-   Read the hit's section first (`read_doc(doc_id, sections=[section])`);
-   for a long doc, `fields=["outline"]` lists its sections without text, and
-   the whole body is the default when you need all of it.
+   Read the hit's section first (`read_doc(doc_id, sections=[section])`).
+   A doc over 20,000 characters read with no sections answers with its lead
+   and outline (each section's size) and `truncated: true`; pick sections
+   from it by slug, heading path, heading text, unique slug prefix or 1-based
+   position, or ask for `fields=["body"]` when you need all of it. Read a doc
+   once per task and keep what you need from it.
 2. No relevant hit: say so, then offer to write the doc, and create it with
    `write_doc` (body plus frontmatter fields in one validated call).
 3. Broad questions: start from the `vault://labs/quick-index` resource (or
    `read_doc` on the Quick Index doc), then read the target doc.
-4. `find(by=...)`: relevance (default) or text (body search: all words, any
-   order). `system` and `project` narrow either mode to docs whose `system`
-   field, or one of whose `related_projects` entries, contains the value.
+4. `find(by=...)`: relevance (default) or text (body search: docs holding
+   any of the words, ranked by relevance; a hit lacking some names them in
+   `missing_words`). A query that is a doc_id, title or alias puts that doc
+   first (`exact_match`); with a doc_id in hand, `read_doc` it directly.
+   `system`, `project` and `doc_type` are filters of their own, never `by`
+   values: `system` and `project` keep docs whose `system` field, or one of
+   whose `related_projects` entries, contains the value. A value no doc
+   carries comes back with the closest real ones as `next_steps`.
    Queue notes (`doc_type: queue`) stay out of `find` unless you pass
    `doc_type="queue"`; `queue(action="list")` reads their items.
 5. Outputs are lean by default. `fields=[...]` (dotted paths, e.g. `tags`,
    `snippets.text`) asks `find`, `read_doc` or `queue` for more; an
-   unknown name is refused with the valid ones.
+   unknown name is refused with the valid ones and the one it likely meant.
+   A `find` result stays within 12,000 characters: past that, snippets and
+   then the lowest hits are cut, and `truncated` says so.
 
 ## Sensitivity
 
@@ -64,7 +74,13 @@ from the old one until the session restarts.
   refuses one that drops any), or targets the subsection itself.
   `append_section` adds at the end of the block; `delete_section` removes
   the block, subsections included, and takes no body.
-  Body edits to a registered doc go through it, never the file directly.
+  `replace_text` changes one sentence or bullet: `old_text` copied exactly
+  from `read_doc` must occur once in the body (or in `heading`'s section when
+  given), and becomes `new_text`; `""` removes it, and including the line
+  break in `old_text` removes the whole line. A count other than one is
+  refused with the count; lengthen `old_text` or add `heading`.
+  Body edits to a registered doc go through it, never an Edit or Write on
+  the file, however small the change.
 - `move_doc` moves or renames a registered doc (`to` is a .md path, or a
   folder ending in `/`); its doc_id and frontmatter stay. Never move a vault
   file with the shell. A file name another note already has is refused, since
@@ -95,8 +111,10 @@ from the old one until the session restarts.
 - `log_entries` works an append-only log note, one bullet per entry:
   `action="list"` returns the open entries (`contains` narrows them, e.g. to
   a repo), and `action="close"` with `match` and `resolution` appends
-  ` → <resolution>` to the one open entry `match` names. Use it instead of
-  reading or editing a log note whole.
+  ` → <resolution>` to the one open entry `match` names; `action="annotate"`
+  with `match` and `resolution` replaces a closed entry's resolution, and
+  with `reopen=true` removes it. Use it instead of reading or editing a log
+  note whole, and never Edit a log entry's line.
 
 ## Work queue
 
@@ -115,9 +133,11 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   `all=true` every project's queue, `links={"branch": ...}` the items on
   exactly that branch, in whichever queue holds them.
 - `queue(action="set", id=..., claim=true, owner=...)` takes an item only if
-  no other owner or agent holds it and it is not done; add `agent=...`,
+  no other owner or agent holds it and it is not done (a done item is
+  never reopened; add a new one); add `agent=...`,
   `kind="delegated"` and `links={"branch":...}` to take a queued item over
-  for a worker in the same call (one locked edit, so a lost claim changes
+  for a worker in the same call (a decision owned by `main` or nobody counts
+  too; one locked edit, so a lost claim changes
   nothing). An agent may hold several items. `release=true` hands one back
   to the queue as unowned next work; `status="returned"` marks a delegated
   item handed back; `links={...}` records a pr, branch, commit or slug. A

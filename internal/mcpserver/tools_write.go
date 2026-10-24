@@ -31,18 +31,20 @@ func (h *handlers) writeDoc(fields []schema.Field) coreTool {
 	fargs := write.Args(slices.DeleteFunc(slices.Clone(fields), func(f schema.Field) bool { return f.Name == "doc_id" }), "", true)
 	input := object(jsonx.New(
 		"mode", enum(core.WriteDocModes, "create", "See the tool description."),
-		"body", optStr("Markdown without frontmatter: the whole doc, or the section's content. Omit for delete_section."),
+		"body", optStr("Markdown without frontmatter: the whole doc, or the section's content. Omit for delete_section and replace_text."),
 		"vault", h.vaultProp("Which vault."),
 		"relative_path", optStr("Path from the vault root; required to create."),
 		"doc_id", optStr("The new doc's id, or the doc to edit (or give relative_path)."),
-		"heading", optStr(`The section to edit: a heading_path or section slug from read_doc's outline, or a unique heading text without the #s; "" for the text before the first heading. Section modes only.`),
+		"heading", optStr(`The section to edit: a heading_path or section slug from read_doc's outline, or a unique heading text without the #s; "" for the text before the first heading. Section modes, and replace_text to search only that section.`),
+		"old_text", optStr("replace_text: the exact text to replace, copied from read_doc; it must occur exactly once in the body, or in the section heading names."),
+		"new_text", optStr(`replace_text: what old_text becomes; "" removes it.`),
 		"include_restricted", boolean("Edit a restricted doc."),
 	).Merge(frontmatterProps(fargs)), nil)
 	return coreTool{"write_doc", descWriteDoc, input, func(p *params) (*jsonx.Obj, error) {
 		v := h.vault(p)
 		mode := p.choice("mode", core.WriteDocModes, "create")
 		body := p.str("body")
-		if mode != "delete_section" {
+		if mode != "delete_section" && mode != "replace_text" {
 			body = p.required("body")
 		}
 		w := core.WriteDocArgs{
@@ -51,6 +53,8 @@ func (h *handlers) writeDoc(fields []schema.Field) coreTool {
 			RelativePath:      p.str("relative_path"),
 			DocID:             p.str("doc_id"),
 			Heading:           p.opt("heading"),
+			OldText:           p.str("old_text"),
+			NewText:           p.opt("new_text"),
 			New:               readChanges(p, fargs),
 			IncludeRestricted: p.boolean("include_restricted"),
 		}
@@ -120,7 +124,7 @@ and remove_<field>. unset removes fields from the block by name, with any
 list items, even a leftover key the profile no longer declares; a field the
 doc requires is refused. Every field the vault's profile declares is an argument.`
 
-const descWriteDoc = `Create a registered doc, or edit one section of its body, validated against the vault's schema.
+const descWriteDoc = `Create a registered doc, or edit a section or a passage of its body, validated against the vault's schema.
 
 create (default): write relative_path with body and a new frontmatter block
     (doc_id, title, doc_type and system required; environment, status and
@@ -139,5 +143,11 @@ append_section: add body at the end of that whole block.
 delete_section: remove that whole block, heading line and subsections
     included; takes no body. Refuses "", a part slug, and a section that is
     the doc's last heading.
-Section modes keep the frontmatter as it is except last_reviewed, which
+replace_text: replace old_text with new_text ("" removes it) where it
+    occurs exactly once in the body, or in the section heading names when
+    given; zero or several matches is an error with the count. Use it to
+    change a sentence or a bullet. Include the line break in old_text to
+    remove a whole line. Frontmatter is never searched; set_frontmatter
+    changes it.
+Section modes and replace_text keep the frontmatter as it is except last_reviewed, which
 becomes today. Restricted docs need include_restricted and Touch ID.`

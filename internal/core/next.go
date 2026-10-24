@@ -120,7 +120,7 @@ func (v *Vault) docAt(rel string) *vault.Doc {
 
 // emptyFind is the way out of a search with no hits.
 func (v *Vault) emptyFind(q string, a FindArgs) []string {
-	var steps []string
+	steps := v.filterSteps(q, a)
 	if a.System != "" || a.Project != "" || a.DocType != "" {
 		steps = append(steps, Call("find", "query", q)+" without system, project or doc_type")
 	}
@@ -209,6 +209,8 @@ func (v *Vault) createSteps(rel, docID string) func(string) []string {
 func (v *Vault) sectionSteps(d *vault.Doc, mode string) func(string) []string {
 	return func(msg string) []string {
 		switch {
+		case contended(msg) && mode == "replace_text":
+			return []string{Call("write_doc", "mode", mode, "doc_id", d.DocID) + " again with the same heading, old_text and new_text" + contendedWhy}
 		case contended(msg):
 			return []string{Call("write_doc", "mode", mode, "doc_id", d.DocID) + " again with the same heading and body" + contendedWhy}
 		case v.outsideWritable(d.RelativePath):

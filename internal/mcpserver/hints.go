@@ -36,17 +36,14 @@ var annotations = map[string]*mcp.ToolAnnotations{
 // toolMeta are the _meta keys Claude Code reads on a tools/list entry
 // (code.claude.com/docs/en/mcp). anthropic/alwaysLoad keeps a tool out of
 // tool search, so the two every vault question starts with need no search
-// step. anthropic/maxResultSizeChars replaces the 50,000-character point past
-// which a result is saved to a file: read_doc's holds a whole long doc's
-// body.
+// step. No tool raises anthropic/maxResultSizeChars past its 50,000-character
+// default: read_doc bounds its own default answer (core.BoundedBodyChars), so
+// only a whole body asked for by fields=["body"] can pass it, and that one
+// is better saved to a file than read into context.
 var toolMeta = map[string]mcp.Meta{
 	"find":     {"anthropic/alwaysLoad": true},
-	"read_doc": {"anthropic/alwaysLoad": true, "anthropic/maxResultSizeChars": readDocMaxChars},
+	"read_doc": {"anthropic/alwaysLoad": true},
 }
-
-// readDocMaxChars is read_doc's result ceiling, in characters. It leaves
-// room for any doc but an append-only log, which log_entries reads in pieces.
-const readDocMaxChars = 100_000
 
 // outputSchemas describe each core tool's structuredContent: the envelope
 // every result shares, then the tool's own keys. Every key is optional, since
@@ -55,15 +52,19 @@ const readDocMaxChars = 100_000
 var outputSchemas = map[string]json.RawMessage{
 	"find": outSchema(jsonx.New(
 		"mode", ty("string"), "filters", ty("object"),
-		"fallback", ty("string"), "match_count", ty("integer"), "words", textList(),
+		"fallback", ty("string"), "match_count", ty("integer"), "words", textList(), "ranking", ty("string"),
+		"exact_match", jsonx.New("type", "object", "properties", jsonx.New("doc_id", ty("string"), "matched", ty("string"))),
 		"recommended", ty("object"), "hits", records(core.HitFields), "warning", ty("string"),
+		"truncated", jsonx.New("type", "object", "properties", jsonx.New(
+			"budget_chars", ty("integer"), "snippets_trimmed", ty("boolean"), "hits_dropped", ty("integer"))),
 	)),
 	"read_doc": outSchema(fieldProps(core.DocFields).Merge(jsonx.New(
 		"found", ty("boolean"), "resolved_from_alias", ty("object"), "body_released", ty("boolean"),
 		"advisory", ty("string"), "unlock", ty("object"), "override_used", ty("boolean"),
 		"sections", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties", jsonx.New(
 			"section", ty("string"), "heading_path", ty("string"), "body", ty("string")))),
-		"section_error", ty("string"), "available_sections", jsonx.New("type", "array", "items", ty("object")),
+		"truncated", ty("boolean"), "lead", ty("string"),
+		"section_error", ty("string"), "candidates", textList(), "available_sections", jsonx.New("type", "array", "items", ty("object")),
 		"ambiguous", ty("boolean"), "paths", textList(),
 		"alias_hint", ty("string"), "warning", ty("string"),
 	))),

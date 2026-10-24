@@ -182,7 +182,7 @@ func TestReadyIsOpenNextWorkWhoseBlockersAreAllClosed(t *testing.T) {
 	}
 }
 
-func TestCloseMovesTheLineToClosedAndSetReopensIt(t *testing.T) {
+func TestCloseMovesTheLineToClosedAndSetCannotReopenIt(t *testing.T) {
 	root, v := queueVault(t)
 	keep := add(t, v, "Example Tracker", "next", "Stays open")
 	done := add(t, v, "Example Tracker", "next", "Gets done")
@@ -203,11 +203,15 @@ func TestCloseMovesTheLineToClosedAndSetReopensIt(t *testing.T) {
 	if again.Bool("ok") || !strings.Contains(again.Str("error"), "already closed") {
 		t.Fatal(jsonx.Compact(again))
 	}
-	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: done, Status: "open"}))
-	note = tk.Read(t, filepath.Join(root, trackerQueue))
-	open, _, _ = strings.Cut(note, "## Closed")
-	if !strings.Contains(open, "- [ ] Gets done #queue/next  [id:: "+done+"]"+filed+"\n") {
-		t.Fatal(note)
+	before := tk.Read(t, filepath.Join(root, trackerQueue))
+	for _, status := range []string{"open", "returned"} {
+		r := core.Queue(v, core.QueueArgs{Action: "set", ID: done, Status: status})
+		if r.Bool("ok") || !strings.Contains(r.Str("error"), "closed") || !r.Has("next_steps") {
+			t.Fatal(status, jsonx.Compact(r))
+		}
+	}
+	if tk.Read(t, filepath.Join(root, trackerQueue)) != before {
+		t.Fatal("a refused reopen changed the note")
 	}
 }
 

@@ -152,7 +152,7 @@ func init() {
 				"without it, the whole body. Honors the sensitivity gate: restricted bodies are withheld (no interactive unlock on the CLI path).",
 			Args: []Arg{
 				{Name: "doc_id", Help: "Stable doc_id, e.g. 'rb-add-nginx-proxy-host'."},
-				{Name: "--sections", Help: "Section slugs or heading paths from a `find` hit or the outline. Omit for the whole body.", TakesValue: true, Multi: true},
+				{Name: "--sections", Help: "Sections to read: a slug, heading path, heading text, unique slug prefix or 1-based outline position. Omit for the whole body.", TakesValue: true, Multi: true},
 				fieldsArg("Doc fields to print (e.g. outline for the section list without text); omit for every field."),
 				pretty(prettyHelp),
 			},
@@ -164,14 +164,16 @@ func init() {
 				frontmatterFlags(updateArgs)...), Arg{Name: "--" + write.UnsetKey, Help: write.UnsetHelp, TakesValue: true, Multi: true}, pretty(prettyHelp)),
 			Run: runUpdateFrontmatter},
 		{Name: "write-doc", Effect: "vault_write",
-			Summary: "Create a registered doc, or replace, append to or delete one section of its body, with the markdown body on stdin (none for delete_section) " +
-				"(no frontmatter). The MCP write_doc tool: create validates the new frontmatter with the rules validate checks; " +
-				"section modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
+			Summary: "Create a registered doc, replace, append to or delete one section of its body, or replace one passage of it, with the markdown body on stdin " +
+				"(no frontmatter; none for delete_section and replace_text). The MCP write_doc tool: create validates the new frontmatter with the rules validate checks; " +
+				"the edit modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
 			Args: append(append([]Arg{
-				{Name: "--mode", Help: "create (default), replace_section, append_section or delete_section (no stdin).", TakesValue: true, Default: "create"},
+				{Name: "--mode", Help: "create (default), replace_section, append_section, delete_section (no stdin) or replace_text (no stdin).", TakesValue: true, Default: "create"},
 				{Name: "--relative-path", Help: "Vault-relative path; required to create.", TakesValue: true},
 				{Name: "--doc-id", Help: "The new doc's id on create; the doc to edit otherwise.", TakesValue: true},
-				{Name: "--heading", Help: "The section to edit (section modes): a heading path or section slug as find and the read_doc outline give them, or a unique heading text; \"\" for the text before the first heading.", TakesValue: true},
+				{Name: "--heading", Help: "The section to edit (section modes), or to search (replace_text): a heading path or section slug as find and the read_doc outline give them, or a unique heading text; \"\" for the text before the first heading.", TakesValue: true},
+				{Name: "--old-text", Help: "replace_text: the exact text to replace; it must occur exactly once in the body, or in the --heading section. Text that starts with a dash goes as --old-text=value.", TakesValue: true},
+				{Name: "--new-text", Help: "replace_text: what --old-text becomes; \"\" removes it. Text that starts with a dash goes as --new-text=value.", TakesValue: true},
 			}, frontmatterFlags(createArgs)...), pretty(prettyHelp)),
 			Run: runWriteDoc},
 		{Name: "move-doc", Effect: "vault_write",
@@ -199,16 +201,18 @@ func init() {
 			},
 			Run: runMoveFolder},
 		{Name: "log-entries", Effect: "vault_write",
-			Summary: "List an append-only log note's entries (one top-level bullet each), or close one by appending ' → <resolution>' " +
-				"to its line. The MCP log_entries tool: close needs --match to name exactly one open entry, and writes like a section edit.",
+			Summary: "List an append-only log note's entries (one top-level bullet each), close one by appending ' → <resolution>' " +
+				"to its line, or annotate a closed one: replace its resolution, or reopen it. The MCP log_entries tool: close needs --match " +
+				"to name exactly one open entry, annotate one closed entry, and both write like a section edit.",
 			Args: []Arg{
-				{Name: "action", Help: "list or close.", Choices: []string{"list", "close"}},
+				{Name: "action", Help: "list, close or annotate.", Choices: core.LogActions},
 				{Name: "doc_id", Help: "The log note's doc_id."},
 				{Name: "--all", Help: "list: include closed entries.", Dest: "include_closed"},
 				{Name: "--contains", Help: "list: only entries whose text contains this (case-insensitive).", TakesValue: true},
 				{Name: "--limit", Help: "list: most entries to print, in file order (default 0: all).", TakesValue: true, Int: true, Default: "0"},
-				{Name: "--match", Help: "close: text that exactly one open entry contains.", TakesValue: true},
-				{Name: "--resolution", Help: "close: one line saying how the entry was resolved.", TakesValue: true},
+				{Name: "--match", Help: "close: text that exactly one open entry contains; annotate: one closed entry.", TakesValue: true},
+				{Name: "--resolution", Help: "close: one line saying how the entry was resolved; annotate: the line that replaces its resolution.", TakesValue: true},
+				{Name: "--reopen", Help: "annotate: remove the entry's resolution, so it is open again."},
 				fieldsArg("Entry fields to print (line, text, closed, resolution); omit for every field."),
 				pretty(prettyHelp),
 			},
@@ -218,8 +222,8 @@ func init() {
 				"or 07 Backlog/Queue.md), and print compact JSON; the MCP queue tool. Hooks call it: name the queue with --cwd, and " +
 				"pass a value that starts with a dash as --flag=value. Exits 0 if ok, 1 on a refused call, 2 on a usage error.",
 			Args: []Arg{
-				{Name: "action", Help: "list, add, set or close.", Choices: core.QueueActions},
-				{Name: "id", Optional: true, Help: "set, close: the item's id, e.g. example-3."},
+				{Name: "action", Help: "list, add, set or close. close needs --resolution: queue close example-3 --resolution 'example-repo@abc1234'.", Choices: core.QueueActions},
+				{Name: "id", Optional: true, Help: "set, close: one item's id, <prefix>-<number>, e.g. example-3; one id per call."},
 				{Name: "--project", Help: "The queue's project folder under 01 Projects, or backlog.", TakesValue: true},
 				{Name: "--repo", Help: "A repository directory name, resolved through each project's index.md repos.", TakesValue: true},
 				{Name: "--cwd", Help: "A working directory, resolved to its repository and then its project.", TakesValue: true},

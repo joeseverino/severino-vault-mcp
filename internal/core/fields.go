@@ -55,39 +55,111 @@ func list(name string, inner []Field) Field { return Field{Name: name, Type: "ar
 // only the names under it.
 type mask map[string]mask
 
+// FieldsError is a refused field mask. Fixed is the mask with every refused
+// path replaced by the field it most plausibly meant, nil when one has no
+// such field, so a refusal can name the call that works.
+type FieldsError struct {
+	msg   string
+	Fixed []string
+}
+
+func (e *FieldsError) Error() string { return e.msg }
+
 // parseFields reads dotted paths into one mask checked against shape. Shared
 // prefixes merge and a whole value wins over a path into it. An error names
 // the path by its index and the valid names at the failing depth, never the
-// caller's text.
+// caller's text, and the field a refused name most plausibly meant.
 func parseFields(fields []string, shape []Field) (mask, error) {
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("fields: give at least one field, or omit fields for the default; valid fields are %s", names(shape))
 	}
 	m := mask{}
+	var first string
+	fixed := slices.Clone(fields)
+	fixable := true
 	for i, path := range fields {
-		segments := strings.Split(path, ".")
-		if slices.Contains(segments, "") {
-			return nil, fmt.Errorf("fields[%d]: a path is field names joined by single dots", i)
+		msg, meant := checkPath(i, path, shape)
+		if msg == "" {
+			m.merge(strings.Split(path, "."))
+			continue
 		}
-		level, at := shape, []string{}
-		for _, seg := range segments {
-			if level == nil {
-				return nil, fmt.Errorf("fields[%d]: %s is kept whole; it has no fields inside it", i, strings.Join(at, "."))
-			}
-			j := slices.IndexFunc(level, func(f Field) bool { return f.Name == seg })
-			if j < 0 {
-				where := "the top level"
-				if len(at) > 0 {
-					where = strings.Join(at, ".")
-				}
-				return nil, fmt.Errorf("fields[%d]: unknown field under %s; valid fields there are %s", i, where, names(level))
-			}
-			at = append(at, seg)
-			level = level[j].Inner
+		if first == "" {
+			first = msg
 		}
-		m.merge(segments)
+		if meant == "" {
+			fixable = false
+		}
+		fixed[i] = meant
 	}
-	return m, nil
+	if first == "" {
+		return m, nil
+	}
+	e := &FieldsError{msg: first}
+	if fixable {
+		e.Fixed = fixed
+	}
+	return nil, e
+}
+
+// checkPath is why path is refused ("" when it is valid), and the path it
+// most plausibly meant ("" when none).
+func checkPath(i int, path string, shape []Field) (msg, meant string) {
+	segments := strings.Split(path, ".")
+	if slices.Contains(segments, "") {
+		return fmt.Sprintf("fields[%d]: a path is field names joined by single dots", i), ""
+	}
+	level, at := shape, []string{}
+	for _, seg := range segments {
+		if level == nil {
+			return fmt.Sprintf("fields[%d]: %s is kept whole; it has no fields inside it", i, strings.Join(at, ".")), strings.Join(at, ".")
+		}
+		j := slices.IndexFunc(level, func(f Field) bool { return f.Name == seg })
+		if j < 0 {
+			where := "the top level"
+			if len(at) > 0 {
+				where = strings.Join(at, ".")
+			}
+			msg = fmt.Sprintf("fields[%d]: unknown field under %s; valid fields there are %s", i, where, names(level))
+			var paths []string
+			for _, g := range meantFields(seg, level, len(at) == 0) {
+				paths = append(paths, strings.Join(append(slices.Clone(at), g), "."))
+			}
+			switch len(paths) {
+			case 0:
+			case 1:
+				meant = paths[0]
+				msg += fmt.Sprintf("; fields[%d] is likely %q", i, meant)
+			default:
+				msg += fmt.Sprintf("; fields[%d] is likely one of %s", i, pystr.Quoted(paths))
+			}
+			return msg, meant
+		}
+		at = append(at, seg)
+		level = level[j].Inner
+	}
+	return "", ""
+}
+
+// meantFields are the fields of level an unknown name most plausibly
+// meant: those within two edits of it, or whose name holds it as a word
+// (path in obsidian_path); at the top level, failing those, a field inside a
+// list named exactly so (kind in snippets.kind).
+func meantFields(name string, level []Field, top bool) []string {
+	var fits []string
+	for _, f := range level {
+		if pystr.EditDistance(name, f.Name) <= 2 && len(name) >= 4 ||
+			slices.Contains(strings.Split(f.Name, "_"), name) || slices.Contains(strings.Split(name, "_"), f.Name) && len(f.Name) >= 4 {
+			fits = append(fits, f.Name)
+		}
+	}
+	if top && len(fits) == 0 {
+		for _, f := range level {
+			if slices.ContainsFunc(f.Inner, func(in Field) bool { return in.Name == name }) {
+				fits = append(fits, f.Name+"."+name)
+			}
+		}
+	}
+	return fits
 }
 
 func names(shape []Field) string {

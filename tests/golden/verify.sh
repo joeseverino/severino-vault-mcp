@@ -41,8 +41,10 @@ check "schema --json" "$GOLDEN/schema.json" "${CLI[@]}" schema --json
 # 1b. The labs frontmatter as JSON Schema (editors and off-the-shelf validators).
 check "schema --json-schema" "$GOLDEN/labs.schema.json" "${CLI[@]}" schema --json-schema
 
-# 2. Cordon CLI command surface (help/completions/effect ladder).
-check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe
+# 2. Cordon CLI command surface (help/completions/effect ladder). The snapshot
+# is indented so a change to one command is a one-hunk diff; consumers read
+# the compact form, which --pretty only re-indents.
+check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe --pretty
 
 # 3. Registered MCP tool names, from the assembled server.
 if go test -count=1 -run '^TestToolNamesMatchTheGolden$' ./internal/mcpserver/ >"$DIFF" 2>&1; then

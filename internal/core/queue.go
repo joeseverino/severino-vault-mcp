@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -42,6 +43,10 @@ const (
 	backlogProject = vault.BacklogProject
 	queueLimit     = 50
 )
+
+// decisionClaimer is the owner of a decision the orchestrator holds, which a
+// claim may hand to a worker.
+const decisionClaimer = "main"
 
 // defaultStatuses are what list shows when no status is given: the items
 // still waiting on someone.
@@ -272,11 +277,38 @@ func (s *queueStore) locate(id string) (queueProject, queue.Item, *jsonx.Obj) {
 				return p, item, nil
 			}
 		}
+		if f := s.unknownPrefix(prefix, id); f != nil {
+			return queueProject{}, item, f
+		}
 		return queueProject{}, item, failNext(fmt.Sprintf("no queue holds an item %q", id),
 			qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" to find the item's id")
 	}
 	return queueProject{}, item, ambiguous(hits, "hold an item "+strconv.Quote(id),
 		"give one a distinct queue_prefix in its index.md and renumber the other by hand")
+}
+
+// unknownPrefix is the failure for an id whose prefix no queue uses: it lists
+// the prefixes, and names the project's own when the id starts with a project
+// name. nil when some queue uses the prefix.
+func (s *queueStore) unknownPrefix(prefix, id string) *jsonx.Obj {
+	var prefixes []string
+	hint := ""
+	for _, p := range s.projects {
+		if p.prefix == prefix {
+			return nil
+		}
+		if p.prefix == "" {
+			continue
+		}
+		prefixes = append(prefixes, p.prefix)
+		if hint == "" && sameProject(p.name, prefix) {
+			hint = fmt.Sprintf("; %q is the project name, its prefix is %q", prefix, p.prefix)
+		}
+	}
+	slices.Sort(prefixes)
+	prefixes = slices.Compact(prefixes)
+	return failNext(fmt.Sprintf("no queue uses the id prefix %q (id %q); the prefixes are %s%s", prefix, id, strings.Join(prefixes, ", "), hint),
+		qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" to find the item's id")
 }
 
 // cmpBool orders false before true.
@@ -683,11 +715,28 @@ func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) 
 			return []string{"the same queue call again" + contendedWhy}
 		case s.v.outsideWritable(p.rel()):
 			return []string{qcall("action", "list", "project", p.name) + " to read it; notes in read-only folders are not edited here"}
+		case strings.HasPrefix(msg, "frontmatter does not validate"):
+			return []string{p.repairCall(msg) + " to repair the queue note, then retry"}
 		case strings.Contains(msg, "set_frontmatter"):
 			return []string{Call("set_frontmatter", "relative_path", p.rel()) + " with the fields the error names, then retry"}
 		}
 		return []string{qcall("action", "list", "project", p.name, "status", "all") + " to see the queue as it is now, then retry"}
 	})
+}
+
+// repairCall is the set_frontmatter call that gives p's queue note the
+// fields a queue note carries: its doc_type and system always, and each
+// required field msg reports missing.
+func (p queueProject) repairCall(msg string) string {
+	args := []any{"relative_path", p.rel(), "doc_type", schema.QueueDocType, "system", p.name}
+	for _, f := range []struct{ name, value string }{
+		{"doc_id", p.docID()}, {"title", queueTitle(p.name)}, {"status", "active"},
+	} {
+		if strings.Contains(msg, "missing required field: "+f.name) {
+			args = append(args, f.name, f.value)
+		}
+	}
+	return Call("set_frontmatter", args...)
 }
 
 // queueTitle is the title a project's queue note (or the backlog's) is
@@ -976,7 +1025,11 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 	}
 	if a.ID != "" {
 		if _, _, ok := queue.SplitID(a.ID); !ok {
-			return queueProject{}, "", failNext(fmt.Sprintf("id %q is not <prefix>-<number>, such as example-3", a.ID), findIt)
+			msg := fmt.Sprintf("id %q is not <prefix>-<number>, such as example-3", a.ID)
+			if strings.ContainsAny(a.ID, " \t\n") {
+				msg += "; pass one id per call, not several joined"
+			}
+			return queueProject{}, "", failNext(msg, findIt)
 		}
 		p, _, f := s.locate(a.ID)
 		return p, a.ID, f
@@ -1099,14 +1152,19 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	held := ""
 	return warnHeld(s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
 		held = holder(*it, a.Agent)
+		if queue.Done(it.Status) && (a.Claim || a.Status != "") {
+			return failNext(fmt.Sprintf("%s is %s; a done item is not reopened or claimed", id, it.Status),
+				qcall("action", "add", "kind", "next", "text", "...")+" to file the work as a new item")
+		}
 		if a.Claim {
 			pick := qcall("action", "list", "project", p.name, "ready", true, "owner", queue.Unowned) + " to pick unowned work"
 			switch {
-			case queue.Done(it.Status):
-				return failNext(fmt.Sprintf("%s is %s; a done item is not claimed", id, it.Status),
-					qcall("action", "set", "id", id, "status", "open")+" to reopen it first, if the work is not done", pick)
 			case it.Agent != "" && it.Agent != a.Agent:
 				return failNext(fmt.Sprintf("%s is held by agent %s", id, it.Agent), pick).Set("agent", it.Agent)
+			case it.Kind == "decision" && a.Kind == "delegated" && it.Owner != "" && it.Owner != decisionClaimer:
+				return failNext(fmt.Sprintf("%s is owned by %s; only a decision the orchestrator (%s) owns or nobody owns is claimed", id, it.Owner, decisionClaimer), pick).Set("owner", it.Owner)
+			case it.Kind == "decision" && a.Kind == "delegated":
+				// The orchestrator's own decision passes to the worker that takes it.
 			case it.Owner != "" && it.Owner != owner(*a.Owner):
 				return failNext(fmt.Sprintf("%s is owned by %s", id, it.Owner), pick).Set("owner", it.Owner)
 			}
@@ -1131,8 +1189,9 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			}
 		}
 		if a.Kind != "" && a.Kind != it.Kind {
-			if a.Kind != "delegated" || (it.Kind != "next" && it.Kind != "follow-up") {
-				return failNext(fmt.Sprintf("set changes a next or follow-up item to delegated; %s is %s, not %s", id, it.Kind, a.Kind),
+			claimedDecision := a.Claim && it.Kind == "decision"
+			if a.Kind != "delegated" || (it.Kind != "next" && it.Kind != "follow-up" && !claimedDecision) {
+				return failNext(fmt.Sprintf("set changes a next or follow-up item, or a decision claimed with claim, to delegated; %s is %s, not %s", id, it.Kind, a.Kind),
 					qcall("action", "close", "id", id, "resolution", "...")+" and add the "+a.Kind+" item instead")
 			}
 			it.Kind = a.Kind
@@ -1168,9 +1227,6 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 				return failNext(fmt.Sprintf("only a delegated item is returned; %s is %s", id, it.Kind),
 					qcall("action", "set", "id", id, "status", "open"))
 			}
-			if queue.Done(it.Status) {
-				it.Reopen(a.Status)
-			}
 			it.Status = a.Status
 		}
 		return nil
@@ -1180,7 +1236,8 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 	resolution := pystr.Strip(a.Resolution)
 	if err := queue.OneLine("resolution", resolution); err != nil {
-		return failNext("close needs resolution: one line such as repo@sha, a PR, a doc id, or why it was dropped",
+		return failNext("close needs resolution: one line such as repo@sha, a PR, a doc id, or why it was dropped; on the CLI: queue close "+
+			cmp.Or(a.ID, "<id>")+" --resolution 'example-repo@abc1234'",
 			qcall("action", "close", "id", a.ID, "resolution", "example-repo@abc1234"))
 	}
 	status := a.Status
@@ -1225,7 +1282,7 @@ func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 				return nil
 			}
 			return failNext(fmt.Sprintf("%s is already %s → %s", id, it.Status, it.Resolution),
-				qcall("action", "set", "id", id, "status", "open")+" to reopen it first")
+				qcall("action", "add", "kind", "next", "text", "...")+" to file the work as a new item")
 		}
 		applyLinks(it, a.Links)
 		it.Status, it.Resolution = status, resolution

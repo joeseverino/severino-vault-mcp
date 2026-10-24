@@ -28,4 +28,8 @@ func TestLogEntriesClosesOneEntryAndExitsOnItsResult(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"count":1`) || strings.Contains(out, "lesson one") {
 		t.Fatal(code, out)
 	}
+	if code, out, _ := run(t, root, "", "log-entries", "annotate", "infra-example-log", "--match", "repo-a", "--reopen"); code != 0 ||
+		!strings.Contains(tk.Read(t, filepath.Join(root, rel)), "\n- repo-a · lesson one\n") {
+		t.Fatal(code, out, tk.Read(t, filepath.Join(root, rel)))
+	}
 }

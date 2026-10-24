@@ -29,7 +29,8 @@ func OpenOurs(cfg config.Config) (Backend, error) {
 func (ours) Name() string { return "ours" }
 
 func (b ours) Find(query, mode string, fl Filter, limit int) (Found, error) {
-	resp := core.Find(b.v, query, core.FindArgs{By: mode, Limit: limit, ContextLines: 1, System: fl.System, Project: fl.Project})
+	resp := core.Find(b.v, query, core.FindArgs{By: mode, Limit: limit, ContextLines: 1, System: fl.System, Project: fl.Project,
+		DocType: fl.DocType, IncludeArchived: fl.IncludeArchived})
 	if msg := resp.Str("error"); msg != "" {
 		return Found{}, errors.New(msg)
 	}
@@ -113,7 +114,7 @@ func (*grep) Name() string { return "grep" }
 func (g *grep) Find(query, _ string, fl Filter, limit int) (Found, error) {
 	// A filter is frontmatter, which grep alone can't read; the baseline gets
 	// the same narrowing find applies so the two stay comparable.
-	keep := core.FindArgs{System: fl.System, Project: fl.Project}.Keep()
+	keep := core.FindArgs{System: fl.System, Project: fl.Project, DocType: fl.DocType, IncludeArchived: fl.IncludeArchived}.Keep()
 	var words []string
 	for w := range search.QueryTokens(query) {
 		words = append(words, w)

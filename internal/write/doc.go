@@ -139,22 +139,10 @@ func cutSection(body, heading, rel string) (string, *jsonx.Obj) {
 	b := sections.NewBody(body)
 	all := b.Headings()
 	parsed := strings.TrimSuffix(body, "\n")
-	targets := sections.Targets(parsed, needle)
-	switch len(targets) {
-	case 0:
-		texts := make([]string, len(all))
-		for i, h := range all {
-			texts[i] = h.Text
-		}
-		return "", jsonx.Fail(fmt.Sprintf("no heading %q in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
-			needle, rel, pystr.Quoted(texts)))
-	case 1:
-	default:
-		names := candidateNames(targets)
-		return "", jsonx.Fail(fmt.Sprintf("heading %q appears %d times in %s; pass one of its heading paths instead: %s",
-			needle, len(targets), rel, pystr.Quoted(names))).Set("candidates", jsonx.Strings(names))
+	t, failure := oneTarget(parsed, needle, rel, all)
+	if failure != nil {
+		return "", failure
 	}
-	t := targets[0]
 	if t.Line < 0 || t.End != min(b.BlockEnd(t.Line), len(sections.Lines(parsed))) {
 		return "", jsonx.Fail(fmt.Sprintf("%q is one part of a long section, not a section; delete the section by its heading path %q",
 			needle, t.Path))
@@ -197,7 +185,7 @@ func cutSection(body, heading, rel string) (string, *jsonx.Obj) {
 // today, and must still validate; the file is replaced atomically. extra are
 // key/value pairs the result carries after relative_path.
 func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
-	return editBody(l, relativePath, p, func(_ *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj) {
+	return editBody(l, relativePath, p, func(_ string, _ *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj) {
 		out, f := edit(body, rel)
 		return out, nil, f
 	}, true, extra...)
@@ -219,10 +207,15 @@ type NoteEdit func(fm *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx
 // index after the write, for a note read from disk on every use (a work
 // queue), so a hook's one write does not pay for a scan of the whole vault.
 func EditNoteUnindexed(l *vault.Loader, relativePath string, p *schema.Profile, edit NoteEdit, extra ...any) *jsonx.Obj {
-	return editBody(l, relativePath, p, edit, false, extra...)
+	return editBody(l, relativePath, p, func(_ string, fm *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj) {
+		return edit(fm, body, rel)
+	}, false, extra...)
 }
 
-func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit NoteEdit, reindex bool, extra ...any) *jsonx.Obj {
+// rawEdit is a NoteEdit that also gets the frontmatter block as written.
+type rawEdit func(head string, fm *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj)
+
+func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit rawEdit, reindex bool, extra ...any) *jsonx.Obj {
 	v, full, rel, archive, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
@@ -239,7 +232,7 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit Note
 		}
 		head, old := text[:cut], text[cut:]
 		before, _, _ := frontmatter.Split(text)
-		newBody, fields, ferr := edit(before, old, rel)
+		newBody, fields, ferr := edit(head, before, old, rel)
 		if ferr != nil {
 			out = ferr
 			return text
@@ -301,22 +294,10 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 	// The index parses the body without its final newline; so does this, so
 	// a section's span here is the one read_doc returned.
 	parsed := strings.TrimSuffix(body, "\n")
-	targets := sections.Targets(parsed, needle)
-	switch len(targets) {
-	case 0:
-		texts := make([]string, len(all))
-		for i, h := range all {
-			texts[i] = h.Text
-		}
-		return "", jsonx.Fail(fmt.Sprintf("no heading %q in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
-			needle, rel, pystr.Quoted(texts)))
-	case 1:
-	default:
-		names := candidateNames(targets)
-		return "", jsonx.Fail(fmt.Sprintf("heading %q appears %d times in %s; pass one of its heading paths instead: %s",
-			needle, len(targets), rel, pystr.Quoted(names))).Set("candidates", jsonx.Strings(names))
+	t, failure := oneTarget(parsed, needle, rel, all)
+	if failure != nil {
+		return "", failure
 	}
-	t := targets[0]
 	if t.Line >= 0 {
 		if echo, ok := firstHeading(content); ok && echo.Level == t.Level && echo.Text == t.Text {
 			return "", jsonx.Fail(fmt.Sprintf("body starts with the section's own heading %q; the heading line stays, so send the body without it",
@@ -356,6 +337,27 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 		sb.WriteString("\n" + strings.Join(lines[end:], "\n"))
 	}
 	return sb.String(), nil
+}
+
+// oneTarget is the one span heading needle names in parsed, the body without
+// its final newline as the index reads it. No match, or several, is a
+// failure; several carry their names as candidates.
+func oneTarget(parsed, needle, rel string, all []sections.Heading) (sections.Target, *jsonx.Obj) {
+	targets := sections.Targets(parsed, needle)
+	switch len(targets) {
+	case 0:
+		texts := make([]string, len(all))
+		for i, h := range all {
+			texts[i] = h.Text
+		}
+		return sections.Target{}, jsonx.Fail(fmt.Sprintf("no heading %q in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
+			needle, rel, pystr.Quoted(texts)))
+	case 1:
+		return targets[0], nil
+	}
+	names := candidateNames(targets)
+	return sections.Target{}, jsonx.Fail(fmt.Sprintf("heading %q appears %d times in %s; pass one of its heading paths instead: %s",
+		needle, len(targets), rel, pystr.Quoted(names))).Set("candidates", jsonx.Strings(names))
 }
 
 // droppedSubsections are the heading paths of the headings in lines

@@ -118,3 +118,51 @@ func TestLogEntriesRefusesRestrictedAndReadOnlyCloses(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
+
+func TestLogEntriesAnnotateRewritesThenReopens(t *testing.T) {
+	v, root := logVault(t, exampleLog)
+	path := filepath.Join(root, logRel)
+	r := core.LogEntries(v, "infra-example-log", core.LogArgs{Action: "annotate", Match: "lesson two", Resolution: "fixed: def456, with a guard"})
+	if !r.Bool("ok") || r.Str("text") != "2026-10-19 · worker · repo-b · lesson two → fixed: def456, with a guard" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if text := tk.Read(t, path); !strings.HasSuffix(text, "\n- 2026-10-19 · worker · repo-b · lesson two → fixed: def456, with a guard\n") ||
+		!strings.Contains(text, "\n- 2026-10-19 · worker · repo-a · lesson one\n") || !strings.Contains(text, "last_reviewed: "+clock.TodayISO()+"\n") {
+		t.Fatal(text)
+	}
+	r = core.LogEntries(v, "infra-example-log", core.LogArgs{Action: "annotate", Match: "lesson two", Reopen: true})
+	if !r.Bool("ok") || r.Str("text") != "2026-10-19 · worker · repo-b · lesson two" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if !strings.HasSuffix(tk.Read(t, path), "\n- 2026-10-19 · worker · repo-b · lesson two\n") {
+		t.Fatal(tk.Read(t, path))
+	}
+	open := entryTexts(t, core.LogEntries(v, "infra-example-log", core.LogArgs{Action: "list", OpenOnly: true}))
+	if len(open) != 2 {
+		t.Fatal(open)
+	}
+}
+
+func TestLogEntriesAnnotateRefusals(t *testing.T) {
+	v, root := logVault(t, exampleLog+"- 2026-10-20 · worker · repo-b · lesson three → fixed: 999\n")
+	before := tk.Read(t, filepath.Join(root, logRel))
+	for want, a := range map[string]core.LogArgs{
+		"2 closed entries contain":                                   {Match: "repo-b", Resolution: "x"},
+		"no closed entry contains \"lesson one\"; 1 open entries do": {Match: "lesson one", Resolution: "x"},
+		"annotate needs match":                                       {Resolution: "x"},
+		"annotate needs resolution":                                  {Match: "lesson two"},
+		"not both":                                                   {Match: "lesson two", Resolution: "x", Reopen: true},
+		"reopen only applies to annotate":                            {Action: "close", Match: "lesson one", Resolution: "x", Reopen: true},
+	} {
+		if a.Action == "" {
+			a.Action = "annotate"
+		}
+		r := core.LogEntries(v, "infra-example-log", a)
+		if r.Bool("ok") || !strings.Contains(r.Str("error"), want) || !r.Has("next_steps") {
+			t.Errorf("%s: %s", want, jsonx.Compact(r))
+		}
+	}
+	if tk.Read(t, filepath.Join(root, logRel)) != before {
+		t.Fatal("a refused annotate wrote")
+	}
+}
