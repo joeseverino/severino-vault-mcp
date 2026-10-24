@@ -78,8 +78,10 @@ binary serves MCP on stdio.
 
 ## Install
 
-Requires Go 1.27. `ripgrep` is needed for `find(by="text")`; `fd` is used to
-walk the vault when it is on `PATH`, otherwise a built-in walk does.
+Requires Go 1.27. `ripgrep` is needed for `find(by="text")`. Indexing uses
+Go's built-in filesystem walk and needs no external file-listing tool.
+Hidden trees and templates are skipped; Git ignore files do not hide notes
+inside the configured folders.
 
 Install the binary:
 
@@ -229,6 +231,7 @@ The full table and the unlock flow are in
 [`docs/ai-safety-security.md`](docs/ai-safety-security.md) ·
 [`docs/migration-guide.md`](docs/migration-guide.md) ·
 [`docs/testing-ci.md`](docs/testing-ci.md) ·
+[`docs/dependencies.md`](docs/dependencies.md) ·
 [`docs/release-checklist.md`](docs/release-checklist.md)
 
 ## License

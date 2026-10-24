@@ -13,10 +13,15 @@ min_version = "2026.10.15"
 [settings]
 # The platforms that install from this lock: macOS arm64 and the Linux x64 CI runners.
 lockfile_platforms = ["macos-arm64", "linux-x64"]
+locked = true
 
 [settings.task]
 # Tasks that run together print one after another, each whole and labeled.
 output = "keep-order"
+
+[env]
+# mise owns the Go release; Go must not silently download another toolchain.
+GOTOOLCHAIN = "local"
 
 [tools]
 # Matches go.mod's toolchain line.
@@ -51,6 +56,22 @@ fi
 [tasks."check:vet"]
 description = "go vet"
 run = "go vet ./..."
+
+[tasks."check:modernize"]
+description = "Go's built-in fixer finds no remaining automatic modernizations"
+run = "go fix -diff ./..."
+
+[tasks.fix]
+description = "Apply Go's built-in modernizations and formatting"
+run = ["go fix ./...", "go fmt ./..."]
+
+[tasks."check:modules"]
+description = "Go module files are tidy and downloaded modules match their checksums"
+run = ["go mod tidy -diff", "go mod verify"]
+
+[tasks."check:tasks"]
+description = "mise validates task dependencies, usage specifications and task configuration"
+run = "mise tasks validate"
 
 [tasks."check:test"]
 description = "The test suite under the race detector"

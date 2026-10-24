@@ -102,6 +102,12 @@ each candidate's doc_id in `next_steps`; retry with the one you mean.
   `01 Projects/<new>` also renames the slug in every `related_projects` and
   retitles the queue note; doc_ids and queue item ids stay. Restricted notes
   are listed in `skipped_restricted` unless `include_restricted=true`.
+- Either move accepts `dry_run=true` to preview moved files, link counts and
+  archive status changes without writes or restricted unlocks. A preview
+  reserves nothing. If an actual move returns `failed`, the move itself has
+  finished: run its `repairs` tool calls in order (metadata, then exact-text
+  body edits), rather than repeating the move. Read a note again if a repair
+  refuses changed text; failures without a repair call need an editor.
 - `99 Archive` is history: only archived docs go there, and
   `archive=true` on `move_doc` or `move_folder` sets `status: archived` in the
   same call. `find` leaves archived docs out unless `include_archived=true`;

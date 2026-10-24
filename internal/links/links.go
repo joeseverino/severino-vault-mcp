@@ -5,6 +5,7 @@ package links
 
 import (
 	"io/fs"
+	"iter"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -51,6 +52,9 @@ type Files struct {
 	byLower map[string]string
 	sorted  []string
 }
+
+// Paths yields the indexed paths in their original order.
+func (f *Files) Paths() iter.Seq[string] { return slices.Values(f.sorted) }
 
 // NewFiles indexes files, which are sorted.
 func NewFiles(files []string) *Files {

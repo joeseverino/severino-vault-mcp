@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/frontmatter"
@@ -266,10 +267,10 @@ func (v *Vault) lockAll(notes []string, src, dst string) (func(), error) {
 }
 
 var tempSeq = func() func() string {
-	n := uint64(os.Getpid()) << 32
+	var n atomic.Uint64
+	n.Store(uint64(os.Getpid()) << 32)
 	return func() string {
-		n++
-		return strconv.FormatUint(n, 36)
+		return strconv.FormatUint(n.Add(1), 36)
 	}
 }()
 

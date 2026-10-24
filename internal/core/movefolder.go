@@ -28,6 +28,7 @@ type FolderArgs struct {
 	From, To          string
 	Archive           bool
 	IncludeRestricted bool
+	DryRun            bool
 }
 
 // MoveFolder moves or renames a folder with everything in it, then points
@@ -55,7 +56,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 		}
 	}
 	if v.Config.Archived(to + "/") {
-		if refused := archiveReady(v, docs, a.Archive, Call("move_folder", append(again, "archive", true)...)); refused != nil {
+		if refused := archiveReady(v, docs, a.Archive, a.DryRun, Call("move_folder", append(again, "archive", true)...)); refused != nil {
 			return refused
 		}
 	} else {
@@ -76,6 +77,10 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 		return failNext("move failed: "+err.Error(), Call("move_folder", again...)+" again")
 	}
 	defer root.Close()
+	l := newLayout(from, to, files)
+	if a.DryRun {
+		return previewMove(v, root, l, docs)
+	}
 	switch err := root.Move(from, to); {
 	case errors.Is(err, fsx.ErrExists):
 		return failNext("destination exists: "+to, Call("move_folder", "from", from, "to", to+" (moved)")+" or another path nothing occupies")
@@ -86,8 +91,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 	}
 	v.Loader.Index(true)
 	out := jsonx.New("ok", true, "from", from, "to", to, "files", countUnder(files, from), "docs", len(docs))
-	l := newLayout(from, to, files)
-	links, skipped, failed := rewriteVault(v, root, l, a.IncludeRestricted)
+	links, skipped, failed, repairs := rewriteVault(v, root, l, a.IncludeRestricted)
 	out.Set("links", links)
 	if len(skipped) > 0 {
 		out.Set("skipped_restricted", skipped)
@@ -95,12 +99,15 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 	if path.Dir(from) == vault.ProjectsDir && path.Dir(to) == vault.ProjectsDir {
 		project, more := renameProject(v, root, path.Base(from), path.Base(to), to)
 		out.Set("project", project)
-		failed = append(failed, more...)
+		failed = append(failed, more.failed...)
+		repairs = append(more.calls, repairs...)
 	}
 	v.Loader.Index(true)
 	if len(failed) > 0 {
 		out.Set("failed", failed)
-		steer(out, Call("read_doc", "doc_id", "...")+" for each note failed names, then fix its links with write_doc or its fields with set_frontmatter; the folder itself has moved")
+		out.Set("repairs", repairs)
+		steer(out, "run the calls in repairs in order; each body repair refuses changed or already-replaced text; the folder itself has moved",
+			Call("read_doc", "doc_id", "...")+" for failed notes without a repair call, or if a repair refuses because the note changed")
 	}
 	return out
 }
@@ -175,8 +182,9 @@ func (v *Vault) isDir(rel string) bool {
 // each note through fsx.Vault.Update. links lists each rewritten note with
 // how many links changed. A restricted note is read only when the caller
 // asked and the unlock approved; otherwise it is listed in skipped.
-func rewriteVault(v *Vault, root *fsx.Vault, l *layout, includeRestricted bool) (links []*jsonx.Obj, skipped, failed []string) {
+func rewriteVault(v *Vault, root *fsx.Vault, l *layout, includeRestricted bool) (links []*jsonx.Obj, skipped, failed []string, repairs []*jsonx.Obj) {
 	links = []*jsonx.Obj{}
+	repairs = []*jsonx.Obj{}
 	allowed, result := false, ""
 	for _, rel := range vault.Notes(v.Config.VaultPath) {
 		note, err := root.ReadNote(rel)
@@ -184,7 +192,7 @@ func rewriteVault(v *Vault, root *fsx.Vault, l *layout, includeRestricted bool) 
 			continue
 		}
 		if fm := note.FM; fm != nil {
-			if s, _ := fm.Get("sensitivity"); gate.Parse(pystr.Str(orNone(s))) == gate.Restricted {
+			if restrictedNote(note) {
 				if !includeRestricted {
 					skipped = append(skipped, rel)
 					continue
@@ -199,21 +207,28 @@ func rewriteVault(v *Vault, root *fsx.Vault, l *layout, includeRestricted bool) 
 				}
 			}
 		}
-		n := 0
+		before := note.Text[frontmatter.BodyOffset(note.Text):]
+		after, n := l.rewriteLinks(before, rel)
+		if n == 0 {
+			continue
+		}
 		_, err = root.Update(rel, func(text string) string {
 			off := frontmatter.BodyOffset(text)
-			body, changed := l.rewriteLinks(text[off:], rel)
-			n = changed
-			return text[:off] + body
+			before = text[off:]
+			after, n = l.rewriteLinks(before, rel)
+			return text[:off] + after
 		})
 		switch {
 		case err != nil:
 			failed = append(failed, rel+": "+err.Error())
+			if repair := linkRepair(v, rel, before, after); repair != nil {
+				repairs = append(repairs, repair)
+			}
 		case n > 0:
 			links = append(links, jsonx.New("relative_path", rel, "count", n))
 		}
 	}
-	return links, skipped, failed
+	return links, skipped, failed, repairs
 }
 
 // renameProject carries a project's slug from old to new: every
@@ -222,27 +237,19 @@ func rewriteVault(v *Vault, root *fsx.Vault, l *layout, includeRestricted bool) 
 // every doc_id does, and so do its items' ids; when the project's index.md
 // sets no queue_prefix, the old slug is pinned there so new items keep the
 // prefix the old ones carry.
-func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj, []string) {
-	var failed []string
+func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj, *moveRepairs) {
+	repairs := &moveRepairs{}
 	out := jsonx.New("from", old, "to", name)
-	idx := v.Loader.Index(true)
-	related, skipped := []string{}, []string{}
-	for _, d := range idx.WithArchived() {
-		if !slices.ContainsFunc(d.RelatedProjects, func(p string) bool { return strings.EqualFold(p, old) }) {
-			continue
-		}
-		if d.Archived || v.outsideWritable(d.RelativePath) {
-			skipped = append(skipped, d.RelativePath)
-			continue
-		}
+	docs, skipped := projectRelations(v, old)
+	related := []string{}
+	for _, d := range docs {
 		next := slices.Clone(d.RelatedProjects)
 		for i, p := range next {
 			if strings.EqualFold(p, old) {
 				next[i] = name
 			}
 		}
-		if r := write.SetFrontmatter(v.Loader, d.RelativePath, write.With("related_projects", slices.Compact(next)), v.Profile); r.Failed() {
-			failed = append(failed, d.RelativePath+": "+r.Str("error"))
+		if !repairs.frontmatter(v, d.RelativePath, write.With("related_projects", slices.Compact(next))) {
 			continue
 		}
 		related = append(related, d.RelativePath)
@@ -254,7 +261,7 @@ func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj
 	queueRel := path.Join(dir, queueFile)
 	note, err := root.ReadNote(queueRel)
 	if err != nil || note.FM == nil {
-		return out, failed
+		return out, repairs
 	}
 	queueOut := jsonx.New("doc_id", note.FM.Text("doc_id"), "relative_path", queueRel)
 	c := write.Changes{}
@@ -265,18 +272,32 @@ func renameProject(v *Vault, root *fsx.Vault, old, name, dir string) (*jsonx.Obj
 		c = c.Set("system", name)
 	}
 	if !c.Empty() {
-		if r := write.SetFrontmatter(v.Loader, queueRel, c, v.Profile); r.Failed() {
-			failed = append(failed, queueRel+": "+r.Str("error"))
-		}
+		repairs.frontmatter(v, queueRel, c)
 	}
 	if title := readTitle(root, queueRel); title != "" {
 		queueOut.Set("title", title)
 	}
 	out.Set("queue", queueOut)
-	if prefix := pinPrefix(v, root, dir, old, name); prefix != "" {
+	if prefix := pinPrefix(v, root, dir, old, name, repairs); prefix != "" {
 		out.Set("queue_prefix", prefix)
 	}
-	return out, failed
+	return out, repairs
+}
+
+// projectRelations is the one set of references a project rename changes,
+// shared with its preview. Archived and read-only fields keep their values.
+func projectRelations(v *Vault, old string) (docs []*vault.Doc, skipped []string) {
+	for _, d := range v.Loader.Index(false).WithArchived() {
+		if !slices.ContainsFunc(d.RelatedProjects, func(p string) bool { return strings.EqualFold(p, old) }) {
+			continue
+		}
+		if d.Archived || v.outsideWritable(d.RelativePath) {
+			skipped = append(skipped, d.RelativePath)
+		} else {
+			docs = append(docs, d)
+		}
+	}
+	return docs, skipped
 }
 
 func readTitle(root *fsx.Vault, rel string) string {
@@ -290,7 +311,7 @@ func readTitle(root *fsx.Vault, rel string) string {
 // pinPrefix sets queue_prefix on the project's index.md to the slug its
 // queue items were issued under, when it sets none and the slug is one
 // queue_prefix can hold. It returns the prefix the project's new items take.
-func pinPrefix(v *Vault, root *fsx.Vault, dir, old, name string) string {
+func pinPrefix(v *Vault, root *fsx.Vault, dir, old, name string, repairs *moveRepairs) string {
 	index := path.Join(dir, "index.md")
 	note, err := root.ReadNote(index)
 	if err != nil || note.FM == nil {
@@ -303,7 +324,7 @@ func pinPrefix(v *Vault, root *fsx.Vault, dir, old, name string) string {
 	if slug == sections.Slugify(name) || len(v.Profile.Problems("queue_prefix", slug, false)) > 0 {
 		return sections.Slugify(name)
 	}
-	if r := write.SetFrontmatter(v.Loader, index, write.With("queue_prefix", slug), v.Profile); r.Failed() {
+	if !repairs.frontmatter(v, index, write.With("queue_prefix", slug)) {
 		return sections.Slugify(name)
 	}
 	return slug

@@ -5,10 +5,8 @@ package vault
 
 import (
 	"cmp"
-	"context"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -55,32 +53,21 @@ func sortPaths(paths []string) {
 	slices.SortStableFunc(paths, ComparePaths)
 }
 
-// walkMD lists .md files under root with fd when available (hidden and
-// ignored files skipped), else every *.md entry.
+// walkMD lists .md files under root, pruning hidden and non-note trees.
+// The configured folders define the index; Git ignore files do not.
 func walkMD(root string) []string {
-	if fd, err := exec.LookPath("fd"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, fd, "--type", "f", "--extension", "md", ".", root) //nolint:gosec // fd resolved by LookPath; root is the configured vault
-		cmd.WaitDelay = time.Second
-		out, err := cmd.Output()
-		if err == nil {
-			var paths []string
-			for line := range strings.SplitSeq(string(out), "\n") {
-				if line != "" {
-					paths = append(paths, filepath.Clean(line))
-				}
-			}
-			sortPaths(paths)
-			return paths
-		}
-	}
 	var paths []string
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if p != root && strings.HasSuffix(d.Name(), ".md") {
+		if d.IsDir() {
+			if p != root && (strings.HasPrefix(d.Name(), ".") || skipDirParts[d.Name()]) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
 			paths = append(paths, p)
 		}
 		return nil
@@ -136,7 +123,7 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			matches, _ := filepath.Glob(filepath.Join(globEscape(vaultPath), "*.md"))
 			sortPaths(matches)
 			for _, p := range matches {
-				if !unlisted(filepath.Base(p)) {
+				if rel, err := filepath.Rel(vaultPath, p); err == nil && IsDocPath(rel, indexedDirs) && fsx.IsFile(p) {
 					out = append(out, p)
 				}
 			}
@@ -147,7 +134,8 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			continue
 		}
 		for _, p := range walkMD(root) {
-			if hasSkipPart(p) || unlisted(filepath.Base(p)) {
+			rel, err := filepath.Rel(vaultPath, p)
+			if err != nil || !IsDocPath(rel, indexedDirs) {
 				continue
 			}
 			out = append(out, p)

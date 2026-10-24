@@ -11,7 +11,12 @@ import (
 
 func TestMoveDocMovesThroughTheCLIAndExitsOneOnARefusal(t *testing.T) {
 	root := tk.FakeVault(t)
-	code, out, _ := run(t, root, "", "move-doc", "02 Infrastructure/", "--doc-id", "rb-add-nginx-proxy-host")
+	before := tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md"))
+	code, out, _ := run(t, root, "", "move-doc", "02 Infrastructure/", "--doc-id", "rb-add-nginx-proxy-host", "--dry-run")
+	if code != 0 || !strings.Contains(out, `"dry_run":true`) || tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md")) != before {
+		t.Fatalf("preview: %d %s", code, out)
+	}
+	code, out, _ = run(t, root, "", "move-doc", "02 Infrastructure/", "--doc-id", "rb-add-nginx-proxy-host")
 	if code != 0 || !strings.Contains(out, `"to":"02 Infrastructure/Add Nginx Proxy Host.md"`) {
 		t.Fatalf("%d %s", code, out)
 	}

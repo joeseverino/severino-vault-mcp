@@ -34,7 +34,9 @@ then runs the same `mise run check` as a laptop. Only `main` writes the tool
 cache; a pull request reads it. `check` runs every `check:*` task and
 `golden` in parallel and lets each finish, so one run names every failure:
 
-- `check:gofmt`, `check:vet`, `check:test` (`-race`), `check:govulncheck`,
+- `check:gofmt`, `check:vet`, `check:modernize` (`go fix -diff`),
+  `check:modules` (`go mod tidy -diff`, `go mod verify`),
+  `check:tasks` (`mise tasks validate`), `check:test` (`-race`), `check:govulncheck`,
   `check:lint` (golangci-lint), `golden` (the contract snapshots);
 - `check:shellcheck` and `check:actionlint` over the scripts and workflows;
 - `check:secrets`, `check:build-output` and `check:conflict-copies`, which
@@ -43,6 +45,15 @@ cache; a pull request reads it. `check` runs every `check:*` task and
 
 On a pull request, the `Dependency review` job fails a change that adds or
 bumps a dependency with a known high or critical advisory.
+
+A separate macOS job runs the race suite with the same pinned Go and
+ripgrep. The required Linux gate keeps its existing status-check name.
+Hosted runner labels are versioned. Local tool installation also enforces
+`mise.lock`; `GOTOOLCHAIN=local` prevents a second, implicit Go download.
+`TestToolchainPinsAgree` holds mise's Go to `go.mod`'s language and toolchain.
+
+`mise run fix` applies Go's built-in modernizations and formatting. Other
+linters remain in golangci-lint; modernization has one owner, `go fix`.
 
 ### `codeql.yml`: SAST
 
@@ -68,13 +79,16 @@ archives and `SHA256SUMS`. `docs/release-checklist.md` is the procedure.
 
 ### Renovate
 
-`renovate.json` covers `gomod`, GitHub Actions and the `mise.toml` tools, each
-release held 7 days.
-`govulncheck` catches CVEs against the current pins.
+[`Dependencies`](dependencies.md) lists every dependency's purpose, the
+pin locations and the update policy. Renovate groups routine updates weekly,
+keeps majors separate, maintains locks and proposes security fixes immediately.
+`govulncheck` checks the currently selected packages and standard library.
 
 ## What the Tests Cover
 
 - Indexing, the lenient frontmatter parse, duplicate `doc_id` exclusion, aliases.
+- Stable file visibility with or without external tools: hidden trees and
+  templates are skipped, Git ignore files do not override configured folders.
 - Section chunking, ranking, the section menu, section reads.
 - `read_doc` release for `public`, `internal`, `sensitive`; default withholding
   for `restricted`; the one-request 1Password unlock (approved, withheld,
@@ -86,6 +100,10 @@ release held 7 days.
 - Provider child processes ending on handshake timeout and on context
   cancellation.
 - The work queue: add, list, set, claim, close, and its line grammar.
+- Concurrent creates and updates of different notes; move previews that make
+  no writes or unlocks; exact-text and metadata repairs after partial moves.
+- Retrieval over the committed query fixture and a temporary vault with 500
+  extra operational notes.
 - Daily notes, the brief, `doctor`, the edu dataset, the HQ manifest.
 - The CLI: parsing, exit codes, `describe`, every subcommand.
 - The MCP server: vault composition (labs only, labs+edu, with a provider),

@@ -1,14 +1,100 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
+  "extends": [
+    "config:best-practices"
+  ],
   "minimumReleaseAge": "7 days",
-  "enabledManagers": ["gomod", "github-actions", "mise"],
+  "enabledManagers": [
+    "gomod",
+    "github-actions",
+    "mise",
+    "custom.regex"
+  ],
   "packageRules": [
     {
+      "description": "Routine compatible updates move together; majors remain separate.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "dependencies"
+    },
+    {
+      "description": "A new Go language version moves separately from library updates.",
+      "matchPackageNames": [
+        "go"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "groupName": "go language"
+    },
+    {
+      "description": "Go patch releases can fix standard-library vulnerabilities and do not wait for the weekly window.",
+      "matchManagers": [
+        "mise",
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "go",
+        "golang"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "minimumReleaseAge": "0 days",
+      "schedule": [
+        "at any time"
+      ],
+      "groupName": "go patch"
+    },
+    {
       "description": "codeql-action init, analyze and upload-sarif must move together.",
-      "matchManagers": ["github-actions"],
-      "matchPackageNames": ["github/codeql-action"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "github/codeql-action"
+      ],
       "groupName": "codeql-action"
+    }
+  ],
+  "description": "Routine updates arrive together weekly; majors separately, security fixes immediately. No automatic merges.",
+  "schedule": [
+    "* * * * 1"
+  ],
+  "prConcurrentLimit": 3,
+  "automerge": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "* * * * 1"
+    ]
+  },
+  "vulnerabilityAlerts": {
+    "groupName": "security fixes"
+  },
+  "osvVulnerabilityAlerts": true,
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "customManagers": [
+    {
+      "description": "mise itself is pinned by min_version; the mise manager reads the tools.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^mise\\.toml$/"
+      ],
+      "matchStrings": [
+        "min_version = \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ]
 }

@@ -123,6 +123,41 @@ func TestSkipRulesForTemplatesAndUnderscoreFiles(t *testing.T) {
 	}
 }
 
+func TestIndexMembershipDoesNotDependOnPATHOrGitIgnores(t *testing.T) {
+	root, l := configured(t, `["Notes"]`)
+	for rel, id := range map[string]string{
+		"visible.md": "visible", "ignored.md": "ignored", "sub/visible.md": "nested",
+		".hidden.md": "hidden", ".private/note.md": "private", "Templates/note.md": "template",
+		"source/note.md": "source", "_hidden.md": "underscore",
+	} {
+		tk.Doc(t, filepath.Join(root, "Notes", rel), "doc_id: "+id, "body\n")
+	}
+	tk.Write(t, filepath.Join(root, "Notes", ".ignore"), "ignored.md\n")
+	if err := os.Mkdir(filepath.Join(root, "Notes", "directory.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withTools := ids(l.Index(true))
+	t.Setenv("PATH", t.TempDir())
+	withoutTools := ids(l.Index(true))
+	want := []string{"ignored", "nested", "visible"}
+	if !slices.Equal(withTools, want) || !slices.Equal(withoutTools, want) {
+		t.Fatalf("with tools %v; without tools %v; want %v", withTools, withoutTools, want)
+	}
+}
+
+func TestRootIndexSkipsHiddenFilesDirectoriesAndNestedNotes(t *testing.T) {
+	root, l := configured(t, `["."]`)
+	for _, name := range []string{"visible.md", ".hidden.md", "_hidden.md", "nested/inside.md"} {
+		tk.Doc(t, filepath.Join(root, name), "doc_id: "+name, "body\n")
+	}
+	if err := os.Mkdir(filepath.Join(root, "directory.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(l.Index(true)); !slices.Equal(got, []string{"visible.md"}) {
+		t.Fatal(got)
+	}
+}
+
 func TestPathOrderingFollowsComponentsLikePython(t *testing.T) {
 	if vault.ComparePaths("a/b.md", "a b/x.md") >= 0 {
 		t.Fatal("component order: a < a b")

@@ -10,7 +10,6 @@ linters:
     - exhaustive
     - gocritic
     - gosec
-    - modernize
     - staticcheck
   settings:
     exhaustive:
