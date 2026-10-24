@@ -65,6 +65,17 @@ they started with.
   that says which doc it is (`Audit.md` becomes `Example Audit — 2026-09-07.md`).
   `with_folder=true` moves a report's folder with its evidence files. Fix the
   links the result's `wikilinks` lists with `write_doc`.
+- `move_folder(from, to)` moves or renames a whole folder (a project, a
+  report series) with everything in it, and rewrites every path link into it
+  across the vault (`[[01 Projects/x/index|…]]`, embeds, `[text](<path>)`);
+  `links` lists each note it rewrote. Renaming `01 Projects/<old>` to
+  `01 Projects/<new>` also renames the slug in every `related_projects` and
+  retitles the queue note; doc_ids and queue item ids stay. Restricted notes
+  are listed in `skipped_restricted` unless `include_restricted=true`.
+- `99 Archive` is history: only archived docs go there (a task: closed), and
+  `archive=true` on `move_doc` or `move_folder` sets `status: archived` in the
+  same call. `find` leaves archived docs out unless `include_archived=true`;
+  `read_doc` still reads them by doc_id.
 - A newer report of a series supersedes the old one: on the old one,
   `set_frontmatter` `superseded_by` to the new doc's doc_id and
   `status: deprecated`.

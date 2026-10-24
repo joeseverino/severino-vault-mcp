@@ -453,7 +453,8 @@ func okUnlessRefused(o *jsonx.Obj, ok bool) *jsonx.Obj {
 }
 
 func runFind(c *Ctx, p Parsed) int {
-	r := core.Find(c.labsVault(), p.Str("query"), core.FindArgs{By: core.FindModes[0], Limit: p.Int("limit"), View: view(p)})
+	r := core.Find(c.labsVault(), p.Str("query"), core.FindArgs{By: core.FindModes[0], Limit: p.Int("limit"),
+		IncludeArchived: p.Bool("include_archived"), View: view(p)})
 	return c.emit(okUnlessRefused(r, true), p.Bool("pretty"))
 }
 
@@ -505,6 +506,13 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 func runMoveDoc(c *Ctx, p Parsed) int {
 	return c.emit(core.MoveDoc(c.labsVault(), core.MoveArgs{
 		DocID: p.Str("doc_id"), RelativePath: p.Str("relative_path"), To: p.Str("to"), WithFolder: p.Bool("with_folder"),
+		Archive: p.Bool("archive"),
+	}), p.Bool("pretty"))
+}
+
+func runMoveFolder(c *Ctx, p Parsed) int {
+	return c.emit(core.MoveFolder(c.labsVault(), core.FolderArgs{
+		From: p.Str("from"), To: p.Str("to"), Archive: p.Bool("archive"),
 	}), p.Bool("pretty"))
 }
 
@@ -522,7 +530,7 @@ func runQueue(c *Ctx, p Parsed) int {
 		Alias: optStr(p, "alias"), Body: optStr(p, "body"),
 		BlockedBy: p.List("blocked_by"), HasBlockedBy: p.Has("blocked_by"), Repos: p.List("repos"), HasRepos: p.Has("repos"),
 		Partial: p.Bool("partial"), Status: p.Str("status"), Ready: p.Bool("ready"),
-		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Resolution: p.Str("resolution"),
+		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Resolution: p.Str("resolution"), DropAliases: p.Bool("drop_aliases"),
 		View: view(p),
 	}
 	for _, k := range queue.LinkKeys {

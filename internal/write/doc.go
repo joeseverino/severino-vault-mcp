@@ -102,17 +102,28 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 // today, and must still validate; the file is replaced atomically. extra are
 // key/value pairs the result carries after relative_path.
 func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
-	return editBody(l, relativePath, p, edit, true, extra...)
+	return editBody(l, relativePath, p, func(_ *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj) {
+		out, f := edit(body, rel)
+		return out, nil, f
+	}, true, extra...)
 }
 
-// EditBodyUnindexed is EditBody without rebuilding the index after the write,
-// for a note read from disk on every use (a work queue), so a hook's one
-// write does not pay for a scan of the whole vault.
-func EditBodyUnindexed(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
+// HeadField is one scalar frontmatter field a NoteEdit sets, written as
+// frontmatter.Escape writes the value.
+type HeadField struct{ Key, Value string }
+
+// NoteEdit is a body edit that also reads the frontmatter block as it is on
+// disk under the lock, and may set scalar fields in it.
+type NoteEdit func(fm *jsonx.Obj, body, rel string) (string, []HeadField, *jsonx.Obj)
+
+// EditNoteUnindexed is EditBody with a NoteEdit and without rebuilding the
+// index after the write, for a note read from disk on every use (a work
+// queue), so a hook's one write does not pay for a scan of the whole vault.
+func EditNoteUnindexed(l *vault.Loader, relativePath string, p *schema.Profile, edit NoteEdit, extra ...any) *jsonx.Obj {
 	return editBody(l, relativePath, p, edit, false, extra...)
 }
 
-func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), reindex bool, extra ...any) *jsonx.Obj {
+func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit NoteEdit, reindex bool, extra ...any) *jsonx.Obj {
 	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
@@ -129,12 +140,17 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 			return text
 		}
 		head, old := text[:cut], text[cut:]
-		newBody, ferr := edit(old, rel)
+		before, _, _ := frontmatter.Split(text)
+		newBody, fields, ferr := edit(before, old, rel)
 		if ferr != nil {
 			out = ferr
 			return text
 		}
-		newText := touchReviewed(head, Today()) + newBody
+		head = setHeadField(head, "last_reviewed", Today())
+		for _, f := range fields {
+			head = setHeadField(head, f.Key, frontmatter.Escape(f.Value))
+		}
+		newText := head + newBody
 		fm, _, _ := frontmatter.Split(newText)
 		if errs := p.Check(fm, rel); len(errs) > 0 {
 			out = jsonx.Fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
@@ -234,14 +250,15 @@ func splicePreamble(body string, b *sections.Body, all []sections.Heading, conte
 	return lead + section + "\n"
 }
 
-// touchReviewed sets last_reviewed in a frontmatter block, leaving every
-// other byte alone; a block without the field gets it before the closing fence.
-func touchReviewed(head, today string) string {
+// setHeadField sets one scalar field to value, as written, in a frontmatter
+// block, leaving every other byte alone; a block without the field gets it
+// before the closing fence.
+func setHeadField(head, key, value string) string {
 	lines := strings.SplitAfter(head, "\n")
-	line := "last_reviewed: " + today + "\n"
+	line := key + ": " + value + "\n"
 	fences := 0
 	for i, l := range lines {
-		if strings.HasPrefix(l, "last_reviewed:") {
+		if strings.HasPrefix(l, key+":") {
 			lines[i] = line
 			return strings.Join(lines, "")
 		}

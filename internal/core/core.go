@@ -1,5 +1,5 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, move_doc, task_board, task_write,
+// read_doc, set_frontmatter, write_doc, move_doc, move_folder, task_board, task_write,
 // log_entries and queue, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
@@ -211,15 +211,17 @@ var FindModes = []string{"relevance", "text"}
 // entries, contains them, case-insensitively. DocType narrows to one
 // doc_type. Work queue notes are left out unless DocType names their type:
 // their items belong to the queue tool, and a search for prose should not
-// land on them.
+// land on them. Archived docs are left out too unless IncludeArchived: they
+// are history, found when asked for.
 type FindArgs struct {
-	By            string
-	Limit         int
-	ContextLines  int
-	CaseSensitive bool
-	System        string
-	Project       string
-	DocType       string
+	By              string
+	Limit           int
+	ContextLines    int
+	CaseSensitive   bool
+	System          string
+	Project         string
+	DocType         string
+	IncludeArchived bool
 	View
 }
 
@@ -247,6 +249,9 @@ func (a FindArgs) Keep() query.Keep {
 	project := strings.ToLower(pystr.Strip(a.Project))
 	docType := pystr.Strip(a.DocType)
 	return func(d *vault.Doc) bool {
+		if d.Archived && !a.IncludeArchived {
+			return false
+		}
 		if docType != "" && d.DocType != docType || docType == "" && d.DocType == schema.QueueDocType {
 			return false
 		}

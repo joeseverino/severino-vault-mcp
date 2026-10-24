@@ -75,6 +75,26 @@ func TestReadOnlyDefaultsFollowTheDefaultIndexedDirs(t *testing.T) {
 	}
 }
 
+func TestTheArchiveFollowsTheDefaultIndexedDirsAndStandsApart(t *testing.T) {
+	tmp := t.TempDir()
+	def := Load("/nonexistent.toml", Env{})
+	if def.ArchiveDir != DefaultArchiveDir || !def.Archived("99 Archive/old/index.md") || def.Archived("01 Projects/a/index.md") ||
+		slices.Contains(def.SearchDirs(), DefaultArchiveDir) {
+		t.Fatalf("%+v", def)
+	}
+	if c := Load("/nonexistent.toml", Env{"SVMC_INDEXED_DIRS": "Docs"}); c.ArchiveDir != "" {
+		t.Fatalf("own indexed dirs bring no default archive: %+v", c)
+	}
+	own := filepath.Join(tmp, "own.toml")
+	write(t, own, "[vault]\nindexed_dirs = [\"Docs\"]\narchive_dir = \"Old/\"\n")
+	if c := Load(own, Env{}); c.ArchiveDir != "Old" {
+		t.Fatalf("%+v", c)
+	}
+	if c := Load(own, Env{"SVMC_ARCHIVE_DIR": "Docs"}); c.ArchiveDir != "" {
+		t.Fatalf("an indexed folder is no archive apart: %+v", c)
+	}
+}
+
 func TestDefaultsAndUnlockSettings(t *testing.T) {
 	t.Setenv("HOME", "/home/x")
 	c := Load("/nonexistent.toml", Env{})

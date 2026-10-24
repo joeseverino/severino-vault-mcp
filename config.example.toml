@@ -7,6 +7,9 @@
 [vault]
 path = "~/Documents/vault"
 indexed_dirs = ["01 Projects", "02 Infrastructure", "03 Runbooks"]
+# Retired docs and projects, indexed apart: find leaves them out unless
+# include_archived. "99 Archive" by default only with the default indexed_dirs.
+archive_dir = "99 Archive"
 daily_notes_dir = "00 Inbox/Daily Note"
 
 [aliases]

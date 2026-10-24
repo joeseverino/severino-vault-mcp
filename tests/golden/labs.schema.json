@@ -232,6 +232,29 @@
         }
       ]
     },
+    "queue_format": {
+      "description": "The item line format a work queue note is written in; the queue tool writes it and refuses to write a note whose format is newer than it knows.",
+      "examples": [
+        "1"
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/$defs/absent"
+        },
+        {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*[-+]?[0-9]+\\s*$"
+            }
+          ]
+        }
+      ]
+    },
     "superseded_by": {
       "description": "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated. Names the doc_id of another doc in the vault.",
       "examples": [

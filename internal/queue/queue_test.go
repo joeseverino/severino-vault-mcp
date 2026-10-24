@@ -24,6 +24,11 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		{ID: "b-11", Kind: "next", Status: "open", Text: "(a) [b]"},
 		{ID: "b-12", Kind: "delegated", Status: "returned", Text: "Spans repos", Agent: "a1", Origin: "example-site",
 			Repos: []string{"example-a", "example-b"}, Resolution: "example-a@abc1234"},
+		{ID: "b-13", Kind: "next", Status: "open", Owner: "joe", Text: "Has notes", BodyLink: "Example Note (draft)"},
+		{ID: "b-14", Kind: "next", Status: "open", Text: "about #queue/decision and #Owner/joe, #queue, #queued and #owner-x"},
+		{ID: "b-15", Kind: "next", Status: "open", Text: "ends like a body ([[Other|notes]])", BodyLink: "projects/Example"},
+		{ID: "b-16", Kind: "next", Status: "open", Text: "#queue/next at the start, a #plain tag at the end #later"},
+		{ID: "b-17", Kind: "follow-up", Status: "open", Owner: "work_er-2", Text: "Owner with _ and -", Body: "project-x"},
 	}
 	for _, it := range items {
 		if err := it.Validate(); err != nil {
@@ -113,7 +118,13 @@ func TestEveryStatusIsATasksCheckbox(t *testing.T) {
 func TestTheLineReadsAsDocumented(t *testing.T) {
 	it := Item{ID: "hq-17", Kind: "delegated", Status: "open", Owner: "worker", Text: "Build the store",
 		Links: map[string]string{"branch": "pass/queue"}, BlockedBy: []string{"hq-12"}, Agent: "a1b2"}
-	if got := Format(it); got != "- [ ] Build the store  [kind:: delegated]  [owner:: worker]  [agent:: a1b2]  [branch:: pass/queue]  [id:: hq-17]  [dependsOn:: hq-12]" {
+	if got := Format(it); got != "- [ ] Build the store #queue/delegated #owner/worker  [agent:: a1b2]  [branch:: pass/queue]  [id:: hq-17]  [dependsOn:: hq-12]" {
+		t.Fatal(got)
+	}
+	linked := it
+	linked.BodyLink, linked.Body = "Store Design", "project-store"
+	if got := Format(linked); !strings.HasPrefix(got, "- [ ] Build the store ([[Store Design|notes]]) #queue/delegated #owner/worker  [agent:: a1b2]") ||
+		strings.Contains(got, "[body::") {
 		t.Fatal(got)
 	}
 	withOrigin := it
@@ -164,6 +175,69 @@ func TestABoxTickedInObsidianIsClosedAndKeepsItsDate(t *testing.T) {
 	}
 }
 
+// A tag in the queue's namespaces, in any case, is escaped in the text so a
+// Tasks query for a kind or owner never matches an item's words, and so is a
+// trailing link shaped like the body link; other tags and links, and words
+// that only start like a namespace, stay as typed.
+func TestTextTagsInTheQueueNamespacesAreEscaped(t *testing.T) {
+	for text, want := range map[string]string{
+		"see #queue/decision":        `see \#queue/decision`,
+		"#owner/joe first":           `\#owner/joe first`,
+		"a #QUEUE/Next b":            `a \#QUEUE/Next b`,
+		"the #queue parent":          `the \#queue parent`,
+		"a #queued #owners #queue_x": "a #queued #owners #queue_x",
+		"x#queue/next":               "x#queue/next",
+		"a #urgent tag":              "a #urgent tag",
+		"ends ([[Note|notes]])":      `ends \([[Note|notes]])`,
+		"a ([[Note|other]])":         "a ([[Note|other]])",
+		"a [[Note|notes]] mid":       "a [[Note|notes]] mid",
+	} {
+		if got := Escape(text); got != want {
+			t.Errorf("Escape(%q) = %q, want %q", text, got, want)
+		}
+		it := Item{ID: "hq-1", Kind: "next", Status: "open", Text: text}
+		if got, ok := Parse(Format(it)); !ok || got.Kind != "next" || got.Owner != "" || got.BodyLink != "" || got.Text != text {
+			t.Errorf("%q reads back as %+v (%v)", text, got, ok)
+		}
+	}
+}
+
+// Lines written before kind and owner were tags still read, and the next
+// write gives them the current form.
+func TestTheOlderFieldFormStillReads(t *testing.T) {
+	for line, want := range map[string]string{
+		"- [ ] Old  [kind:: delegated]  [owner:: worker]  [agent:: a1]  [id:: hq-1]  [dependsOn:: hq-0]":         "- [ ] Old #queue/delegated #owner/worker  [agent:: a1]  [id:: hq-1]  [dependsOn:: hq-0]",
+		"- [x] Old  [kind:: next]  [body:: project-x]  [alias:: task-x]  [id:: hq-2]  [completion:: 2026-10-22]": "- [x] Old #queue/next  [body:: project-x]  [alias:: task-x]  [id:: hq-2]  [completion:: 2026-10-22]",
+		"- [ ] Mentions #owner/x  [kind:: next]  [id:: hq-3]":                                                    `- [ ] Mentions \#owner/x #queue/next  [id:: hq-3]`,
+	} {
+		it, ok := Parse(line)
+		if !ok {
+			t.Fatalf("%q does not parse", line)
+		}
+		if got := Format(it); got != want {
+			t.Errorf("%q rewrites as\n%s\nwant\n%s", line, got, want)
+		}
+	}
+}
+
+// Tasks moves the tags it finds among the fields at the end of a line to the
+// end of the description when it rewrites the line; a hand edit may leave
+// them anywhere in that run. Every placement reads the same.
+func TestTagsReadWhereverTasksOrAHumanLeavesThem(t *testing.T) {
+	want := Item{ID: "hq-17", Kind: "decision", Status: "closed", Owner: "joe", Text: "Ship it?", BlockedBy: []string{"hq-12"},
+		Extra: []string{"[completion:: 2026-10-22]"}}
+	for _, line := range []string{
+		"- [x] Ship it? #queue/decision #owner/joe  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22]",
+		"- [x] Ship it? #queue/decision #owner/joe [id:: hq-17] [dependsOn:: hq-12] [completion:: 2026-10-22]",
+		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12] #owner/joe #queue/decision  [completion:: 2026-10-22]",
+		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22] #queue/decision #owner/joe",
+	} {
+		if it, ok := Parse(line); !ok || !reflect.DeepEqual(it, want) {
+			t.Errorf("%q parsed as %+v (%v)", line, it, ok)
+		}
+	}
+}
+
 func TestLinesOutsideTheGrammarAreNotItems(t *testing.T) {
 	for _, line := range []string{
 		"",
@@ -180,6 +254,15 @@ func TestLinesOutsideTheGrammarAreNotItems(t *testing.T) {
 		"- [ ] repeated  [kind:: next]  [pr:: 1]  [pr:: 2]  [id:: hq-1]",
 		"- [ ] empty owner  [kind:: next]  [owner:: ]  [id:: hq-1]",
 		"- [ ] fields hidden behind text  [kind:: next]  [id:: hq-1] trailing words",
+		"- [ ] two kind tags #queue/next #queue/decision  [id:: hq-1]",
+		"- [ ] two owners #queue/next #owner/a #owner/b  [id:: hq-1]",
+		"- [ ] owner both ways #queue/next #owner/a  [owner:: a]  [id:: hq-1]",
+		"- [ ] unknown kind tag #queue/nope  [id:: hq-1]",
+		"- [ ] empty kind tag #queue/  [id:: hq-1]",
+		"- [ ] owner with a dot #queue/next #owner/a.b  [id:: hq-1]",
+		"- [ ] escaped kind tag \\#queue/next  [id:: hq-1]",
+		"- [ ] body both ways ([[Note|notes]]) #queue/next  [body:: project-x]  [id:: hq-1]",
+		"- [ ] #queue/next  [id:: hq-1]",
 	} {
 		if it, ok := Parse(line); ok {
 			t.Errorf("%q parsed as %+v", line, it)
@@ -197,7 +280,8 @@ func TestIDsSplitAtTheLastDash(t *testing.T) {
 }
 
 func FuzzTextRoundTrips(f *testing.F) {
-	for _, s := range []string{"a", `\`, "→", "{x}", "a · b", `\→`, "[k:: v]", "(k:: v)", "x ✅ 2026-10-22", `a\]`, "f(x) (y)", "[a] (b)", "k:: v", "[x (y) k:: v]", "x ✅2026-10-22", "merged (#213)", "landed (b668469b)", "a [k:: v", "a [k:: v] b"} {
+	for _, s := range []string{"a", `\`, "→", "{x}", "a · b", `\→`, "[k:: v]", "(k:: v)", "x ✅ 2026-10-22", `a\]`, "f(x) (y)", "[a] (b)", "k:: v", "[x (y) k:: v]", "x ✅2026-10-22", "merged (#213)", "landed (b668469b)", "a [k:: v", "a [k:: v] b",
+		"#queue/next", "a #owner/x", "#Queue", "([[n|notes]])", "a ([[n|notes]])", "#queue/next  [id:: x-1]"} {
 		f.Add(s, s)
 	}
 	f.Fuzz(func(t *testing.T, text, resolution string) {
@@ -210,4 +294,49 @@ func FuzzTextRoundTrips(f *testing.F) {
 			t.Fatalf("%q, %q came back as %q, %q (%v)", text, resolution, got.Text, got.Resolution, ok)
 		}
 	})
+}
+
+// Text, owner and body link together: whatever validates comes back as given.
+func FuzzTagsAndLinkRoundTrip(f *testing.F) {
+	for _, s := range [][3]string{{"a #queue/next", "joe", "Note"}, {"x ([[n|notes]])", "w-1", "dir/Note (v2)"}, {"#owner/x", "ü_2", "a b"}} {
+		f.Add(s[0], s[1], s[2])
+	}
+	f.Fuzz(func(t *testing.T, text, owner, link string) {
+		it := Item{ID: "f-1", Kind: "decision", Status: "open", Text: text, Owner: owner, BodyLink: link}
+		if it.Validate() != nil {
+			return
+		}
+		got, ok := Parse(Format(it))
+		if !ok || !reflect.DeepEqual(got, it) {
+			t.Fatalf("%+v came back as %+v (%v): %s", it, got, ok, Format(it))
+		}
+	})
+}
+
+// Every way a line writes an id counts toward the next one, whether or not
+// the line parses; a dependsOn reference is not an id the line carries.
+func TestTopCountsEveryIDFieldInTheText(t *testing.T) {
+	text := "- [ ] a  [id:: ex-2]\n- [ ] b (id:: ex-7)\n- [ ] c 🆔 ex-4\n- [ ] d  [dependsOn:: ex-9]\n- [ ] e  [id:: other-30]"
+	if got := Top(text, "ex"); got != 7 {
+		t.Fatal(got)
+	}
+	if got := IDsIn("- [ ] {kind=next}  [id:: ex-2]  [dependsOn:: ex-1]"); !reflect.DeepEqual(got, []string{"ex-2"}) {
+		t.Fatal(got)
+	}
+}
+
+func TestOnlyAKnownQueueFormatIsWritable(t *testing.T) {
+	for v, ok := range map[string]bool{"": true, "1": true, "2": false, "0": false, "one": false} {
+		if err := CheckVersion(v); (err == nil) != ok {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+}
+
+func TestAnItemShapedLineNeedNotParse(t *testing.T) {
+	for line, want := range map[string]bool{"- [ ] x": true, "- [?] {kind=next}": true, "- [x]": true, "- [] x": false, "  - [ ] nested": false, "- [ ]x": false, "* [ ] x": false} {
+		if ItemShaped(line) != want {
+			t.Errorf("%q", line)
+		}
+	}
 }

@@ -139,6 +139,7 @@ func init() {
 			Args: []Arg{
 				{Name: "query", Help: "Natural-language query, e.g. 'renew the TLS cert'."},
 				{Name: "--limit", Help: "Maximum hits to return (default 5, capped at 25).", TakesValue: true, Int: true, Default: "5"},
+				{Name: "--include-archived", Help: "Also search the archive folder's docs, left out by default."},
 				fieldsArg("Hit fields to print, as dotted paths (e.g. doc_id title snippets.text); omit for every field."),
 				pretty(prettyHelp),
 			},
@@ -207,9 +208,21 @@ func init() {
 				{Name: "--doc-id", Help: "The doc to move.", TakesValue: true},
 				{Name: "--relative-path", Help: "The doc's current vault-relative path (instead of --doc-id).", TakesValue: true},
 				{Name: "--with-folder", Help: "Move the doc's whole folder, files beside it included, into the destination folder."},
+				{Name: "--archive", Help: "Into the archive: set status: archived first instead of refusing a doc without it."},
 				pretty(prettyHelp),
 			},
 			Run: runMoveDoc},
+		{Name: "move-folder", Effect: "vault_write",
+			Summary: "Move or rename a folder with everything in it, then point every path link in the vault ([[path]], ![[embed]], " +
+				"[text](path)) at the new path: the MCP move_folder tool. A project renamed under 01 Projects also updates related_projects " +
+				"and retitles its queue note; into 99 Archive every doc must be archived. Restricted notes are listed, never read.",
+			Args: []Arg{
+				{Name: "from", Help: "The folder to move, from the vault root."},
+				{Name: "to", Help: "Its new path from the vault root."},
+				{Name: "--archive", Help: "Into the archive: set status: archived on every doc in the folder first instead of refusing."},
+				pretty(prettyHelp),
+			},
+			Run: runMoveFolder},
 		{Name: "log-entries", Effect: "vault_write",
 			Summary: "List an append-only log note's entries (one top-level bullet each), or close one by appending ' → <resolution>' " +
 				"to its line. The MCP log_entries tool: close needs --match to name exactly one open entry, and writes like a section edit.",
@@ -227,15 +240,16 @@ func init() {
 			Run: runLogEntries},
 		{Name: "queue", Effect: "vault_write",
 			Summary: "Add, list, set, claim or close work items in a project's queue (01 Projects/<project>/Queue.md, " +
-				"or 07 Backlog/Queue.md) and print compact JSON; the MCP queue tool. Hooks call it: name the queue with --cwd, and " +
+				"or 07 Backlog/Queue.md), or reformat a queue's lines in the current grammar, " +
+				"and print compact JSON; the MCP queue tool. Hooks call it: name the queue with --cwd, and " +
 				"pass a value that starts with a dash as --flag=value. Exits 0 if ok, 1 on a refused call, 2 on a usage error.",
 			Args: []Arg{
-				{Name: "action", Help: "list, add, set or close.", Choices: core.QueueActions},
+				{Name: "action", Help: "list, add, set, close or reformat.", Choices: core.QueueActions},
 				{Name: "id", Optional: true, Help: "set, close: the item's id, e.g. example-3, or its alias."},
 				{Name: "--project", Help: "The queue's project folder under 01 Projects, or backlog.", TakesValue: true},
 				{Name: "--repo", Help: "A repository directory name, resolved through each project's index.md repos.", TakesValue: true},
 				{Name: "--cwd", Help: "A working directory, resolved to its repository and then its project.", TakesValue: true},
-				{Name: "--all", Help: "list: every queue."},
+				{Name: "--all", Help: "list, reformat: every queue."},
 				{Name: "--agent", Help: "add: the worker's agent id. list: that agent's items. set, close: the item by agent.", TakesValue: true},
 				{Name: "--origin", Help: "add: the repo (or working directory) of the session that sent the worker. list: items from it.", TakesValue: true},
 				{Name: "--include-origin", Help: "list: also the delegated items in any queue whose origin is this repo."},
@@ -256,6 +270,7 @@ func init() {
 				{Name: "--limit", Help: "list: most items to print (default 0: all).", TakesValue: true, Int: true, Default: "0"},
 				{Name: "--claim", Help: "set: take the item for --owner only if nobody holds it."},
 				{Name: "--resolution", Help: "close: one line, e.g. repo@sha, a PR, a doc id, or why it was dropped.", TakesValue: true},
+				{Name: "--drop-aliases", Help: "reformat: also remove every item's alias."},
 				{Name: "--partial", Help: "close: record the --resolution repo@sha landings; the item closes when every repo in its repos has one."},
 				fieldsArg("list: item fields to print (id, project, kind, status, owner, text, links, blocked_by, body, alias, agent, origin, repos, resolution); omit for every field."),
 				pretty(prettyHelp),

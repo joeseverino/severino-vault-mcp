@@ -24,6 +24,8 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
 | Move or rename a doc | `move_doc(doc_id, to)` | Fix the links `wikilinks` lists with `write_doc`; never move a vault file with the shell. |
+| Move or rename a folder or project; retire one | `move_folder(from, to)` (`to` in `99 Archive/` with `archive=true` to retire) | Path links and `related_projects` follow; read `links`, `skipped_restricted` and `failed`. |
+| Archived docs | `find(query, include_archived=true)` | `find` leaves `99 Archive` out otherwise. |
 | A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
 | Tasks | `task_board` (`include_queue=true` adds the open queue items), then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
 | Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
@@ -62,7 +64,7 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 | Ranked section menu | `severino-vault-mcp find <query>` |
 | Some sections or a whole body | `severino-vault-mcp read <doc_id> [--sections <slug> ...] [--fields outline]` |
 | Open log entries, or close one | `severino-vault-mcp log-entries list <doc_id> [--contains <text>]`, `log-entries close <doc_id> --match <text> --resolution <text>` |
-| A project's work queue | `severino-vault-mcp queue <list\|add\|set\|close> [id] --cwd <dir> ...` (see [Work queue](#work-queue)) |
+| A project's work queue | `severino-vault-mcp queue <list\|add\|set\|close\|reformat> [id] --cwd <dir> ...` (see [Work queue](#work-queue)) |
 | Move or rename a doc | `severino-vault-mcp move-doc <to> --doc-id <id> [--with-folder]` |
 | The frontmatter rules as JSON Schema | `severino-vault-mcp schema --json-schema [--vault labs\|edu]` (see [Frontmatter as JSON Schema](#frontmatter-as-json-schema)) |
 | The edu dataset | `severino-vault-mcp export education` |
@@ -115,7 +117,12 @@ and says so: `fallback` is the backlog queue's path and `warning` the
 sentence to show, with the mapping call.
 
 Ids are `<prefix>-<n>`, allocated under the note's lock as one more than the
-largest n in the note. The caller never supplies one on `add`; `set` and `close`
+largest n written as an id field (`[id:: …]`, `(id:: …)` or `🆔 …`) anywhere
+in any queue note, read from the text, so an id on a line that does not
+parse, in another project's queue or in a restricted one is never issued
+again. A write that would leave one id on two item lines of a note is
+refused, and so is every write to a note that already has one, until a
+person renumbers a line. The caller never supplies one on `add`; `set` and `close`
 find the queue from the id's prefix, or take `agent` instead of
 `id` to name the one open item carrying that agent id.
 
@@ -157,13 +164,17 @@ is named.
 
 ### Line grammar
 
-Each item is an Obsidian task whose fields are
+Each item is an Obsidian task. What a reader needs reads as part of the
+sentence: the body is a wikilink, and kind and owner are
+[tags](https://publish.obsidian.md/tasks/Getting+Started/Tags), which a
+Tasks query filters (`tags include #queue/decision`) and hides
+(`hide tags`). The rest are
 [Dataview inline fields](https://blacksmithgu.github.io/obsidian-dataview/annotation/add-metadata/),
 so Obsidian, the [Tasks plugin](https://publish.obsidian.md/tasks/) (set its
 task format to Dataview) and Dataview render and query the note as it is:
 
 ```
-- [<mark>] <text>  [kind:: <kind>]  [owner:: <owner>]  [agent:: <agent>]  [origin:: <repo>]  [repos:: <repo>,<repo>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [body:: <doc_id>]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]
+- [<mark>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: <agent>]  [origin:: <repo>]  [repos:: <repo>,<repo>]  [pr:: ...]  [branch:: ...]  [commit:: ...]  [slug:: ...]  [alias:: <old id>]  [resolution:: ...]  [id:: <id>]  [dependsOn:: <id>,<id>]
 ```
 
 - `<mark>` is the status, as the Tasks plugin types it:
@@ -178,16 +189,31 @@ task format to Dataview) and Dataview render and query the note as it is:
 
   A closed or dropped item sits under `## Closed`; `close` takes
   `status=dropped` for work not done.
-- `<kind>`: `next`, `delegated`, `decision`, `follow-up`.
+- `<kind>`: `next`, `delegated`, `decision`, `follow-up`, as the tag
+  `#queue/<kind>`. `<owner>`, when set, is the tag `#owner/<owner>`: one
+  word of letters, digits, `_` or `-`. The tags follow the text (and its body
+  link) after one space each, where Tasks keeps tags when it rewrites a line;
+  a tag Tasks or a person leaves among the fields at the end of the line
+  reads the same.
+- `<body note>`: the note holding the item's detail, by its file name
+  without `.md`, or its vault path without `.md` where another doc shares
+  that file name; it renders as a link reading "notes". The tool's `body` is
+  that note's doc_id, resolved through the index both ways. A body whose
+  note has no such name (the doc is not indexed) is written as
+  `[body:: <doc_id>]` before `alias`; a link whose note is gone stays as
+  written and the item reports no `body`.
 - `<text>`: one line. A backslash (Markdown's own escape) goes only before
   what a parser would read as something other than text: a `\`; a `[` or
   `(` that a `::` follows before its own closing bracket (a Dataview field
-  opener); the first `:` of a leading unbracketed `key::`; and a Tasks date
-  emoji (✅ ❌ 📅 ⏳ 🛫 ➕) followed by a date. Ordinary brackets and
-  parentheses stay as typed.
+  opener); the first `:` of a leading unbracketed `key::`; a Tasks date
+  emoji (✅ ❌ 📅 ⏳ 🛫 ➕) followed by a date; the `#` of a tag in the
+  queue's own namespaces (`#queue`, `#owner` and their children, in any
+  case), so a word in the text never reads as the item's kind or owner nor
+  matches a query for them; and the `(` of a trailing `([[note|notes]])`.
+  Ordinary brackets, parentheses, links and other tags stay as typed.
 - Fields appear only when set, each after two spaces (Tasks' own separator),
-  in the order above. `owner`, `agent`, `origin`, the links (`commit`
-  comma-separated), `body` and `alias` are one word without spaces,
+  in the order above. `agent`, `origin`, the links (`commit`
+  comma-separated) and `alias` are one word without spaces,
   brackets, parentheses or a backslash; `repos` is a comma list of such
   words without `@`. `resolution` is one line, such as `repo@sha`, a PR or a
   doc_id; inside its `[resolution:: ...]` only `]` and `\` take a backslash,
@@ -203,10 +229,23 @@ task format to Dataview) and Dataview render and query the note as it is:
   it is closed or dropped.
 
 ```
-- [/] Build the store  [kind:: delegated]  [owner:: worker]  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
-- [ ] Read map[string] keys (see \[note:: x])  [kind:: next]  [id:: ex-5]  [dependsOn:: ex-4]
-- [x] Ship on Friday?  [kind:: decision]  [owner:: main]  [resolution:: yes]  [id:: ex-2]
+- [/] Build the store ([[Store Design|notes]]) #queue/delegated #owner/worker  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
+- [ ] Read map[string] keys \(see \[note:: x]) after \#queue/next lands #queue/next  [id:: ex-5]  [dependsOn:: ex-4]
+- [x] Ship on Friday? #queue/decision #owner/main  [resolution:: yes]  [id:: ex-2]
 ```
+
+Lines in the older grammar, with `[kind:: <kind>]`, `[owner:: <owner>]`
+and `[body:: <doc_id>]` fields, still read (a tag in such a line is its
+text's); every write gives the line it changes the current form, and
+`reformat` rewrites a whole note. A Tasks query over the queues:
+
+````
+```tasks
+not done
+tags include #queue/decision
+hide tags
+```
+````
 
 Editing the note in Obsidian is fine; every write re-reads it under the
 lock. A box ticked there is closed: the Tasks plugin's `[completion:: date]`
@@ -214,9 +253,44 @@ or `✅ date`, Dataview's completion field, and any other field the queue does
 not own are kept as written (Tasks' own fields after `dependsOn`, the rest
 before `id`). A ticked item has no resolution until `close` records one,
 which also files it under `## Closed`; reopening it with `set` drops the
-resolution and the done and cancelled dates. A line under either heading
-that starts `- [` and doesn't parse is left alone and counted in `list`'s
-`unparsed_lines`.
+resolution and the done and cancelled dates.
+
+### Format version
+
+A queue note carries `queue_format: <n>` in its frontmatter, one integer the
+labs profile declares: the line format it was written in. Every write
+stamps the format the running binary writes (currently 1); a note without
+the field predates it. So that no process, of any version, writes a note it
+does not fully read, every write (`add`, `set`, `close`, `reformat`) is
+refused, writing nothing, when the note:
+
+- carries a `queue_format` above the one the binary knows, or one that is
+  not a whole number;
+- holds an item-shaped line (`- [<char>] …`, unindented) under `## Open` or
+  `## Closed` that the binary cannot parse. The error quotes the line.
+
+Both refusals carry the next step "this server may be older than the note's
+format: reconnect it (/mcp) or upgrade the binary"; a line typed by hand is
+fixed or removed in the note. `list` still reads such a note and counts the
+lines it skipped in `unparsed_lines`; a `- [` line outside those headings is
+counted there and does not block writes.
+
+### Reformat
+
+`reformat` rewrites every item line of one queue (`project`, `repo` or
+`cwd`) or of every queue (`all=true`) in the current grammar, through the
+same locked write, and is how a change to the grammar reaches existing
+notes. It reads the older grammars it knows and stamps the current
+`queue_format`. It keeps each line where it is (a ticked box under `## Open`
+stays there), writes a note only when a line or the stamp changes, so a
+second run writes nothing, and returns `{ok, count, changed: [{project,
+relative_path, lines}]}`, with `unparsed_lines` for `- [` lines outside
+`## Open` and `## Closed` (left as they are) and `skipped_restricted` for
+queues it did not touch. A note it may not write (see
+[Format version](#format-version)) stops the run with that refusal and the
+`changed` list so far.
+`drop_aliases=true` also removes every item's `alias` and reports
+`aliases_dropped`; the alias field itself stays for the next import.
 
 ### CLI for hooks
 
@@ -235,6 +309,7 @@ them.
 | `list` | `--cwd`, `--repo`, `--project` or `--all` (`--agent`, `--origin` or `--alias` alone searches every queue); `--include-origin`; `--kind`, `--status <s,s>` or `all` (default `open,returned`), `--owner`, `--ready`, `--contains`, `--limit` |
 | `set` | `<id or alias>` or `--agent`; `--status open\|returned\|parked`, `--owner` (with `--claim`: only if unowned), `--text`, link flags, `--alias`, `--body` (`''` removes one), `--blocked-by`, `--repos` |
 | `close` | `<id or alias>` or `--agent`; `--resolution` (`repoA@sha,repoB@sha` for an item with repos); `--partial` to record landings; `--status dropped` for work not done; link flags |
+| `reformat` | `--cwd`, `--repo`, `--project` or `--all`; `--drop-aliases` |
 
 ## Frontmatter fields
 
@@ -303,6 +378,62 @@ holds both notes' locks and never replaces a file. The result is
 `[[links]]` reached the old location and won't reach the new one, with a
 count; restricted notes are not read and are listed in `skipped_restricted`.
 Other notes are never rewritten.
+
+## Moving a folder
+
+`move_folder(from, to)` (CLI `move-folder <from> <to>`) moves or renames a
+folder inside an indexed folder or the archive, with everything in it: notes,
+`Reports/`, assets. It holds the lock of every note in the folder, at its old
+and its new path, and never replaces anything. Refused, each with
+`next_steps`: a destination that exists or lies inside `from`, a top-level
+folder itself, a read-only folder at either end, and a move that takes a
+path-scoped field out of its scope.
+
+After the move every note in the vault is read and each link that named a
+file in the folder by path names its new path, through `fsx.Vault.Update`:
+`[[01 Projects/x/index|…]]`, `![[01 Projects/x/diagram.png]]`, a partial path
+like `[[x/index]]` that no longer matches, and `[text](<01 Projects/x/a.md>)`
+or `[text](01%20Projects/x/a.md)`, written back in the form it had. A
+relative markdown link whose base moved (a note inside the folder linking
+out, or a note linking in) is recomputed relative to where the note is now.
+Links by file name alone resolve wherever the file is and stay as they are,
+and so do links in fenced code and inline code. Only bodies are rewritten;
+frontmatter changes go through `set_frontmatter`'s path. `links` lists each
+rewritten note with a count. A restricted note is rewritten only with
+`include_restricted=true` and an approved unlock (Touch ID, once per call,
+audited per note); otherwise it is listed in `skipped_restricted`. A write
+that fails after the folder moved is listed in `failed`.
+
+Renaming a project, `01 Projects/<old>` to `01 Projects/<new>`, also carries
+its slug (the folder name):
+
+- every `related_projects` entry naming `<old>` (case-insensitively) becomes
+  `<new>`, through `set_frontmatter`'s path; a note outside the writable
+  folders keeps its entry and is listed in `project.related_projects_skipped`;
+- the queue note keeps its doc_id (doc_ids never change, so it stays
+  `queue-<old>` and the queue tool reports that id), and its `title`,
+  `system` and `# <old> Queue` heading take the new name when they carried
+  the old one;
+- queue item ids never change. A project's new items take its
+  `queue_prefix`, else the slug of its folder name; when `index.md` sets no
+  `queue_prefix` and the old slug is a valid one, it is pinned there so new
+  items continue the old prefix. A slug `queue_prefix` cannot hold (one with
+  a hyphen) is not pinned, and new items take the new folder's slug;
+  `project.queue_prefix` says which.
+
+## The archive
+
+`99 Archive` (`[vault].archive_dir`, `SVMC_ARCHIVE_DIR`; the default only
+while the indexed dirs are the defaults) holds retired docs and projects. The
+index reads it apart from the indexed and read-only folders: `find` leaves
+its docs out unless `include_archived=true`, `read_doc` reads them by doc_id,
+and boards, the brief and `validate` never see them. A live doc keeps a
+doc_id an archived one shares. Nothing writes in the archive but a move and
+the link rewrite a folder move makes: `move_doc` and `move_folder` take a doc
+there only when it has
+`status: archived` (a task: `done` or `wontfix`), and `archive=true` sets
+`status: archived` on each doc first. The archive keeps a doc's frontmatter
+as it was, so path-scoped fields are not checked there.
 
 ## Superseded reports
 

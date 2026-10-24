@@ -104,6 +104,21 @@ type heading struct {
 
 func headingLines(lines []string) map[int]heading {
 	out := map[int]heading{}
+	for i, code := range Fenced(lines) {
+		if code {
+			continue
+		}
+		if hm := atxRE.FindStringSubmatch(lines[i]); hm != nil {
+			out[i] = heading{len(hm[1]), pystr.Strip(hm[2])}
+		}
+	}
+	return out
+}
+
+// Fenced reports, for each line, whether it is fenced code: a fence line
+// itself or a line between an opening fence and its matching close.
+func Fenced(lines []string) []bool {
+	out := make([]bool, len(lines))
 	inFence, fence := false, ""
 	for i, line := range lines {
 		if m := fenceRE.FindStringSubmatch(line); m != nil {
@@ -113,14 +128,10 @@ func headingLines(lines []string) map[int]heading {
 			} else if tok == fence {
 				inFence, fence = false, ""
 			}
+			out[i] = true
 			continue
 		}
-		if inFence {
-			continue
-		}
-		if hm := atxRE.FindStringSubmatch(line); hm != nil {
-			out[i] = heading{len(hm[1]), pystr.Strip(hm[2])}
-		}
+		out[i] = inFence
 	}
 	return out
 }

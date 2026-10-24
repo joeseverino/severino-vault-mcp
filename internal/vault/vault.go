@@ -203,6 +203,7 @@ type Doc struct {
 	Path            string // absolute
 	RelativePath    string // vault-root relative
 	ReadOnlyDir     string // the read-only folder holding it, or ""
+	Archived        bool   // in the vault's archive folder
 	Body            string
 	BodyStartLine   int
 	Sections        []sections.Section
@@ -258,9 +259,13 @@ func NormalizeAlias(v string) string {
 	return strings.Join(strings.FieldsFunc(strings.ToLower(pystr.Strip(v)), pystr.IsSpace), " ")
 }
 
-// Index is a built vault index.
+// Index is a built vault index. Docs are the live docs every board, brief
+// and check works over; Archived are the archive folder's, kept apart so
+// only a caller that asks for them sees them. ByDocID holds both, a live doc
+// winning an id an archived one shares.
 type Index struct {
 	Docs            []*Doc
+	Archived        []*Doc
 	ByDocID         map[string]*Doc
 	Aliases         map[string]string
 	InvalidAliases  map[string]string
@@ -273,6 +278,18 @@ func (idx *Index) Has(docID string) bool {
 	_, one := idx.ByDocID[docID]
 	_, several := idx.DuplicateDocIDs[docID]
 	return one || several
+}
+
+// WithArchived is Docs, then the archived docs.
+func (idx *Index) WithArchived() []*Doc { return slices.Concat(idx.Docs, idx.Archived) }
+
+// addArchived lists an archived doc and gives it its doc_id when no doc,
+// live or archived, holds it yet.
+func (idx *Index) addArchived(doc *Doc) {
+	idx.Archived = append(idx.Archived, doc)
+	if !idx.Has(doc.DocID) {
+		idx.ByDocID[doc.DocID] = doc
+	}
 }
 
 func newIndex() *Index {
@@ -337,36 +354,52 @@ func siteContentID(rel string) string {
 func (l *Loader) build() *Index {
 	idx := newIndex()
 	for _, p := range MarkdownFiles(l.Config.VaultPath, l.Config.SearchDirs()) {
-		note, err := frontmatter.ReadFile(p)
-		if err != nil {
-			continue
+		if d := l.readDoc(p); d != nil {
+			idx.add(d)
 		}
-		fm, body, start := note.FM, note.Body, note.StartLine
-		if fm == nil || fm.Len() == 0 {
-			continue
-		}
-		rel, err := filepath.Rel(l.Config.VaultPath, p)
-		if err != nil {
-			rel = p
-		}
-		if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
-			if sid := siteContentID(rel); sid != "" {
-				fm.Set("doc_id", sid)
-				if !fm.Has("doc_type") {
-					fm.Set("doc_type", "public_article_draft")
-				}
-				if published, _ := fm.Get("published"); !fm.Has("sensitivity") {
-					fm.Set("sensitivity", map[bool]string{true: "public", false: "internal"}[pystr.Truthy(published)])
-				}
+	}
+	if l.Config.ArchiveDir != "" {
+		for _, p := range MarkdownFiles(l.Config.VaultPath, []string{l.Config.ArchiveDir}) {
+			if d := l.readDoc(p); d != nil {
+				d.Archived = true
+				idx.addArchived(d)
 			}
 		}
-		if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
-			continue
-		}
-		idx.add(l.makeDoc(p, rel, fm, body, start))
 	}
 	idx.Aliases, idx.InvalidAliases = l.loadAliases(idx)
 	return idx
+}
+
+// readDoc is the doc at p, an absolute path, or nil when it carries no
+// doc_id.
+func (l *Loader) readDoc(p string) *Doc {
+	note, err := frontmatter.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	fm, body, start := note.FM, note.Body, note.StartLine
+	if fm == nil || fm.Len() == 0 {
+		return nil
+	}
+	rel, err := filepath.Rel(l.Config.VaultPath, p)
+	if err != nil {
+		rel = p
+	}
+	if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
+		if sid := siteContentID(rel); sid != "" {
+			fm.Set("doc_id", sid)
+			if !fm.Has("doc_type") {
+				fm.Set("doc_type", "public_article_draft")
+			}
+			if published, _ := fm.Get("published"); !fm.Has("sensitivity") {
+				fm.Set("sensitivity", map[bool]string{true: "public", false: "internal"}[pystr.Truthy(published)])
+			}
+		}
+	}
+	if id, _ := fm.Get("doc_id"); !pystr.Truthy(id) {
+		return nil
+	}
+	return l.makeDoc(p, rel, fm, body, start)
 }
 
 func (l *Loader) loadAliases(idx *Index) (map[string]string, map[string]string) {

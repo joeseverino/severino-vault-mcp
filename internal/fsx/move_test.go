@@ -13,7 +13,7 @@ import (
 
 func TestMoveRelocatesANoteAndCreatesItsFolders(t *testing.T) {
 	dir, v := noteVault(t)
-	if err := v.Move("note.md", "a/b/renamed.md", false); err != nil {
+	if err := v.Move("note.md", "a/b/renamed.md"); err != nil {
 		t.Fatal(err)
 	}
 	if got := tk.Read(t, filepath.Join(dir, "a", "b", "renamed.md")); got != "# Note\n- one\n" {
@@ -27,13 +27,22 @@ func TestMoveRelocatesANoteAndCreatesItsFolders(t *testing.T) {
 func TestMoveNeverReplaces(t *testing.T) {
 	dir, v := noteVault(t)
 	tk.Write(t, filepath.Join(dir, "taken.md"), "taken\n")
-	if err := v.Move("note.md", "taken.md", false); !errors.Is(err, fsx.ErrExists) {
+	if err := v.Move("note.md", "taken.md"); !errors.Is(err, fsx.ErrExists) {
 		t.Fatalf("want ErrExists, got %v", err)
 	}
 	tk.Write(t, filepath.Join(dir, "src", "doc.md"), "doc\n")
 	tk.Write(t, filepath.Join(dir, "dst", "src", "other.txt"), "other\n")
-	if err := v.Move("src/doc.md", "dst/src/doc.md", true); !errors.Is(err, fsx.ErrExists) {
+	if err := v.Move("src", "dst/src"); !errors.Is(err, fsx.ErrExists) {
 		t.Fatalf("want ErrExists for a taken folder, got %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Move("src", "empty"); !errors.Is(err, fsx.ErrExists) {
+		t.Fatalf("want ErrExists for an empty folder in the way, got %v", err)
+	}
+	if err := v.Move("src", "src/inner"); !errors.Is(err, fsx.ErrExists) {
+		t.Fatalf("want ErrExists for a folder moved into itself, got %v", err)
 	}
 	for rel, want := range map[string]string{"taken.md": "taken\n", "note.md": "# Note\n- one\n", "src/doc.md": "doc\n"} {
 		if got := tk.Read(t, filepath.Join(dir, rel)); got != want {
@@ -42,14 +51,15 @@ func TestMoveNeverReplaces(t *testing.T) {
 	}
 }
 
-func TestMoveWithFolderTakesTheFilesBesideTheNote(t *testing.T) {
+func TestMoveTakesAFolderWithEverythingInIt(t *testing.T) {
 	dir, _, v := sandbox(t)
 	tk.Write(t, filepath.Join(dir, "Reports", "Audit 2026", "Audit.md"), "audit\n")
 	tk.Write(t, filepath.Join(dir, "Reports", "Audit 2026", "check.py"), "print()\n")
-	if err := v.Move("Reports/Audit 2026/Audit.md", "Archive/Audit 2026/Audit.md", true); err != nil {
+	tk.Write(t, filepath.Join(dir, "Reports", "Audit 2026", "Evidence", "shot.png"), "png\n")
+	if err := v.Move("Reports/Audit 2026", "Archive/Old/Audit 2026"); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{"Archive/Audit 2026/Audit.md", "Archive/Audit 2026/check.py"} {
+	for _, rel := range []string{"Archive/Old/Audit 2026/Audit.md", "Archive/Old/Audit 2026/check.py", "Archive/Old/Audit 2026/Evidence/shot.png"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("%s did not move: %v", rel, err)
 		}
@@ -63,7 +73,7 @@ func TestMoveRefusesADestinationOutsideTheVault(t *testing.T) {
 	dir, outside, v := sandbox(t)
 	tk.Write(t, filepath.Join(dir, "note.md"), "note\n")
 	for _, to := range []string{"../outside/note.md", "link-dir/note.md"} {
-		if err := v.Move("note.md", to, false); err == nil {
+		if err := v.Move("note.md", to); err == nil {
 			t.Errorf("Move to %q allowed", to)
 		}
 	}
@@ -84,12 +94,36 @@ func TestMoveWaitsForEitherNotesLock(t *testing.T) {
 	fsx.LockWait = 50 * time.Millisecond
 	for _, held := range []string{"note.md", "moved.md"} {
 		release := tk.HoldLock(t, dir, held)
-		if err := v.Move("note.md", "moved.md", false); !errors.Is(err, fsx.ErrLocked) {
+		if err := v.Move("note.md", "moved.md"); !errors.Is(err, fsx.ErrLocked) {
 			t.Fatalf("lock on %s held: want ErrLocked, got %v", held, err)
 		}
 		release()
 	}
-	if err := v.Move("note.md", "moved.md", false); err != nil {
+	if err := v.Move("note.md", "moved.md"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A folder moves under the lock of every note in it, at its old path and its
+// new one, so no writer of any of them is mid-write when the folder goes.
+func TestMovingAFolderWaitsForTheLockOfEveryNoteInIt(t *testing.T) {
+	dir, _, v := sandbox(t)
+	tk.Write(t, filepath.Join(dir, "proj", "index.md"), "index\n")
+	tk.Write(t, filepath.Join(dir, "proj", "Reports", "Deep.md"), "deep\n")
+	prev := fsx.LockWait
+	t.Cleanup(func() { fsx.LockWait = prev })
+	fsx.LockWait = 50 * time.Millisecond
+	for _, held := range []string{"proj/Reports/Deep.md", "renamed/index.md"} {
+		release := tk.HoldLock(t, dir, held)
+		if err := v.Move("proj", "renamed"); !errors.Is(err, fsx.ErrLocked) {
+			t.Fatalf("lock on %s held: want ErrLocked, got %v", held, err)
+		}
+		release()
+	}
+	if err := v.Move("proj", "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tk.Read(t, filepath.Join(dir, "renamed", "Reports", "Deep.md")); got != "deep\n" {
+		t.Fatalf("got %q", got)
 	}
 }

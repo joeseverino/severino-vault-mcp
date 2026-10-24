@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `move_folder` (CLI `move-folder`) moves or renames a folder with everything
+  in it and rewrites every path link into it across the vault; a project
+  rename also carries `related_projects` and the queue note's title.
+- `99 Archive` is indexed apart: `find` leaves it out unless
+  `include_archived=true`, and `move_doc`/`move_folder` take only archived
+  docs there (`archive=true` sets the status). `fsx.Vault.Move` moves a
+  folder under the lock of every note in it.
+
 - **Breaking:** the MCP tools `daily_progress`, `update_link`, `recent_changes`
   and `education_dataset` are gone. The CLI keeps `export education` and
   `daily-write`; the uncalled `update-doc-link` command is gone too.

@@ -1,12 +1,18 @@
 // Package queue is the work queue's line grammar: one item per line in a
-// project's Queue.md, an Obsidian task whose fields are Dataview inline
-// fields, so Obsidian, the Tasks plugin and Dataview read it natively.
+// project's Queue.md, an Obsidian task whose body is a wikilink, whose kind
+// and owner are tags and whose other fields are Dataview inline fields, so
+// Obsidian, the Tasks plugin and Dataview read it natively.
 // Parse(Format(it)) == it. The grammar is documented in
 // docs/ai-tool-contract.md; the store and the tool that write it live in
 // internal/core.
 //
-//   - [<status char>] <text>  [kind:: …]  [owner:: …] …  [id:: …]  [dependsOn:: …]
+//   - [<status char>] <text> ([[<body note>|notes]]) #queue/<kind> #owner/<owner>  [agent:: …] …  [id:: …]  [dependsOn:: …]
 //
+// The Tasks plugin hides only the fields it owns, so everything a reader
+// needs to see reads as text: the body as a short link, kind and owner as
+// tags, which a Tasks query filters (tags include #queue/decision) and hides
+// (hide tags). The tags follow the text because Tasks keeps tags there when
+// it rewrites a line, and moves any it finds among its fields to that spot.
 // Tasks reads its fields from the end of the line and stops at the first one
 // it does not know, so id and dependsOn come after the queue's own fields, in
 // the order Tasks writes them, and the done and cancelled dates Tasks or
@@ -19,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -38,9 +45,10 @@ var marks = map[string]rune{"open": ' ', "returned": '/', "parked": '>', "closed
 // CANCELLED).
 func Done(status string) bool { return status == "closed" || status == "dropped" }
 
-// LinkKeys are the typed links a hook can match an item by. Format writes
-// kind, owner, agent, origin, repos, the links, body, alias and resolution in
-// this order, then id and dependsOn.
+// LinkKeys are the typed links a hook can match an item by. Format writes the
+// body link and the kind and owner tags after the text, then agent, origin,
+// repos, the links, alias and resolution in this order, then id and
+// dependsOn.
 var LinkKeys = []string{"pr", "branch", "commit", "slug"}
 
 // Unowned is the owner argument meaning nobody; the line simply omits owner.
@@ -50,12 +58,27 @@ const Unowned = "-"
 // hold.
 const TokenRule = "one word without spaces, brackets, parentheses or a backslash"
 
+// OwnerRule says what an owner may hold: it is written as the tag
+// #owner/<owner>, which any other character would end.
+const OwnerRule = "one word of letters, digits, _ or -"
+
+// BodyLinkRule says what a body link may name: an Obsidian link target.
+const BodyLinkRule = "a note name without [ ] | # ^ or a line break"
+
 // Field keys of the line; idKey and dependsOnKey are the Tasks plugin's.
 const (
 	idKey        = "id"
 	dependsOnKey = "dependsOn"
 	sep          = "  " // Tasks' own separator before an inline field
+	// bodyLabel is the text the body link shows.
+	bodyLabel = "notes"
 )
+
+// tagKeys are the tag namespaces the queue owns, each with the field it
+// carries: #queue/<kind> and #owner/<owner>. A tag in the text in either
+// namespace is escaped, so it never reads as the item's kind or owner nor
+// matches a query for them.
+var tagKeys = map[string]string{"queue": "kind", "owner": "owner"}
 
 // tasksKeys are the Tasks plugin's own Dataview-format fields besides id and
 // dependsOn. An extra field with one of these keys (or an emoji date) goes
@@ -72,12 +95,16 @@ var doneKeys = []string{"completion", "cancelled"}
 // Repos are the repositories one item's work spans. Resolution is set on a
 // done item, and on an open one with Repos as the repo@sha landings so far.
 // Extra holds the fields the queue does not own (a done date Tasks appended,
-// say), each as written.
+// say), each as written. Body is the doc_id of the note holding the detail
+// and BodyLink that note as the line links it (its file name); the line
+// carries the link when BodyLink is set and a body field otherwise, and the
+// store resolves one from the other.
 type Item struct {
 	ID, Kind, Status, Owner, Text string
 	Links                         map[string]string
 	BlockedBy                     []string
-	Body, Alias, Agent, Origin    string
+	Body, BodyLink                string
+	Alias, Agent, Origin          string
 	Repos                         []string
 	Resolution                    string
 	Extra                         []string
@@ -88,10 +115,81 @@ var (
 	prefixRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	tokenRe  = regexp.MustCompile(`^[^\s\[\]()\\]+$`)
 	keyRe    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
+	ownerRe  = regexp.MustCompile(`^[\p{L}\p{N}_-]+$`)
+	linkRe   = regexp.MustCompile(`^[^\[\]|#^\r\n]+$`)
+	// tagRe is a tag in one of the queue's namespaces at the end of a line.
+	tagRe = regexp.MustCompile(`(?:^|\s)(#((?i:queue|owner))/(\S*))$`)
+	// bodyLinkRe is the body link at the end of the text; bodyLinkTail the
+	// same after its opening parenthesis, as Escape sees it.
+	bodyLinkRe   = regexp.MustCompile(`(?:^|\s)(\(\[\[([^\[\]|#^\r\n]+)\|` + bodyLabel + `\]\]\))$`)
+	bodyLinkTail = regexp.MustCompile(`^\[\[[^\[\]|#^\r\n]+\|` + bodyLabel + `\]\]\)$`)
 	// emojiDateRe is a Tasks emoji-format date at the end of the line: done,
 	// cancelled, due, scheduled, start, created.
 	emojiDateRe = regexp.MustCompile(`(?:^|\s)((?:✅|❌|📅|⏳|🛫|➕) \d{4}-\d{2}-\d{2})$`)
 )
+
+// Version is the item line format this binary writes and reads in full. A
+// queue note records the format it was written in as queue_format; a higher
+// one was written by a newer binary, whose lines this one may misread.
+const Version = 1
+
+// CheckVersion refuses a note's queue_format that this binary cannot write
+// under: one above Version, or anything but a whole number. "" is a note
+// written before the field existed.
+func CheckVersion(v string) error {
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	switch {
+	case err != nil || n < 1:
+		return fmt.Errorf("queue_format %q is not a format version", v)
+	case n > Version:
+		return fmt.Errorf("queue_format is %d and this binary knows format %d", n, Version)
+	}
+	return nil
+}
+
+// ItemShaped reports whether line has an item's shape, a task checkbox at the
+// start of the line ("- [<char>] ..."), whether or not it parses.
+func ItemShaped(line string) bool {
+	rest, ok := strings.CutPrefix(strings.TrimRight(line, " \t\r"), "- [")
+	if !ok {
+		return false
+	}
+	r, size := utf8.DecodeRuneInString(rest)
+	if size == 0 || r == ']' {
+		return false
+	}
+	rest = rest[size:]
+	return rest == "]" || strings.HasPrefix(rest, "] ")
+}
+
+// rawIDRe is an id written as a field, whatever surrounds it: [id:: x],
+// (id:: x), or the Tasks emoji form 🆔 x.
+var rawIDRe = regexp.MustCompile(`(?:[\[(]\s*id\s*::\s*|🆔\s*)([a-z0-9]+(?:-[a-z0-9]+)*-[0-9]+)`)
+
+// IDsIn are the ids text writes as an id field, in order, read from the
+// text alone so a line no grammar parses still counts.
+func IDsIn(text string) []string {
+	var out []string
+	for _, m := range rawIDRe.FindAllStringSubmatch(text, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// Top is the largest n among the ids prefix-n that text writes as an id
+// field, or 0.
+func Top(text, prefix string) int {
+	top := 0
+	for _, id := range IDsIn(text) {
+		if pre, n, ok := SplitID(id); ok && pre == prefix && n > top {
+			top = n
+		}
+	}
+	return top
+}
 
 // SplitID returns an id's prefix and number.
 func SplitID(id string) (prefix string, n int, ok bool) {
@@ -111,6 +209,12 @@ func ValidPrefix(p string) bool { return prefixRe.MatchString(p) }
 
 // ValidToken reports whether s can stand as a one-word field value.
 func ValidToken(s string) bool { return tokenRe.MatchString(s) }
+
+// ValidOwner reports whether s can stand as an owner.
+func ValidOwner(s string) bool { return ownerRe.MatchString(s) && s != Unowned }
+
+// ValidBodyLink reports whether s can stand as a body link's target.
+func ValidBodyLink(s string) bool { return linkRe.MatchString(s) && strings.TrimSpace(s) == s }
 
 // ValidRepo reports whether s can stand in a comma list of repositories.
 func ValidRepo(s string) bool { return ValidToken(s) && !strings.ContainsAny(s, ",@") }
@@ -165,14 +269,18 @@ var emojiDateTail = regexp.MustCompile(`^ *\d{4}-\d{2}-\d{2}`)
 // Escape makes text safe as the task's description, escaping only what a
 // parser would read as something other than text: a backslash; a [ or ( that
 // opens a Dataview field (a "::" follows it before its own closing bracket);
-// the "::" of a leading unbracketed "key:: value"; and a Tasks date emoji
-// followed by a date. Ordinary brackets and parentheses stay as typed.
+// the "::" of a leading unbracketed "key:: value"; a Tasks date emoji
+// followed by a date; the # of a tag in the queue's own namespaces (#queue,
+// #owner and their children, in any case); and the ( of a trailing
+// "([[note|notes]])" that would read as the body link. Ordinary brackets,
+// parentheses, links and other tags stay as typed.
 func Escape(text string) string {
 	leading := strings.Index(text, "::")
 	if leading <= 0 || strings.ContainsAny(text[:leading], "[]()") {
 		leading = -1
 	}
 	var sb strings.Builder
+	prev := ' '
 	for i, r := range text {
 		rest := text[i+utf8.RuneLen(r):]
 		switch {
@@ -180,12 +288,30 @@ func Escape(text string) string {
 			r == '[' && opensField(rest, ']'),
 			r == '(' && opensField(rest, ')'),
 			i == leading,
-			strings.ContainsRune(dateEmoji, r) && emojiDateTail.MatchString(rest):
+			strings.ContainsRune(dateEmoji, r) && emojiDateTail.MatchString(rest),
+			r == '#' && unicode.IsSpace(prev) && reservedTag(rest),
+			r == '(' && unicode.IsSpace(prev) && bodyLinkTail.MatchString(rest):
 			sb.WriteByte('\\')
 		}
 		sb.WriteRune(r)
+		prev = r
 	}
 	return sb.String()
+}
+
+// reservedTag reports whether the tag rest begins (after its #) is in one of
+// the queue's namespaces: the namespace word, then the tag's end or a /.
+func reservedTag(rest string) bool {
+	for ns := range tagKeys {
+		if len(rest) < len(ns) || !strings.EqualFold(rest[:len(ns)], ns) {
+			continue
+		}
+		next, size := utf8.DecodeRuneInString(rest[len(ns):])
+		if size == 0 || !unicode.IsLetter(next) && !unicode.IsDigit(next) && next != '_' && next != '-' {
+			return true
+		}
+	}
+	return false
 }
 
 // opensField reports whether a "::" comes in rest before the closing bracket.
@@ -227,8 +353,11 @@ func (it Item) Validate() error {
 	if it.Status == "returned" && it.Kind != "delegated" {
 		return fmt.Errorf("only a delegated item is returned; %s is %s", it.ID, it.Kind)
 	}
-	if it.Owner != "" && (!ValidToken(it.Owner) || it.Owner == Unowned) {
-		return fmt.Errorf("owner %q must be %s", it.Owner, TokenRule)
+	if it.Owner != "" && !ValidOwner(it.Owner) {
+		return fmt.Errorf("owner %q must be %s", it.Owner, OwnerRule)
+	}
+	if it.BodyLink != "" && !ValidBodyLink(it.BodyLink) {
+		return fmt.Errorf("body link %q must be %s", it.BodyLink, BodyLinkRule)
 	}
 	if err := OneLine("text", it.Text); err != nil {
 		return err
@@ -319,15 +448,22 @@ func Format(it Item) string {
 		}
 	}
 	sb.WriteString("- [" + string(marks[it.Status]) + "] " + Escape(it.Text))
-	field("kind", it.Kind)
-	field("owner", it.Owner)
+	if it.BodyLink != "" {
+		sb.WriteString(" ([[" + it.BodyLink + "|" + bodyLabel + "]])")
+	}
+	sb.WriteString(" #queue/" + it.Kind)
+	if it.Owner != "" {
+		sb.WriteString(" #owner/" + it.Owner)
+	}
 	field("agent", it.Agent)
 	field("origin", it.Origin)
 	field("repos", strings.Join(it.Repos, ","))
 	for _, k := range LinkKeys {
 		field(k, it.Links[k])
 	}
-	field("body", it.Body)
+	if it.BodyLink == "" {
+		field("body", it.Body)
+	}
 	field("alias", it.Alias)
 	field("resolution", escape(it.Resolution, valueSpecial))
 	var after []string
@@ -366,8 +502,17 @@ func Parse(line string) (it Item, ok bool) {
 		return Item{}, false
 	}
 	var fields []inline
+	// A line with a [kind:: …] or [owner:: …] field predates the tags, so a
+	// tag in it is its text's.
+	older := false
 	for {
 		f, ok := lastField(rest)
+		if ok && (f.key == "kind" || f.key == "owner") {
+			older = true
+		}
+		if !ok && !older {
+			f, ok = lastTag(rest)
+		}
 		if !ok {
 			break
 		}
@@ -413,6 +558,13 @@ func Parse(line string) (it Item, ok bool) {
 			it.Links[f.key] = f.value
 		}
 	}
+	if m := bodyLinkRe.FindStringSubmatch(rest); m != nil {
+		if seen["body"] {
+			return Item{}, false
+		}
+		it.BodyLink = m[2]
+		rest = strings.TrimRight(rest[:len(rest)-len(m[1])], " \t")
+	}
 	it.Text = Unescape(rest)
 	if it.Validate() != nil {
 		return Item{}, false
@@ -424,6 +576,17 @@ func Parse(line string) (it Item, ok bool) {
 // ([key:: value] or (key:: value)), or a Tasks emoji date (key "").
 type inline struct {
 	raw, key, value string
+}
+
+// lastTag reads a tag in one of the queue's namespaces that ends s, as the
+// field it carries: #queue/<kind> is kind and #owner/<owner> is owner, the
+// keys the older [kind:: …] and [owner:: …] fields still read as.
+func lastTag(s string) (inline, bool) {
+	m := tagRe.FindStringSubmatch(s)
+	if m == nil {
+		return inline{}, false
+	}
+	return inline{raw: m[1], key: tagKeys[strings.ToLower(m[2])], value: m[3]}, true
 }
 
 // lastField reads the field that ends s, after whitespace or at its start.

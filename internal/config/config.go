@@ -43,6 +43,7 @@ type Config struct {
 	VaultPath           string
 	IndexedDirs         []string
 	ReadOnlyDirs        []string
+	ArchiveDir          string // "" when the vault has no archive
 	DailyNotesDir       string
 	AliasesPath         string
 	MetadataURL         string
@@ -60,6 +61,21 @@ var DefaultIndexedDirs = []string{"01 Projects", "02 Infrastructure", "03 Runboo
 // carry their own minimal frontmatter, and writeups and pages carry the
 // site's. They apply only while the indexed dirs are the defaults too.
 var DefaultReadOnlyDirs = []string{"00 Inbox", "05 Writeups", "06 Pages"}
+
+// DefaultArchiveDir is the labs vault's archive, where retired docs and
+// projects go with status: archived. The index reads it apart from the rest,
+// so find leaves its docs out unless asked, and nothing writes there but a
+// move. It applies only while the indexed dirs are the defaults too.
+const DefaultArchiveDir = "99 Archive"
+
+// Archived reports whether rel, a vault-relative path, is in the archive.
+func (c Config) Archived(rel string) bool {
+	if c.ArchiveDir == "" {
+		return false
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	return strings.HasPrefix(rel, c.ArchiveDir+"/")
+}
 
 // SearchDirs is every folder the index reads: the indexed dirs, then the
 // read-only ones.
@@ -230,6 +246,14 @@ func Load(path string, env Env) Config {
 		readOnlyDefault = nil
 	}
 	readOnly, _ := tomlList(vault["read_only_dirs"], readOnlyDefault)
+	archiveDefault := DefaultArchiveDir
+	if indexedSet || indexedEnv {
+		archiveDefault = ""
+	}
+	archive := strValue(vault, "archive_dir", archiveDefault)
+	if v, ok := env.Lookup("SVMC_ARCHIVE_DIR"); ok {
+		archive = v
+	}
 
 	vaultPath := envPath(env, "SVMC_VAULT_PATH", strValue(vault, "path", "~/Documents/vault"))
 	aliases := Section(data, "aliases")
@@ -257,7 +281,7 @@ func Load(path string, env Env) Config {
 		unlockRef = v
 	}
 
-	return Config{
+	cfg := Config{
 		VaultPath:     vaultPath,
 		IndexedDirs:   envList(env, "SVMC_INDEXED_DIRS", indexed),
 		ReadOnlyDirs:  envList(env, "SVMC_READ_ONLY_DIRS", readOnly),
@@ -270,4 +294,10 @@ func Load(path string, env Env) Config {
 		RestrictedAuditLog: envPath(env, "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG",
 			strValue(unlock, "audit_log", "~/.local/state/severino-vault-mcp/audit.log")),
 	}
+	// A folder the index already reads with the rest is no archive apart.
+	archive = strings.Trim(filepath.ToSlash(filepath.Clean(archive)), "/")
+	if archive != "" && archive != "." && !slices.Contains(cfg.SearchDirs(), archive) {
+		cfg.ArchiveDir = archive
+	}
+	return cfg
 }

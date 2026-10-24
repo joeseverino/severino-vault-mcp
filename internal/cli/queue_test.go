@@ -109,4 +109,17 @@ func TestAnImportWritesAliasAndBodyThroughTheCLI(t *testing.T) {
 	if exit, out, _ = run(t, root, "", "queue", "close", "task-old-slug", "--resolution", "merged (#213)"); exit != 0 || tk.Get(decode(t, out), "item.resolution") != "merged (#213)" {
 		t.Fatal(exit, out)
 	}
+
+	// Once the import is done, reformat drops the aliases; the line was
+	// written in the current grammar, so nothing else changes.
+	if exit, out, _ = run(t, root, "", "queue", "reformat", "--all"); exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "0" {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "reformat", "--project", "Example Tracker", "--drop-aliases")
+	if r := decode(t, out); exit != 0 || jsonx.Compact(tk.Get(r, "aliases_dropped")) != "1" || jsonx.Compact(tk.Get(r, "changed.0.lines")) != "1" {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "list", "--alias", "task-old-slug"); exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "0" {
+		t.Fatal(exit, out)
+	}
 }
