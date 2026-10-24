@@ -415,3 +415,30 @@ func TestParallelCallsShareTheIndexSafely(t *testing.T) {
 		})
 	}
 }
+
+// close takes items as a list of objects and answers one result per item; a
+// malformed item is refused before anything is written.
+func TestQueueCloseTakesSeveralItems(t *testing.T) {
+	reg, _ := labsOnly(t)
+	s := connect(t, reg)
+	var ids []string
+	for _, text := range []string{"First", "Second"} {
+		r, isErr := call(t, s, "queue", map[string]any{"action": "add", "project": "backlog", "kind": "next", "text": text})
+		if isErr {
+			t.Fatal(jsonx.Compact(r))
+		}
+		ids = append(ids, r.Str("id"))
+	}
+	r, isErr := call(t, s, "queue", map[string]any{"action": "close", "resolution": "stale", "items": []any{
+		map[string]any{"id": ids[0]}, map[string]any{"id": ids[1], "status": "dropped", "resolution": "superseded"},
+	}})
+	if isErr || jsonx.Compact(tk.Get(r, "results.1")) != `{"ok":true,"id":"`+ids[1]+`","project":"backlog","status":"dropped","resolution":"superseded"}` ||
+		tk.Get(r, "results.0.resolution") != "stale" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	for _, items := range []any{"x", []any{"x"}, []any{map[string]any{"resolution": "r"}}, []any{map[string]any{"id": "x", "agent": "a"}}} {
+		if r, isErr := call(t, s, "queue", map[string]any{"action": "close", "items": items}); !isErr || !strings.Contains(r.Str("error"), "items") {
+			t.Fatal(jsonx.Compact(r))
+		}
+	}
+}

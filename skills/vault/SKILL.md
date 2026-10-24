@@ -17,7 +17,8 @@ adds. Every shared tool takes `vault` (default labs).
    verbatim. Never substitute a generic tutorial for an existing doc.
    Read the hit's section first (`read_doc(doc_id, sections=[section])`).
    A doc over 20,000 characters read with no sections answers with its lead
-   and outline (each section's size) and `truncated: true`; pick sections
+   and outline (each section's size; a heading split into many parts is one
+   entry, read a part by its slug or position) and `truncated: true`; pick sections
    from it by slug, heading path, heading text, unique slug prefix or 1-based
    position, or ask for `fields=["body"]` when you need all of it. Read a doc
    once per task and keep what you need from it.
@@ -54,8 +55,9 @@ Every `ok: false` result is an MCP tool error (`isError`) with `error` and
 `next_steps`: the calls that recover from it, each naming a tool. A `find` with no hits carries them too.
 Take one of them before guessing.
 An upgraded server binary takes over a running session at its next call. A
-`warning` that the new binary could not take over means answers still come
-from the old one until the session restarts.
+`warning` that the new binary could not take over comes once and means answers
+still come from the old one until the server is reconnected (`/mcp`, then
+Reconnect).
 
 ## Writes
 
@@ -128,10 +130,13 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   never invent one. Every item records its `created` date; a worker's item
   may carry `base` (the branch it lands on) and `owns` (its paths). A question you put to the user is an explicit
   `kind="decision"` add, closed with their answer as the resolution.
-- `queue(action="list", cwd=...)` shows open and returned items;
+- `queue(action="list", cwd=...)` shows open and returned items, each
+  text cut to its first clause or about 100 characters and ending in `…`
+  (`fields=["id", "text"]` gives it whole);
   `ready=true` the unblocked next work, `kind="decision"` the open questions,
   `all=true` every project's queue, `links={"branch": ...}` the items on
-  exactly that branch, in whichever queue holds them.
+  exactly that branch, in whichever queue holds them, `contains=...` the
+  items whose id or text holds it (`"163"` finds `hq-163`).
 - `queue(action="set", id=..., claim=true, owner=...)` takes an item only if
   no other owner or agent holds it and it is not done (a done item is
   never reopened; add a new one); add `agent=...`,
@@ -144,6 +149,10 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   `warning` in the result means another agent held the item you changed.
 - `queue(action="close", id=..., resolution="repo@sha")` closes it
   (`status="dropped"` with the reason as the resolution for work not done).
+  `items=[{"id": ..., "resolution": ..., "status": ...}, ...]` closes several
+  in one call, each defaulting to the call's `resolution` and `status`; read
+  each entry of `results`, since a refused item leaves the others closed.
+  `action="set", id=..., resolution=...` corrects a closed item's resolution.
 - A repo no project maps is refused on `add`; make the `set_frontmatter`
   call its `next_steps` name (`add_repos`) and retry. Only work no project
   owns goes to `project="backlog"`.

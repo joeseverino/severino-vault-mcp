@@ -492,21 +492,35 @@ const leadChars = 2_000
 
 // bound replaces a long body with its lead and outline, and steers the
 // caller to a section or to the whole body, which fields=["body"] returns.
-func bound(base *jsonx.Obj, d *vault.Doc, entries []*jsonx.Obj) *jsonx.Obj {
+func bound(base *jsonx.Obj, d *vault.Doc) *jsonx.Obj {
 	if utf8.RuneCountInString(d.Body) <= BoundedBodyChars {
 		return base
 	}
 	base.Delete("body")
 	base.Set("truncated", true)
-	base.Set("lead", lead(d))
+	leadText := lead(d)
+	base.Set("lead", leadText)
+	condensed, omitted := boundedOutline(d, BoundedAnswerChars-utf8.RuneCountInString(leadText))
+	base.Set("outline", condensed)
 	pick := ""
-	for _, e := range entries {
+	for _, e := range condensed {
 		if e.Str("heading_path") != "" {
 			pick = e.Str("section")
 			break
 		}
 	}
 	var steps []string
+	if omitted > 0 {
+		steps = append(steps, Call("read_doc", "doc_id", d.DocID, "fields", []string{"outline"})+
+			fmt.Sprintf(" for the full outline: %d more sections are not listed here", omitted))
+	}
+	for _, e := range condensed {
+		if e.Has("parts") {
+			steps = append(steps, Call("read_doc", "doc_id", d.DocID, "sections", []string{e.Str("first_part")})+
+				fmt.Sprintf(" for one part of a split heading: %s through %s, or a 1-based position from first_position to last_position", e.Str("first_part"), e.Str("last_part")))
+			break
+		}
+	}
 	if pick != "" {
 		steps = append(steps, Call("read_doc", "doc_id", d.DocID, "sections", []string{pick})+
 			" for one part of the outline, by slug, heading path or 1-based position")
@@ -514,6 +528,51 @@ func bound(base *jsonx.Obj, d *vault.Doc, entries []*jsonx.Obj) *jsonx.Obj {
 	steps = append(steps, Call("read_doc", "doc_id", d.DocID, "fields", []string{"body"})+
 		fmt.Sprintf(" for the whole body, %d characters", utf8.RuneCountInString(d.Body)))
 	return steer(base, steps...)
+}
+
+// BoundedAnswerChars is the most a bounded read's lead and outline take
+// together, measured as compact JSON: a doc with hundreds of sections
+// answers in about as much as a short runbook.
+const BoundedAnswerChars = 8_000
+
+// boundedOutline is the outline a bounded read returns, within budget
+// characters. A run of consecutive parts of one heading is one entry: the
+// section is the first part's slug, with parts, first_part, last_part,
+// first_position, last_position (1-based, as read_doc's sections accepts)
+// and the run's total chars. Entries past the budget are left out and
+// counted.
+func boundedOutline(d *vault.Doc, budget int) (entries []*jsonx.Obj, omitted int) {
+	all := sections.Outline(d.Body)
+	used := 0
+	for i := 0; i < len(all); {
+		e := all[i]
+		var o *jsonx.Obj
+		next := i + 1
+		chars := utf8.RuneCountInString(e.Target.Span(d.Body))
+		if e.Section.Part > 0 {
+			base := strings.TrimSuffix(e.Section.HeadingPath, fmt.Sprintf(" (part %d)", e.Section.Part))
+			for next < len(all) && all[next].Section.Part > 0 && strings.TrimSuffix(all[next].Section.HeadingPath, fmt.Sprintf(" (part %d)", all[next].Section.Part)) == base {
+				chars += utf8.RuneCountInString(all[next].Target.Span(d.Body))
+				next++
+			}
+			if next-i > 1 {
+				o = jsonx.New("section", e.Section.Slug, "heading_path", base, "parts", next-i,
+					"first_part", e.Section.Slug, "last_part", all[next-1].Section.Slug,
+					"first_position", i+1, "last_position", next, "chars", chars)
+			}
+		}
+		if o == nil {
+			o = jsonx.New("section", e.Section.Slug, "heading_path", e.Section.HeadingPath, "chars", chars)
+		}
+		used += len(jsonx.Compact(o)) + 1
+		if used > budget {
+			omitted = len(all) - i
+			break
+		}
+		entries = append(entries, o)
+		i = next
+	}
+	return entries, omitted
 }
 
 // lead is the text before the doc's first section heading, up to leadChars
@@ -628,7 +687,7 @@ func release(base *jsonx.Obj, d *vault.Doc, refs []string, advisory string, boun
 		return narrow(base, d, refs, entries)
 	}
 	if bounded {
-		return bound(base, d, entries)
+		return bound(base, d)
 	}
 	return base
 }

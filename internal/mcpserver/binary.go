@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,24 +24,29 @@ import (
 // every call answered, the process execs the new binary in place: same pid,
 // same stdin and stdout, so the client keeps its connection. The new process
 // restores the session through the SDK's ServerSessionOptions.State, so no
-// second initialize is needed.
+// second initialize is needed, and adopts the client's open
+// subscriptions/listen streams by replaying their requests to its own SDK:
+// each is a call the client still holds open on this pipe, so the new
+// process answers it under the same id and the client sees one unbroken
+// stream.
 //
-// handoffEnv carries that session: the initialized state and the first byte
-// of the next message, which the old process had to read to learn a message
-// was waiting. Set to handoffProbe, it asks a binary whether it can take a
-// session over at all, so an install that can't (a build without this code,
-// a broken file) never gets the session.
+// handoffEnv carries that session: the initialized state, the listen
+// requests, and the first byte of the next message, which the old process
+// had to read to learn a message was waiting. Set to handoffProbe, it asks a
+// binary whether it can take a session over at all, so an install that can't
+// (a build without this code, a broken file) never gets the session.
 const (
 	handoffEnv   = "SVMC_SESSION_HANDOFF"
 	handoffProbe = "probe"
-	handoffReady = "severino-vault-mcp session handoff 1"
+	handoffReady = "severino-vault-mcp session handoff 2"
 	probeTimeout = 10 * time.Second
 )
 
 // handoff is what the old process hands the new one.
 type handoff struct {
-	State mcp.ServerSessionState `json:"state"`
-	Next  string                 `json:"next"`
+	State   mcp.ServerSessionState `json:"state"`
+	Listens []json.RawMessage      `json:"listens,omitempty"`
+	Next    string                 `json:"next"`
 }
 
 // executable is the running binary's resolved path; tests point it at a file
@@ -65,6 +71,7 @@ type binaryWatch struct {
 	mu      sync.Mutex
 	refused os.FileInfo
 	reason  string
+	warned  bool
 }
 
 // watchBinary records the running binary; nil when it cannot be found, which
@@ -106,22 +113,25 @@ func (w *binaryWatch) candidate() (os.FileInfo, bool) {
 func (w *binaryWatch) refuse(info os.FileInfo, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.refused, w.reason = info, err.Error()
+	w.refused, w.reason, w.warned = info, err.Error(), false
 }
 
-// warning says, once a replacement could not take the session over, that the
-// answers still come from the code this process started with.
-func (w *binaryWatch) warning() string {
+// takeWarning says, on the first answer after a replacement could not take
+// the session over, that the answers still come from the code this process
+// started with, and how to move to the new binary. Every later answer goes
+// without it until another replacement refuses.
+func (w *binaryWatch) takeWarning() string {
 	if w == nil {
 		return ""
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.refused == nil {
+	if w.refused == nil || w.warned {
 		return ""
 	}
+	w.warned = true
 	return "the server binary " + w.path + " was replaced, but the new one could not take over this session (" +
-		w.reason + "), so this process keeps serving the code it started with; restart the session to run the new binary"
+		w.reason + "); this process keeps serving the code it started with. To run the new binary, reconnect the server: /mcp, then Reconnect, in Claude Code"
 }
 
 // takeOver probes the replacement, closes what the process holds open, and
@@ -157,9 +167,9 @@ func withHandoff(env []string, v string) []string {
 
 // front sits between the SDK and stdio. It reads stdin one message line at a
 // time, so at the start of a line it holds no unread bytes, and it follows
-// the wire both ways: the calls still unanswered, and the session state the
-// SDK negotiated, which it can hand over. A message shape it can't follow
-// stops handoffs for the rest of the process.
+// the wire both ways: the calls still unanswered, the listen streams among
+// them, and the session state the SDK negotiated, which it can hand over. A
+// message shape it can't follow stops handoffs for the rest of the process.
 type front struct {
 	in  io.Reader
 	out io.Writer
@@ -179,20 +189,34 @@ type front struct {
 	// over.
 	sessionless bool
 	inflight    map[string]bool // calls from the client not yet answered
-	listens     map[string]bool // the subscriptions/listen calls among them, parked until the client leaves
-	awaiting    map[string]bool // calls to the client not yet answered
-	lost        bool
-	outLine     []byte
+	// listens are the subscriptions/listen calls among them, as the client
+	// sent them: each stays open until the client cancels it, so a handoff
+	// carries them instead of waiting.
+	listens map[string]json.RawMessage
+	// adopted are the listens replayed from a handoff, whose acknowledgement
+	// the client already had from the process before.
+	adopted  map[string]bool
+	awaiting map[string]bool // calls to the client not yet answered
+	lost     bool
+	outLine  []byte
 }
 
 func newFront(in io.Reader, out io.Writer, bin *binaryWatch, log io.Writer) *front {
-	return &front{in: in, out: out, bin: bin, log: log, inflight: map[string]bool{}, listens: map[string]bool{}, awaiting: map[string]bool{}}
+	return &front{in: in, out: out, bin: bin, log: log, inflight: map[string]bool{},
+		listens: map[string]json.RawMessage{}, adopted: map[string]bool{}, awaiting: map[string]bool{}}
 }
 
-// resume takes the session a replaced binary handed over.
+// resume takes the session a replaced binary handed over: the state, then the
+// open listen requests replayed to the SDK ahead of the waiting message.
 func (f *front) resume(h handoff) {
 	f.state = h.State
-	f.pending = []byte(h.Next)
+	for _, raw := range h.Listens {
+		if msgs, ok := messages(raw); ok && len(msgs) == 1 {
+			f.adopted[idKey(msgs[0].ID)] = true
+		}
+		f.pending = append(append(f.pending, raw...), '\n')
+	}
+	f.pending = append(f.pending, h.Next...)
 }
 
 // transport is the SDK's view of the front.
@@ -206,7 +230,8 @@ func (nopWriteCloser) Close() error { return nil }
 
 // Read gives the SDK the next bytes of the current line. At a line's start it
 // reads one byte, which says a message is waiting; when the binary has been
-// replaced and nothing is in flight, that is the moment to hand over.
+// replaced and nothing but listen streams is in flight, that is the moment to
+// hand over.
 func (f *front) Read(p []byte) (int, error) {
 	if len(f.pending) == 0 {
 		if len(f.line) == 0 {
@@ -244,45 +269,48 @@ func (f *front) Read(p []byte) (int, error) {
 
 func isSpace(b byte) bool { return b == ' ' || b == '\t' || b == '\r' || b == '\n' }
 
-// Write passes the SDK's output on, following each complete line.
+// Write passes the SDK's output on a line at a time, following each line and
+// writing what outbound makes of it. The SDK writes whole lines, so nothing
+// waits here for long.
 func (f *front) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	n, err := f.out.Write(p)
-	f.outLine = append(f.outLine, p[:n]...)
+	f.outLine = append(f.outLine, p...)
 	for {
 		i := bytes.IndexByte(f.outLine, '\n')
 		if i < 0 {
-			break
+			return len(p), nil
 		}
-		f.outbound(f.outLine[:i])
+		line := f.outbound(f.outLine[:i+1])
 		f.outLine = f.outLine[i+1:]
+		if _, err := f.out.Write(line); err != nil {
+			return 0, err
+		}
 	}
-	return n, err
 }
 
 // maybeHandOver execs the replacement binary when the session is between
-// messages and fully initialized. It returns only when the session stays.
+// messages, fully initialized, and holds nothing open but listen streams. It
+// returns only when the session stays.
 func (f *front) maybeHandOver(next byte) {
 	f.mu.Lock()
 	st := f.state
 	initialized := st.InitializeParams != nil && st.InitializedParams != nil && st.NegotiatedProtocolVersion != ""
 	open := !f.lost && (initialized || f.sessionless && st.InitializeParams == nil)
-	listening := len(f.inflight) > 0 && len(f.inflight) == len(f.listens)
-	idle := open && len(f.inflight) == 0 && len(f.awaiting) == 0
+	idle := open && len(f.inflight) == len(f.listens) && len(f.awaiting) == 0
 	h := handoff{State: f.state, Next: string(next)}
+	for _, id := range slices.Sorted(maps.Keys(f.listens)) {
+		h.Listens = append(h.Listens, f.listens[id])
+	}
 	f.mu.Unlock()
-	if !idle && (!open || !listening) {
+	if !idle {
 		return
 	}
 	info, ok := f.bin.candidate()
 	if !ok {
 		return
 	}
-	err := errors.New("the client holds a subscriptions/listen stream open, which a new process can't resume")
-	if idle {
-		err = f.takeOver(h)
-	}
+	err := f.takeOver(h)
 	fmt.Fprintf(f.log, "severino-vault-mcp: %s was replaced, but the new binary could not take over the session: %v\n", f.bin.path, err)
 	f.bin.refuse(info, err)
 }
@@ -293,6 +321,7 @@ type wireMessage struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params"`
 	Result json.RawMessage `json:"result"`
+	raw    json.RawMessage
 }
 
 // perRequest reports whether a call names its protocol version in its own
@@ -313,15 +342,18 @@ func messages(line []byte) ([]wireMessage, bool) {
 	if len(line) == 0 {
 		return nil, true
 	}
-	var batch []wireMessage
-	if line[0] == '[' {
-		return batch, json.Unmarshal(line, &batch) == nil
-	}
-	var m wireMessage
-	if json.Unmarshal(line, &m) != nil {
+	raws := []json.RawMessage{line}
+	if line[0] == '[' && json.Unmarshal(line, &raws) != nil {
 		return nil, false
 	}
-	return []wireMessage{m}, true
+	msgs := make([]wireMessage, len(raws))
+	for i, raw := range raws {
+		if json.Unmarshal(raw, &msgs[i]) != nil {
+			return nil, false
+		}
+		msgs[i].raw = slices.Clone(raw)
+	}
+	return msgs, true
 }
 
 // idKey is a request id as one comparable string, the same for the id the
@@ -365,7 +397,7 @@ func (f *front) inbound(line []byte) {
 				}
 				f.state.InitializeParams, f.initID = &params, id
 			case "subscriptions/listen":
-				f.listens[id] = true
+				f.listens[id] = m.raw
 			}
 		case m.Method == "notifications/initialized":
 			params := &mcp.InitializedParams{}
@@ -379,12 +411,20 @@ func (f *front) inbound(line []byte) {
 	}
 }
 
-// outbound follows a line the server wrote; the caller holds f.mu.
-func (f *front) outbound(line []byte) {
+// outbound follows a line the server wrote and returns what to send in its
+// place; the caller holds f.mu. An adopted listen's acknowledgement is not
+// sent again: the client is told instead that each list it subscribed to may
+// have changed, since the new binary may serve different ones.
+func (f *front) outbound(line []byte) []byte {
 	msgs, ok := messages(line)
 	if !ok {
 		f.lost = true
-		return
+		return line
+	}
+	if len(msgs) == 1 && msgs[0].Method == "notifications/subscriptions/acknowledged" {
+		if changed, ok := f.adoptedAck(msgs[0]); ok {
+			return changed
+		}
 	}
 	for _, m := range msgs {
 		id := idKey(m.ID)
@@ -403,11 +443,48 @@ func (f *front) outbound(line []byte) {
 			f.awaiting[id] = true
 		}
 	}
+	return line
+}
+
+// listChanged pairs each list a listen stream can subscribe to with the
+// notification that says it changed.
+var listChanged = []struct {
+	subscribed func(*mcp.NotificationSubscriptions) bool
+	method     string
+}{
+	{func(n *mcp.NotificationSubscriptions) bool { return n.ToolsListChanged }, "notifications/tools/list_changed"},
+	{func(n *mcp.NotificationSubscriptions) bool { return n.PromptsListChanged }, "notifications/prompts/list_changed"},
+	{func(n *mcp.NotificationSubscriptions) bool { return n.ResourcesListChanged }, "notifications/resources/list_changed"},
+}
+
+// adoptedAck is what replaces the acknowledgement of an adopted listen: a
+// list-changed notification on that stream for each list it honors. ok is
+// false for any other acknowledgement.
+func (f *front) adoptedAck(m wireMessage) ([]byte, bool) {
+	var params struct {
+		Meta          map[string]json.RawMessage    `json:"_meta"`
+		Notifications mcp.NotificationSubscriptions `json:"notifications"`
+	}
+	if json.Unmarshal(m.Params, &params) != nil {
+		return nil, false
+	}
+	sub := params.Meta[mcp.MetaKeySubscriptionID]
+	if !f.adopted[idKey(sub)] {
+		return nil, false
+	}
+	delete(f.adopted, idKey(sub))
+	var out []byte
+	for _, l := range listChanged {
+		if l.subscribed(&params.Notifications) {
+			out = fmt.Appendf(out, `{"jsonrpc":"2.0","method":%q,"params":{"_meta":{%q:%s}}}`+"\n", l.method, mcp.MetaKeySubscriptionID, sub)
+		}
+	}
+	return out, true
 }
 
 // toolsChanged tells an initialized client to list the tools again, which
-// the new binary may have changed. A per-request client hears of changes only
-// on a listen stream, which keeps a call in flight and so never hands over.
+// the new binary may have changed. A per-request client hears it on the
+// listen streams resume adopted, in place of their acknowledgement.
 func (f *front) toolsChanged() error {
 	if f.state.InitializedParams == nil {
 		return nil

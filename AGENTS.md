@@ -100,12 +100,16 @@ docs/                    architecture, safety model, tool contract, testing and 
   of the vault's resolved root path (rule and example in the contract doc).
   Changing the path rule is a contract change for every such writer.
 - The session handoff (`internal/mcpserver/binary.go`): a server whose binary
-  was replaced, between messages with every call answered, first runs the new
-  binary with `SVMC_SESSION_HANDOFF=probe`, which must print exactly
-  `handoffReady` (`severino-vault-mcp session handoff 1`) and exit 0. It then
-  execs it with `SVMC_SESSION_HANDOFF` set to the JSON `handoff`:
-  `{"state": <mcp.ServerSessionState>, "next": <the first byte of the waiting
-  message>}`. A build that changes that format either still accepts the
+  was replaced, between messages with every call answered but the client's
+  open `subscriptions/listen` streams, first runs the new binary with
+  `SVMC_SESSION_HANDOFF=probe`, which must print exactly `handoffReady`
+  (`severino-vault-mcp session handoff 2`) and exit 0. It then execs it with
+  `SVMC_SESSION_HANDOFF` set to the JSON `handoff`:
+  `{"state": <mcp.ServerSessionState>, "listens": [<each open listen request
+  as the client sent it>], "next": <the first byte of the waiting message>}`.
+  The new process replays the listens to its SDK and sends, in place of their
+  acknowledgement, a list-changed notification on each for every list it
+  honors. A build that changes that format either still accepts the
   previous one and keeps answering its ready line, or bumps the version in
   `handoffReady`, so an older process refuses the takeover and keeps serving.
 - The work queue (`queue` tool and CLI, `docs/ai-tool-contract.md#work-queue`):

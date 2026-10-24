@@ -178,3 +178,26 @@ func TestABodyIsSetAndRemovedThroughTheCLI(t *testing.T) {
 		t.Fatal(exit, out)
 	}
 }
+
+// close --items closes several items in one call, each <id>=<resolution>,
+// a bare id taking --resolution; a refused one exits 1 with the rest closed.
+func TestCloseItemsClosesSeveralThroughTheCLI(t *testing.T) {
+	root := tk.Dir(t)
+	tk.Doc(t, filepath.Join(root, "01 Projects/Example Tracker/index.md"),
+		"doc_id: project-example-tracker\ntitle: Example Tracker\ndoc_type: architecture_note\nsystem: Example\n"+
+			"environment: other\nstatus: active\nsensitivity: internal\nqueue_prefix: ex", "# Example Tracker\n")
+	for _, text := range []string{"First", "Second", "Third"} {
+		if exit, out, _ := run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "next", "--text", text); exit != 0 {
+			t.Fatal(exit, out)
+		}
+	}
+	exit, out, _ := run(t, root, "", "queue", "close", "--items", "ex-1=example-tracker@abc1234", "ex-2", "--status", "dropped", "--resolution", "stale")
+	if r := decode(t, out); exit != 0 || tk.Get(r, "results.0.resolution") != "example-tracker@abc1234" || tk.Get(r, "results.1.resolution") != "stale" ||
+		tk.Get(r, "results.0.status") != "dropped" {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "close", "--items", "ex-3=done", "ex-9=done")
+	if r := decode(t, out); exit != 1 || tk.Get(r, "results.0.ok") != true || tk.Get(r, "results.1.ok") != false {
+		t.Fatal(exit, out)
+	}
+}

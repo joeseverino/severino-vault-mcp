@@ -971,7 +971,7 @@
           "name": "id",
           "positional": true,
           "required": false,
-          "help": "set, close: one item's id, <prefix>-<number>, e.g. example-3; one id per call."
+          "help": "set, close: one item's id, <prefix>-<number>, e.g. example-3; one id per call (--items closes several)."
         },
         {
           "name": "--project",
@@ -1197,7 +1197,7 @@
           "name": "--contains",
           "positional": false,
           "required": false,
-          "help": "list: items whose text contains this (case-insensitive).",
+          "help": "list: items whose id or text contains this (case-insensitive), so 163 finds hq-163.",
           "flags": [
             "--contains"
           ],
@@ -1252,6 +1252,17 @@
             "--partial"
           ],
           "takes_value": false
+        },
+        {
+          "name": "--items",
+          "positional": false,
+          "required": false,
+          "help": "close: several items in one call instead of an id, each <id>=<resolution> (a bare <id> takes --resolution); --status applies to all. Each queue is rewritten once; results holds one entry per item, so a refused one leaves the rest closed.",
+          "flags": [
+            "--items"
+          ],
+          "takes_value": true,
+          "metavar": "ID=RESOLUTION"
         },
         {
           "name": "--fields",

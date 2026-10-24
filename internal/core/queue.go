@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
@@ -80,6 +81,8 @@ type QueueArgs struct {
 	Limit              int
 	Claim, Release     bool
 	Resolution         string
+	// Items closes several items at once; nil is a close of one by ID or Agent.
+	Items []QueueClose
 	View
 }
 
@@ -1028,6 +1031,9 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 			msg := fmt.Sprintf("id %q is not <prefix>-<number>, such as example-3", a.ID)
 			if strings.ContainsAny(a.ID, " \t\n") {
 				msg += "; pass one id per call, not several joined"
+				if a.Action == "close" {
+					msg += ", or close several as items"
+				}
 			}
 			return queueProject{}, "", failNext(msg, findIt)
 		}
@@ -1152,6 +1158,21 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	held := ""
 	return warnHeld(s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
 		held = holder(*it, a.Agent)
+		if a.Resolution != "" {
+			if !queue.Done(it.Status) {
+				return failNext(fmt.Sprintf("%s is %s; a resolution is recorded by close, and corrected by set only on a closed or dropped item", id, it.Status),
+					qcall("action", "close", "id", id, "resolution", "..."))
+			}
+			if a.Claim || a.Release || a.Status != "" || a.Agent != "" || a.Kind != "" {
+				return failNext(fmt.Sprintf("%s is %s; set corrects its resolution and takes no status, claim, release, agent or kind with it", id, it.Status),
+					qcall("action", "set", "id", id, "resolution", a.Resolution))
+			}
+			resolution := pystr.Strip(a.Resolution)
+			if err := queue.OneLine("resolution", resolution); err != nil {
+				return failNext(err.Error(), qcall("action", "set", "id", id, "resolution", "example-repo@abc1234"))
+			}
+			it.Resolution = resolution
+		}
 		if queue.Done(it.Status) && (a.Claim || a.Status != "") {
 			return failNext(fmt.Sprintf("%s is %s; a done item is not reopened or claimed", id, it.Status),
 				qcall("action", "add", "kind", "next", "text", "...")+" to file the work as a new item")
@@ -1233,30 +1254,45 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	}), &held)
 }
 
-func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
-	resolution := pystr.Strip(a.Resolution)
+// QueueClose is one item of a close over several: its id, and its own
+// resolution and status, each the call's when left empty.
+type QueueClose struct{ ID, Resolution, Status string }
+
+// closeArgs checks a close's status and resolution before anything is read,
+// and gives the status it closes with (closed by default).
+func closeArgs(id, status, resolution string, partial bool) (string, *jsonx.Obj) {
 	if err := queue.OneLine("resolution", resolution); err != nil {
-		return failNext("close needs resolution: one line such as repo@sha, a PR, a doc id, or why it was dropped; on the CLI: queue close "+
-			cmp.Or(a.ID, "<id>")+" --resolution 'example-repo@abc1234'",
-			qcall("action", "close", "id", a.ID, "resolution", "example-repo@abc1234"))
+		return "", failNext("close needs resolution: one line such as repo@sha, a PR, a doc id, or why it was dropped; on the CLI: queue close "+
+			cmp.Or(id, "<id>")+" --resolution 'example-repo@abc1234'",
+			qcall("action", "close", "id", id, "resolution", "example-repo@abc1234"))
 	}
-	status := a.Status
-	if status == "" {
-		status = "closed"
-	}
+	given := status
+	status = cmp.Or(status, "closed")
 	if !queue.Done(status) {
-		return failNext(fmt.Sprintf("close takes status closed or dropped, not %q", a.Status),
-			qcall("action", "close", "id", a.ID, "status", "dropped", "resolution", "..."))
+		return "", failNext(fmt.Sprintf("close takes status closed or dropped, not %q", given),
+			qcall("action", "close", "id", id, "status", "dropped", "resolution", "..."))
 	}
-	if a.Partial {
+	if partial {
 		if status != "closed" {
-			return failNext("partial records landings; drop the item with status=dropped and no partial",
-				qcall("action", "close", "id", a.ID, "status", "dropped", "resolution", "..."))
+			return "", failNext("partial records landings; drop the item with status=dropped and no partial",
+				qcall("action", "close", "id", id, "status", "dropped", "resolution", "..."))
 		}
 		if _, ok := queue.Landings(resolution); !ok {
-			return failNext("partial takes the landed repos as repo@sha, comma-separated",
-				qcall("action", "close", "id", a.ID, "partial", true, "resolution", "example-repo@abc1234"))
+			return "", failNext("partial takes the landed repos as repo@sha, comma-separated",
+				qcall("action", "close", "id", id, "partial", true, "resolution", "example-repo@abc1234"))
 		}
+	}
+	return status, nil
+}
+
+func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
+	if a.Items != nil {
+		return s.closeMany(a)
+	}
+	resolution := pystr.Strip(a.Resolution)
+	status, f := closeArgs(a.ID, a.Status, resolution, a.Partial)
+	if f != nil {
+		return f
 	}
 	if err := checkInput(a); err != nil {
 		return failNext(err.Error(), qcall("action", "close", "id", a.ID)+" with what the error names fixed")
@@ -1268,26 +1304,146 @@ func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 	held := ""
 	return warnHeld(s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
 		held = holder(*it, a.Agent)
-		if len(it.Repos) > 0 && !queue.Done(it.Status) {
-			applyLinks(it, a.Links)
-			return land(it, status, resolution, a.Partial)
-		}
-		if a.Partial && len(it.Repos) == 0 {
-			return failNext(id+" lists no repos; partial is for one worker's item spanning several",
-				qcall("action", "close", "id", id, "resolution", resolution))
-		}
-		// A box ticked in Obsidian is done without a resolution; close records one.
-		if queue.Done(it.Status) && it.Resolution != "" {
-			if it.Status == status && (it.Resolution == resolution || a.Partial && recorded(it.Resolution, resolution)) {
-				return nil
-			}
-			return failNext(fmt.Sprintf("%s is already %s → %s", id, it.Status, it.Resolution),
-				qcall("action", "add", "kind", "next", "text", "...")+" to file the work as a new item")
-		}
-		applyLinks(it, a.Links)
-		it.Status, it.Resolution = status, resolution
-		return nil
+		return closeItem(it, status, resolution, a.Partial, a.Links)
 	}), &held)
+}
+
+// closeItem closes it with status and resolution, or refuses why it can't:
+// an item with repos lands them, and a done item takes only the resolution
+// it already has (or, a box ticked in Obsidian, its first).
+func closeItem(it *queue.Item, status, resolution string, partial bool, links map[string]string) *jsonx.Obj {
+	id := it.ID
+	if len(it.Repos) > 0 && !queue.Done(it.Status) {
+		applyLinks(it, links)
+		return land(it, status, resolution, partial)
+	}
+	if partial && len(it.Repos) == 0 {
+		return failNext(id+" lists no repos; partial is for one worker's item spanning several",
+			qcall("action", "close", "id", id, "resolution", resolution))
+	}
+	if queue.Done(it.Status) && it.Resolution != "" {
+		if it.Status == status && (it.Resolution == resolution || partial && recorded(it.Resolution, resolution)) {
+			return nil
+		}
+		return failNext(fmt.Sprintf("%s is already %s → %s", id, it.Status, it.Resolution),
+			qcall("action", "add", "kind", "next", "text", "...")+" to file the work as a new item")
+	}
+	applyLinks(it, links)
+	it.Status, it.Resolution = status, resolution
+	return nil
+}
+
+// closeMany closes each of a.Items with its own resolution and status, every
+// change to one queue in one locked rewrite. Each item gets its own result,
+// so one refused item leaves the others closed.
+func (s *queueStore) closeMany(a QueueArgs) *jsonx.Obj {
+	example := []*jsonx.Obj{jsonx.New("id", "example-3", "resolution", "example-repo@abc1234"),
+		jsonx.New("id", "example-4", "status", "dropped", "resolution", "superseded by example-9")}
+	if a.ID != "" || a.Agent != "" || a.Partial || a.Links != nil {
+		return failNext("items closes each item by its id; give no id, agent, partial or links with it",
+			qcall("action", "close", "items", example))
+	}
+	if len(a.Items) == 0 {
+		return failNext("items: give at least one item to close", qcall("action", "close", "items", example))
+	}
+	type job struct {
+		at                     int
+		id, status, resolution string
+	}
+	results := make([]*jsonx.Obj, len(a.Items))
+	var order []queueProject
+	jobs := map[string][]job{}
+	for i, c := range a.Items {
+		id := pystr.Strip(c.ID)
+		resolution := pystr.Strip(cmp.Or(c.Resolution, a.Resolution))
+		status, f := closeArgs(id, cmp.Or(c.Status, a.Status), resolution, false)
+		if f == nil {
+			if _, _, ok := queue.SplitID(id); !ok {
+				f = failNext(fmt.Sprintf("id %q is not <prefix>-<number>, such as example-3", id),
+					qcall("action", "list", "all", true, "contains", id, "fields", []string{"id", "project", "text"})+" to find the item's id")
+			} else if slices.ContainsFunc(a.Items[:i], func(o QueueClose) bool { return pystr.Strip(o.ID) == id }) {
+				f = failNext(fmt.Sprintf("%s is given more than once; the first stands", id), qcall("action", "close", "items", example))
+			}
+		}
+		var p queueProject
+		if f == nil {
+			p, _, f = s.locate(id)
+		}
+		if f != nil {
+			results[i] = f.Set("id", id)
+			continue
+		}
+		if _, seen := jobs[p.name]; !seen {
+			order = append(order, p)
+		}
+		jobs[p.name] = append(jobs[p.name], job{i, id, status, resolution})
+	}
+	for _, p := range order {
+		js := jobs[p.name]
+		if _, f := s.readWritable(p); f != nil {
+			for _, j := range js {
+				results[j.at] = jsonx.Failure().Merge(f).Set("id", j.id)
+			}
+			continue
+		}
+		// edit may run more than once; each run starts the results over, and
+		// a run that changes no item writes nothing.
+		ran, changed := false, false
+		f := s.change(p, func(b *queueBody) *jsonx.Obj {
+			ran, changed = false, false
+			for _, j := range js {
+				i := b.find(j.id)
+				if i < 0 {
+					results[j.at] = failNext(fmt.Sprintf("no item %q in %s", j.id, p.rel()),
+						qcall("action", "list", "project", p.name, "status", "all", "fields", []string{"id", "status", "text"})+" to see its ids").Set("id", j.id)
+					continue
+				}
+				it := b.items[i].it
+				held := holder(it, "")
+				before := queue.Format(it)
+				f := closeItem(&it, j.status, j.resolution, false, nil)
+				if f == nil {
+					if err := it.Validate(); err != nil {
+						f = failNext(err.Error(), qcall("action", "close", "id", j.id)+" with what the error names fixed")
+					}
+				}
+				if f != nil {
+					results[j.at] = f.Set("id", j.id)
+					continue
+				}
+				out := jsonx.New("ok", true, "id", j.id, "project", p.name, "status", it.Status, "resolution", it.Resolution)
+				if queue.Format(it) == before {
+					out.Set("no_op", true)
+				} else {
+					b.put(i, it)
+					changed = true
+				}
+				results[j.at] = warnHeld(out, &held)
+			}
+			ran = true
+			if !changed {
+				return jsonx.Fail("nothing to write")
+			}
+			return nil
+		})
+		if f != nil && (!ran || changed) {
+			for _, j := range js {
+				results[j.at] = jsonx.Failure().Merge(f).Set("id", j.id)
+			}
+		}
+	}
+	var refused []string
+	for i, r := range results {
+		if r.Failed() {
+			refused = append(refused, pystr.Strip(a.Items[i].ID))
+		}
+	}
+	if len(refused) == 0 {
+		return jsonx.New("ok", true, "count", len(results), "results", results)
+	}
+	return failNext(fmt.Sprintf("%d of %d items were not closed: %s; the others were", len(refused), len(results), pystr.Quoted(refused)),
+		"each refused result's error and next_steps say how to close it; retry those alone").
+		Set("count", len(results)).Set("results", results)
 }
 
 // holder is the agent holding it (open or returned, with an agent) when
@@ -1359,6 +1515,29 @@ func land(it *queue.Item, status, resolution string, partial bool) *jsonx.Obj {
 func recorded(resolution, given string) bool {
 	have := queue.SplitList(resolution)
 	return !slices.ContainsFunc(queue.SplitList(given), func(e string) bool { return !slices.Contains(have, e) })
+}
+
+// gistChars is about how much of an item's text the default list shows.
+const gistChars = 100
+
+// gist is the text the default list shows: the whole text when it fits in
+// gistChars, else its first clause (up to the first "; ") when that clause is
+// long enough to name the work, else its words up to gistChars. A cut text
+// ends in "…"; fields with text gives it whole.
+func gist(s string) string {
+	if utf8.RuneCountInString(s) <= gistChars {
+		return s
+	}
+	if clause, _, ok := strings.Cut(s, "; "); ok {
+		if n := utf8.RuneCountInString(clause); n >= gistChars/3 && n <= gistChars {
+			return clause + "…"
+		}
+	}
+	head := pystr.Prefix(s, gistChars)
+	if i := strings.LastIndexByte(head, ' '); i > len(head)/2 {
+		head = head[:i]
+	}
+	return strings.TrimRight(head, " ,;:") + "…"
 }
 
 // linksMatch reports whether an item carries each wanted link exactly; a
@@ -1472,14 +1651,18 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 				a.Agent != "" && it.Agent != a.Agent,
 				!linksMatch(it.Links, a.Links),
 				a.Owner != nil && it.Owner != owner(*a.Owner),
-				a.Contains != "" && !containsFold(it.Text, a.Contains):
+				a.Contains != "" && !containsFold(it.Text, a.Contains) && !containsFold(it.ID, a.Contains):
 				continue
 			}
 			if a.Ready && (it.Status != "open" || (it.Kind != "next" && it.Kind != "follow-up") ||
 				slices.ContainsFunc(it.BlockedBy, func(b string) bool { return !closedIDs(b) })) {
 				continue
 			}
-			matched = append(matched, itemObj(it, p.name))
+			o := itemObj(it, p.name)
+			if m != nil && a.Fields == nil {
+				o.Set("text", gist(it.Text))
+			}
+			matched = append(matched, o)
 		}
 	}
 	count := len(matched)
