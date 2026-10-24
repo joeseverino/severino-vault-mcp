@@ -60,5 +60,5 @@ func TestReadmeToolsTable(t *testing.T) {
 		}
 		return
 	}
-	t.Fatalf("README.md's tool table drifted from the registered tools; regenerate with SVMC_UPDATE_README=1 go test -run TestReadmeToolsTable ./internal/mcpserver\n\nwant:\n%s", toolsTable(t))
+	t.Fatalf("README.md's tool table drifted from the registered tools; regenerate with mise run readme\n\nwant:\n%s", toolsTable(t))
 }

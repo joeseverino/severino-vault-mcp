@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"errors"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/clock"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,7 +160,7 @@ related_projects: [homelab-apps]
 	}
 }
 
-func TestFindTextModeHonoursTheFilters(t *testing.T) {
+func TestFindTextModeHonorsTheFilters(t *testing.T) {
 	requireRG(t)
 	root := tk.FakeVault(t)
 	v := tk.Vault(root)
@@ -933,6 +934,23 @@ tags: [keep]
 		t.Fatal(note)
 	}
 	if r := mustOK(t, core.SetFrontmatter(v, rel, write.Changes{}.Unsetting("stray_key"))); !r.Bool("no_op") {
+		t.Fatal(jsonx.Compact(r))
+	}
+}
+
+func TestTouchReviewedTakesADocIDATitleOrAPath(t *testing.T) {
+	const rel = "03 Runbooks/Add Nginx Proxy Host.md"
+	for _, ref := range []string{"rb-add-nginx-proxy-host", "Add Nginx Proxy Host", rel} {
+		root := tk.FakeVault(t)
+		r := core.TouchReviewed(tk.Vault(root), ref)
+		if !r.Bool("ok") || r.Str("relative_path") != rel || r.Str("doc_id") != "rb-add-nginx-proxy-host" {
+			t.Fatalf("%q: %s", ref, jsonx.Compact(r))
+		}
+		if body := tk.Read(t, filepath.Join(root, rel)); strings.Contains(body, "last_reviewed: 2025-01-01") || !strings.Contains(body, "last_reviewed: "+clock.TodayISO()) {
+			t.Fatalf("%q: %s", ref, body)
+		}
+	}
+	if r := core.TouchReviewed(tk.Vault(tk.FakeVault(t)), "No Such Doc"); r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

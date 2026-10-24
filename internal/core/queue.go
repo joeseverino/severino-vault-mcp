@@ -45,7 +45,7 @@ const (
 	queueLimit     = 50
 )
 
-// decisionClaimer is the owner of a decision the orchestrator holds, which a
+// decisionClaimer is the owner of a decision the coordinating session holds, which a
 // claim may hand to a worker.
 const decisionClaimer = "main"
 
@@ -1183,9 +1183,9 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			case it.Agent != "" && it.Agent != a.Agent:
 				return failNext(fmt.Sprintf("%s is held by agent %s", id, it.Agent), pick).Set("agent", it.Agent)
 			case it.Kind == "decision" && a.Kind == "delegated" && it.Owner != "" && it.Owner != decisionClaimer:
-				return failNext(fmt.Sprintf("%s is owned by %s; only a decision the orchestrator (%s) owns or nobody owns is claimed", id, it.Owner, decisionClaimer), pick).Set("owner", it.Owner)
+				return failNext(fmt.Sprintf("%s is owned by %s; only a decision the coordinating session (%s) owns or nobody owns is claimed", id, it.Owner, decisionClaimer), pick).Set("owner", it.Owner)
 			case it.Kind == "decision" && a.Kind == "delegated":
-				// The orchestrator's own decision passes to the worker that takes it.
+				// The coordinating session's own decision passes to the worker that takes it.
 			case it.Owner != "" && it.Owner != owner(*a.Owner):
 				return failNext(fmt.Sprintf("%s is owned by %s", id, it.Owner), pick).Set("owner", it.Owner)
 			}

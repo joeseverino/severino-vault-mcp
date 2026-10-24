@@ -25,7 +25,6 @@ is the record up to v3.0.0, whose breaking changes are listed first.
   `include_archived=true`, and `move_doc`/`move_folder` take only archived
   docs there (`archive=true` sets the status). `fsx.Vault.Move` moves a
   folder under the lock of every note in it.
-
 - **Breaking:** the MCP tools `daily_progress`, `update_link`, `recent_changes`
   and `education_dataset` are gone. The CLI keeps `export education` and
   `daily-write`; the uncalled `update-doc-link` command is gone too.
@@ -36,7 +35,7 @@ is the record up to v3.0.0, whose breaking changes are listed first.
 - The usage procedure moved from the server instructions to the `vault` skill
   (`skills/vault/SKILL.md`), and the repo installs as a Claude Code plugin
   (`.claude-plugin/plugin.json`, `.mcp.json`).
-- Breaking: the restricted unlock is a 1Password read of `[restricted].unlock_ref`
+- **Breaking:** the restricted unlock is a 1Password read of `[restricted].unlock_ref`
   (`SVMC_RESTRICTED_UNLOCK_REF`), approved with Touch ID through the desktop
   app. No `unlock_ref` keeps restricted bodies withheld, and a server with
   `OP_SERVICE_ACCOUNT_TOKEN` set refuses every unlock. The phrase prompt, the

@@ -10,7 +10,7 @@ binary, so a change to one of these shapes is a contract change for its reader.
 | resume-engine | `export education` | Read by its `lib/reconcile-coursework`. |
 | Cordon | `describe` | Emits the CLI surface as a [Cordon](https://github.com/joeseverino/cordon) contract, generated from the same command table that parses arguments. |
 | `tools doctor` | `--fingerprint` | Hashes the binary's embedded Go sources so a stale install can be told from the source tree. `go run ./cmd/severino-vault-mcp --fingerprint` is the source side. |
-| Session and worker hooks | `queue`, `validate <path>...` | `validate` prints `<relative_path>: <problem>` lines and exits 1; it is silent for paths no local vault indexes. |
+| Editor and agent hooks | `queue`, `validate <path>...` | `validate` prints `<relative_path>: <problem>` lines and exits 1; it is silent for paths no local vault indexes. |
 
 `tests/golden/` pins `schema.json`, `labs.schema.json`, `cli-describe.json` and
 `mcp-tools.txt`; a diff there is a deliberate contract change. Outside writers

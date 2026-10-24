@@ -1,17 +1,16 @@
 # Design: Federated, Section-Scoped Retrieval
 
-> **Status: P1 built (2026-06-12), vault-only; P2–P4 are still proposal.** This
+> **Status: P1 is built and indexes the vault only; P2–P4 are proposals.** This
 > doc locks the decisions; nothing in an unbuilt phase ships until it's built
 > and tested. Edit this doc, not the code, until the next phase is agreed.
 
 ## Problem
 
-A fact about a repo (the `hq ship` behavior, the 25 tool names, a gate list)
+A fact about a repo (a deploy command's behavior, the tool names, a gate list)
 lives in that repo. Today the MCP indexes **only the vault**, so the only way
 an AI session can recall a repo fact is if a human first copied it into a vault
 doc. That copy is the staleness engine: code changes → repo doc changes → and
-the vault copy rots until someone notices (the 2026-06-13 sweep fixed eight such
-copies at once).
+the vault copy rots until someone notices.
 
 Root cause is a missing **source boundary**, not a missing tool. The MCP doc
 that listed 8 of 25 tools wasn't under-maintained; it was restating something
@@ -22,8 +21,8 @@ the code can describe about itself.
 1. **One owner per fact.** A fact is authored in exactly one place; everywhere
    else *points* at it. No restating across systems.
 2. **Retrieval returns the smallest correct span.** The unit of return is a
-   section, not a file. (This is RULE 2, "match the doc's terseness", applied
-   to retrieval granularity.)
+   section, not a file. (Match the doc's terseness, applied to
+   retrieval granularity.)
 3. **Federation is token-neutral.** Adding repos to the index changes local
    build time and ranking sharpness, never the per-query token cost: retrieval
    returns the same small span regardless of corpus size.
@@ -49,9 +48,9 @@ shippable and testable against the fixture vault.
 
 ### 1. Section-scoped index (biggest win, no federation yet)
 
-Originally the loader (`internal/vault`) produced one `Doc` per file with a single `body`. Add a
-section view: parse the markdown heading tree and attach a list of `Section`
-spans to each `Doc`, each carrying its heading path
+The loader (`internal/vault`) produces one `Doc` per file with a single
+`body`, and adds a section view: parse the markdown heading tree and attach a
+list of `Section` spans to each `Doc`, each carrying its heading path
 (`"Routine operations > Backing commands"`), text span, start line, and the
 doc's inherited frontmatter (`doc_id`, `sensitivity`, provenance).
 
@@ -144,7 +143,7 @@ provenance in the response makes the source auditable.
   `--help` / `schema --json` slices, so structured-fact questions answer from
   the code's own output.
 
-## Decisions (resolved 2026-06-12, pre-P1)
+## Decisions
 
 These were the open decisions; each is now locked. Tagged with the phase the
 choice first bites: P1 decisions gate the first build, P2 ones are decided now

@@ -11,13 +11,46 @@ permissions:
   contents: read
 
 jobs:
+  # Nothing builds until the tag passes: it names a commit already on main,
+  # and its major matches go.mod's module path.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Nothing installs that mise.lock does not record.
+      MISE_LOCKED: "1"
+      # The tag check needs only Go, so `mise run` installs nothing more.
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+    steps:
+      # The full history, so main's commits are there to compare against.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "::error::tag $GITHUB_REF_NAME names $(git rev-parse HEAD), which is not on main"
+            exit 1
+          fi
+
+      # A tag run reads main's cache and never writes one.
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install_args: go
+          cache_save: false
+
+      - name: The tag is vX.Y.Z and go.mod's module path carries its major
+        run: mise run release:tag-check "$GITHUB_REF_NAME"
+
   # The build flags match the documented `go install -trimpath`; --fingerprint
   # hashes the embedded sources, so it is the same for every platform built
   # from this tag.
   build:
+    needs: verify
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     strategy:
       fail-fast: true
       matrix:
@@ -34,25 +67,6 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-
-      # `go install ...@vN.x.y` resolves only when the module path carries the
-      # tag's major as a /vN suffix (none for v0 and v1).
-      - name: The module path matches the tag's major
-        run: |
-          module="$(go list -m)"
-          major="${GITHUB_REF_NAME%%.*}"
-          case "$major" in
-            v0 | v1) want="" ;;
-            *) want="/$major" ;;
-          esac
-          case "$module" in
-            */v[0-9]*) have="/${module##*/}" ;;
-            *) have="" ;;
-          esac
-          if [ "$have" != "$want" ]; then
-            echo "::error file=go.mod::tag $GITHUB_REF_NAME needs the module path to end in '$want'; go.mod says $module"
-            exit 1
-          fi
 
       - name: Build and archive
         env:
@@ -75,6 +89,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       id-token: write

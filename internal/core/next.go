@@ -107,17 +107,6 @@ func (v *Vault) exists(rel string) bool {
 	return err == nil
 }
 
-// docAt is the indexed doc at rel, or nil.
-func (v *Vault) docAt(rel string) *vault.Doc {
-	clean := filepath.Clean(strings.TrimLeft(rel, "/"))
-	for _, d := range v.Loader.Index(false).Docs {
-		if d.RelativePath == clean {
-			return d
-		}
-	}
-	return nil
-}
-
 // emptyFind is the way out of a search with no hits.
 func (v *Vault) emptyFind(q string, a FindArgs) []string {
 	steps := v.filterSteps(q, a)
@@ -132,7 +121,7 @@ func (v *Vault) emptyFind(q string, a FindArgs) []string {
 	} else {
 		steps = append(steps, "find(query=...) with a synonym or a broader word")
 	}
-	if _, ok := v.Loader.Index(false).ByDocID[QuickIndexDocID]; ok {
+	if d, _, _ := resolveDoc(v.Loader.Index(false), QuickIndexDocID); d != nil {
 		steps = append(steps, Call("read_doc", "doc_id", QuickIndexDocID)+" to browse the vault's quick index")
 	}
 	return steps
@@ -189,7 +178,7 @@ func (v *Vault) createSteps(rel, docID string) func(string) []string {
 			return []string{v.writable(rel)}
 		case v.exists(rel):
 			ref := rel
-			if d := v.docAt(rel); d != nil {
+			if d, _, _ := resolveDoc(v.Loader.Index(false), rel); d != nil {
 				ref = d.DocID
 			}
 			return []string{

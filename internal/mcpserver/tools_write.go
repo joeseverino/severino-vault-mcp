@@ -12,7 +12,7 @@ import (
 func (h *handlers) setFrontmatter(fields []schema.Field) coreTool {
 	fargs := write.Args(fields, "", false)
 	input := object(jsonx.New(
-		"relative_path", str("Path from the vault root."),
+		"relative_path", str(core.DocRefHelp("The doc")+" A file without frontmatter yet goes by its vault path."),
 		"vault", h.vaultProp("Which vault."),
 		write.UnsetKey, strList(write.UnsetHelp),
 	).Merge(frontmatterProps(fargs)), []string{"relative_path"})
@@ -33,8 +33,8 @@ func (h *handlers) writeDoc(fields []schema.Field) coreTool {
 		"mode", enum(core.WriteDocModes, "create", "See the tool description."),
 		"body", optStr("Markdown without frontmatter: the whole doc, or the section's content. Omit for delete_section and replace_text."),
 		"vault", h.vaultProp("Which vault."),
-		"relative_path", optStr("Path from the vault root; required to create."),
-		"doc_id", optStr("The new doc's id, or the doc to edit (or give relative_path)."),
+		"relative_path", optStr("Path from the vault root: required to create, or the doc to edit instead of doc_id."),
+		"doc_id", optStr(core.DocRefHelp("On create, the new doc's id; otherwise the doc to edit")),
 		"heading", optStr(`The section to edit: a heading_path or section slug from read_doc's outline, or a unique heading text without the #s; "" for the text before the first heading. Section modes, and replace_text to search only that section.`),
 		"old_text", optStr("replace_text: the exact text to replace, copied from read_doc; it must occur exactly once in the body, or in the section heading names."),
 		"new_text", optStr(`replace_text: what old_text becomes; "" removes it.`),

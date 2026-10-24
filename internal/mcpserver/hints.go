@@ -12,10 +12,10 @@ import (
 // Every core tool works inside the vault on disk, never the open world.
 var closedWorld = new(false)
 
-// annotations are the core tools' behaviour hints. Destructive is honest
-// rather than hopeful: set_frontmatter and write_doc overwrite values and
-// sections. Idempotent means repeating the
-// same call leaves the vault as the first call did.
+// annotations are the core tools' behavior hints. set_frontmatter and
+// write_doc are destructive: they overwrite values and sections. A tool is
+// idempotent when repeating the same call leaves the vault as the first call
+// did.
 var annotations = map[string]*mcp.ToolAnnotations{
 	"find":            {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},
 	"read_doc":        {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},

@@ -4,6 +4,8 @@
 # Claude Code bind to these, so a change here is a deliberate contract change.
 #
 # Run from the repo root:  mise run golden
+# Rewrite every snapshot from the binary instead:  mise run golden:update
+# (SVMC_UPDATE_GOLDEN=1; the README table is the readme task's).
 # Exit 0 = all surfaces unchanged. Exit 1 = drift (printed as a diff).
 # Exit 2 = go is not on PATH.
 #
@@ -26,6 +28,16 @@ fail=0
 
 check() {
   local name="$1" golden="$2"; shift 2
+  if [ -n "${SVMC_UPDATE_GOLDEN:-}" ]; then
+    if "$@" >"$DIFF"; then
+      cp "$DIFF" "$golden"
+      echo "wrote: $name"
+    else
+      echo "FAILED: $name"
+      fail=1
+    fi
+    return
+  fi
   if ! diff -u "$golden" <("$@") >"$DIFF" 2>&1; then
     echo "DRIFT: $name"
     cat "$DIFF"
@@ -47,6 +59,16 @@ check "schema --json-schema" "$GOLDEN/labs.schema.json" "${CLI[@]}" schema --jso
 check "describe" "$GOLDEN/cli-describe.json" "${CLI[@]}" describe --pretty
 
 # 3. Registered MCP tool names, from the assembled server.
+if [ -n "${SVMC_UPDATE_GOLDEN:-}" ]; then
+  if go test -count=1 -run '^TestToolNamesMatchTheGolden$' ./internal/mcpserver/ >"$DIFF" 2>&1; then
+    echo "wrote: mcp tool names"
+  else
+    echo "FAILED: mcp tool names"
+    cat "$DIFF"
+    fail=1
+  fi
+  exit "$fail"
+fi
 if go test -count=1 -run '^TestToolNamesMatchTheGolden$' ./internal/mcpserver/ >"$DIFF" 2>&1; then
   echo "ok:    mcp tool names"
 else

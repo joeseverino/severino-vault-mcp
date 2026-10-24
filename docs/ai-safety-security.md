@@ -102,7 +102,7 @@ The approval is a fingerprint on the Mac, so nothing secret passes through:
 
 An agent can ask for a restricted body, but only the person at the Mac can
 approve it. If 1Password is locked, the CLI is missing, the prompt is
-cancelled, or the read fails, the body stays withheld and the response
+canceled, or the read fails, the body stays withheld and the response
 includes metadata plus the reason and the next step.
 
 ## Audit Logging

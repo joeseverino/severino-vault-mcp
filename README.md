@@ -216,7 +216,7 @@ bodies are withheld unless a local approval succeeds.
 
 The restricted unlock is macOS only: it needs Touch ID through the 1Password
 desktop app and the `op` CLI. Elsewhere, restricted bodies stay withheld. The
-gate limits what reaches AI context through this server; it is not a sandbox.
+gate limits what reaches AI context through this server and does not sandbox anything.
 The full table and the unlock flow are in
 [`docs/ai-safety-security.md`](docs/ai-safety-security.md).
 

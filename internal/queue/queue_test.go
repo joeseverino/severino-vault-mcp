@@ -24,8 +24,8 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		{ID: "b-11", Kind: "next", Status: "open", Text: "(a) [b]"},
 		{ID: "b-12", Kind: "delegated", Status: "returned", Text: "Spans repos", Agent: "a1", Origin: "example-site",
 			Repos: []string{"example-a", "example-b"}, Resolution: "example-a@abc1234"},
-		{ID: "b-13", Kind: "next", Status: "open", Owner: "joe", Text: "Has notes", BodyLink: "Example Note (draft)"},
-		{ID: "b-14", Kind: "next", Status: "open", Text: "about #queue/decision and #Owner/joe, #queue, #queued and #owner-x"},
+		{ID: "b-13", Kind: "next", Status: "open", Owner: "alex", Text: "Has notes", BodyLink: "Example Note (draft)"},
+		{ID: "b-14", Kind: "next", Status: "open", Text: "about #queue/decision and #Owner/alex, #queue, #queued and #owner-x"},
 		{ID: "b-15", Kind: "next", Status: "open", Text: "ends like a body ([[Other|notes]])", BodyLink: "projects/Example"},
 		{ID: "b-16", Kind: "next", Status: "open", Text: "#queue/next at the start, a #plain tag at the end #later"},
 		{ID: "b-17", Kind: "follow-up", Status: "open", Owner: "work_er-2", Text: "Owner with _ and -", Body: "project-x"},
@@ -221,7 +221,7 @@ func TestABoxTickedInObsidianIsClosedAndKeepsItsDate(t *testing.T) {
 func TestTextTagsInTheQueueNamespacesAreEscaped(t *testing.T) {
 	for text, want := range map[string]string{
 		"see #queue/decision":        `see \#queue/decision`,
-		"#owner/joe first":           `\#owner/joe first`,
+		"#owner/alex first":          `\#owner/alex first`,
 		"a #QUEUE/Next b":            `a \#QUEUE/Next b`,
 		"the #queue parent":          `the \#queue parent`,
 		"a #queued #owners #queue_x": "a #queued #owners #queue_x",
@@ -245,13 +245,13 @@ func TestTextTagsInTheQueueNamespacesAreEscaped(t *testing.T) {
 // end of the description when it rewrites the line; a hand edit may leave
 // them anywhere in that run. Every placement reads the same.
 func TestTagsReadWhereverTasksOrAHumanLeavesThem(t *testing.T) {
-	want := Item{ID: "hq-17", Kind: "decision", Status: "closed", Owner: "joe", Text: "Ship it?", BlockedBy: []string{"hq-12"},
+	want := Item{ID: "hq-17", Kind: "decision", Status: "closed", Owner: "alex", Text: "Ship it?", BlockedBy: []string{"hq-12"},
 		Extra: []string{"[completion:: 2026-10-22]"}}
 	for _, line := range []string{
-		"- [x] Ship it? #queue/decision #owner/joe  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22]",
-		"- [x] Ship it? #queue/decision #owner/joe [id:: hq-17] [dependsOn:: hq-12] [completion:: 2026-10-22]",
-		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12] #owner/joe #queue/decision  [completion:: 2026-10-22]",
-		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22] #queue/decision #owner/joe",
+		"- [x] Ship it? #queue/decision #owner/alex  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22]",
+		"- [x] Ship it? #queue/decision #owner/alex [id:: hq-17] [dependsOn:: hq-12] [completion:: 2026-10-22]",
+		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12] #owner/alex #queue/decision  [completion:: 2026-10-22]",
+		"- [x] Ship it?  [id:: hq-17]  [dependsOn:: hq-12]  [completion:: 2026-10-22] #queue/decision #owner/alex",
 	} {
 		if it, ok := Parse(line); !ok || !reflect.DeepEqual(it, want) {
 			t.Errorf("%q parsed as %+v (%v)", line, it, ok)
@@ -318,7 +318,7 @@ func FuzzTextRoundTrips(f *testing.F) {
 
 // Text, owner and body link together: whatever validates comes back as given.
 func FuzzTagsAndLinkRoundTrip(f *testing.F) {
-	for _, s := range [][3]string{{"a #queue/next", "joe", "Note"}, {"x ([[n|notes]])", "w-1", "dir/Note (v2)"}, {"#owner/x", "ü_2", "a b"}} {
+	for _, s := range [][3]string{{"a #queue/next", "alex", "Note"}, {"x ([[n|notes]])", "w-1", "dir/Note (v2)"}, {"#owner/x", "ü_2", "a b"}} {
 		f.Add(s[0], s[1], s[2])
 	}
 	f.Fuzz(func(t *testing.T, text, owner, link string) {

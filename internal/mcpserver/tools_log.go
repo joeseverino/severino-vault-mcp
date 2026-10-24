@@ -10,7 +10,7 @@ const logLimit = 50
 
 func (h *handlers) logEntries() coreTool {
 	input := object(jsonx.New(
-		"doc_id", str("The log note's doc_id (from `find`)."),
+		"doc_id", str(core.DocRefHelp("The log note")),
 		"action", enum(core.LogActions, core.LogActions[0], "list, close or annotate; see the tool description."),
 		"vault", h.vaultProp("Which vault."),
 		"open_only", jsonx.New("type", "boolean", "default", true, "description", "list: only entries without a resolution."),

@@ -99,6 +99,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 			r.add(Finding{rel, "warning", msg, ""})
 		}
 	}
+	refs.checkProjects(r)
 	return r
 }
 

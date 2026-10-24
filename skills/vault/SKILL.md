@@ -47,7 +47,7 @@ adds. Every shared tool takes `vault` (default labs).
 public, internal and sensitive bodies come back from `read_doc` (sensitive
 adds an `advisory` to pass along). restricted bodies are withheld unless the
 user explicitly needs one; pass `include_restricted=True`, which also needs the
-user's Touch ID approval through 1Password, from the main session only.
+user's Touch ID approval through 1Password, from the top-level session only.
 
 ## When a call fails
 
@@ -60,6 +60,11 @@ still come from the old one until the server is reconnected (`/mcp`, then
 Reconnect).
 
 ## Writes
+
+Every tool that names an existing doc (`read_doc`, `write_doc`, `set_frontmatter`,
+`move_doc`, `log_entries`) takes the same reference, resolved the same way: its
+doc_id, its title, or its vault path. A title several docs share is refused with
+each candidate's doc_id in `next_steps`; retry with the one you mean.
 
 - `set_frontmatter` creates or updates a doc's frontmatter against that
   vault's schema. It takes every field the vault's profile declares (they are

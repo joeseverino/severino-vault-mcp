@@ -8,17 +8,17 @@ are in [`AGENTS.md`](../AGENTS.md#verify). `deadcode` is a `tool` directive in
 
 ## Fuzzing and Benchmarks
 
-Fuzz targets cover the frontmatter parser, section chunking, the daily-note brief region and path ordering. Run one with:
+Fuzz targets cover the frontmatter parser, section chunking, the daily-note brief region, the queue line grammar and path ordering. Run one by name (the task finds its package; `--time` defaults to 20s):
 
 ```bash
-go test ./internal/frontmatter -run '^$' -fuzz FuzzSplit -fuzztime 20s
+mise run fuzz FuzzSplit
 ```
 
 A crashing input is written under the package's `testdata/fuzz/` and replays
 as a regular test. The vault index build has a benchmark:
 
 ```bash
-go test ./internal/vault -run '^$' -bench IndexBuild
+mise run bench IndexBuild
 ```
 
 `find(by="text")` tests need `rg` on `PATH`; `mise.toml` pins it.
@@ -27,11 +27,12 @@ go test ./internal/vault -run '^$' -bench IndexBuild
 
 ### `ci.yml`: the gate
 
-Runs on pushes to `main` and pull requests. One job, `mise run check`, the
-required status check: `jdx/mise-action` installs and caches the tools
-`mise.lock` pins, then runs the same `mise run check` as a laptop. `check`
-runs every `check:*` task and `golden` in parallel and lets each finish, so
-one run names every failure:
+Runs on pushes to `main` and pull requests. The `mise run check` job is the
+required status check: `jdx/mise-action` installs the tools `mise.lock` pins
+(with `MISE_LOCKED`, so a tool the lock does not record fails the install),
+then runs the same `mise run check` as a laptop. Only `main` writes the tool
+cache; a pull request reads it. `check` runs every `check:*` task and
+`golden` in parallel and lets each finish, so one run names every failure:
 
 - `check:gofmt`, `check:vet`, `check:test` (`-race`), `check:govulncheck`,
   `check:lint` (golangci-lint), `golden` (the contract snapshots);
@@ -40,6 +41,9 @@ one run names every failure:
   refuse a tracked `.env`, build output, or a file named like a sync
   conflict copy (`name 2.md`).
 
+On a pull request, the `Dependency review` job fails a change that adds or
+bumps a dependency with a known high or critical advisory.
+
 ### `codeql.yml`: SAST
 
 CodeQL with the `security-and-quality` suite for Go. Runs on push to `main`,
@@ -47,14 +51,17 @@ pull requests targeting `main`, and weekly on Monday at 06:17 UTC.
 
 ### `scorecard.yml`: project governance
 
-OSSF Scorecard. Runs on push to `main`, on branch protection rule changes, and
-weekly on Tuesday at 07:23 UTC. Results go to scorecard.dev and the Security
-tab.
+OSSF Scorecard. Runs on branch protection rule changes, weekly on Tuesday at
+07:23 UTC, and on demand (`workflow_dispatch`). Results go to scorecard.dev
+and the Security tab.
 
 ### `release.yml`
 
-Runs on a pushed `vX.Y.Z` tag. The `build` job checks that go.mod's module
-path carries the tag's major (`/v3` for v3.x.y), then compiles the darwin and
+Runs on a pushed `vX.Y.Z` tag. The `verify` job refuses a tag on a commit
+that is not on `main`, then runs `mise run release:tag-check <tag>`
+(`scripts/release-tag-check.sh`), which refuses a tag that is not
+`vMAJOR.MINOR.PATCH` or whose major go.mod's module path does not carry
+(`/v3` for v3.x.y). Only then does `build` compile the darwin and
 linux (amd64, arm64) binaries with `-trimpath`; `publish` attests the
 archives' provenance and creates the GitHub Release with generated notes, the
 archives and `SHA256SUMS`. `docs/release-checklist.md` is the procedure.
