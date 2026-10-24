@@ -25,6 +25,13 @@ const nextStep = "run any downstream vault metadata sync if your workflow uses o
 
 func fail(msg string) *jsonx.Obj { return fsx.Fail(msg) }
 
+func writeFailed(err error) *jsonx.Obj { return fail("write failed: " + err.Error()) }
+
+func failed(o *jsonx.Obj) bool {
+	ok, has := o.Get("ok")
+	return has && ok == false
+}
+
 // readOnly refuses a write into a read-only folder, or returns nil.
 func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
 	dir := l.Config.ReadOnlyDir(strings.TrimLeft(relativePath, "/"))
@@ -120,35 +127,40 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 		return perr
 	}
 	defer v.Close()
-	body, err := v.ReadText(full)
-	if err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	if strings.HasPrefix(pystr.LStrip(body), "---") {
-		return fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
-	}
-	if taken := docIDTaken(l.Index(true), docID); taken != nil {
-		return taken
-	}
+	taken := docIDTaken(l.Index(true), docID)
 	payload := newFrontmatter(docID, title, docType, system, environment, status, sensitivity, lastReviewed,
 		tags, relatedProjects, relatedAssets, hasTags)
-	if isTask {
-		if err := v.AtomicWrite(full, frontmatter.Serialize(payload)+body); err != nil {
-			return fail("write failed: " + err.Error())
+	var refused *jsonx.Obj
+	size := 0
+	_, err := v.Update(full, func(body string) string {
+		refused = nil
+		switch {
+		case strings.HasPrefix(pystr.LStrip(body), "---"):
+			refused = fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
+			return body
+		case taken != nil:
+			refused = taken
+			return body
 		}
-		l.Index(true)
-		return jsonx.New("ok", true, "relative_path", relativePath, "doc_id", docID)
+		text := frontmatter.Serialize(payload) + body
+		size = len(text)
+		return text
+	})
+	if err != nil {
+		return writeFailed(err)
 	}
-	text := frontmatter.Serialize(payload) + body
-	if err := v.AtomicWrite(full, text); err != nil {
-		return fail("write failed: " + err.Error())
+	if refused != nil {
+		return refused
 	}
 	l.Index(true)
+	if isTask {
+		return jsonx.New("ok", true, "relative_path", relativePath, "doc_id", docID)
+	}
 	rel, _ := filepath.Rel(l.Config.VaultPath, full)
 	if r, err := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full); err == nil {
 		rel = r
 	}
-	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "wrote_bytes", len(text), "next_step", nextStep)
+	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "wrote_bytes", size, "next_step", nextStep)
 }
 
 // ListOp is a list field change: Set replaces; Add appends new values;
@@ -228,13 +240,27 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 	defer v.Close()
 	root := fsx.Resolve(l.Config.VaultPath)
 	rel, _ := filepath.Rel(root, full)
-	text, err := v.ReadText(full)
+	var out *jsonx.Obj
+	wrote, err := v.Update(full, func(text string) string {
+		next, o := updateFields(text, rel, u)
+		out = o
+		return next
+	})
 	if err != nil {
-		return fail("write failed: " + err.Error())
+		return writeFailed(err)
 	}
+	if wrote {
+		l.Index(true)
+	}
+	return out
+}
+
+// updateFields applies u to a note's text: the new text and the result to
+// report, or the text unchanged and a failure or no-op result.
+func updateFields(text, rel string, u Update) (string, *jsonx.Obj) {
 	fm, body, _ := frontmatter.Split(text)
 	if fm == nil {
-		return fail("file has no frontmatter; add a block first.")
+		return text, fail("file has no frontmatter; add a block first.")
 	}
 	changed := map[string]bool{}
 	if u.Register != nil {
@@ -286,19 +312,15 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 	}
 	docID, _ := fm.Get("doc_id")
 	if len(changed) == 0 {
-		return jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
+		return text, jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
 			"message", "No fields differ — nothing written.")
 	}
-	if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	l.Index(true)
 	keys := make([]string, 0, len(changed))
 	for k := range changed {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", keys, "next_step", nextStep)
+	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", keys, "next_step", nextStep)
 }
 
 // Set holds set_frontmatter's arguments. Nil pointers and nil lists are "not given".
@@ -396,25 +418,28 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 	}
 	defer v.Close()
 	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
-	text, err := v.ReadText(full)
+	var out *jsonx.Obj
+	_, err := v.Update(full, func(text string) string {
+		fm, body, _ := frontmatter.Split(text)
+		if fm == nil {
+			out = fail("file has no frontmatter; add a block first.")
+			return text
+		}
+		reviewed := Today()
+		docID, _ := fm.Get("doc_id")
+		if cur, _ := fm.Get("last_reviewed"); cur == reviewed {
+			out = jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
+				"message", "No fields differ — nothing written.")
+			return text
+		}
+		fm.Set("last_reviewed", reviewed)
+		out = jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", []string{"last_reviewed"}, "next_step", nextStep)
+		return frontmatter.Serialize(fm) + body
+	})
 	if err != nil {
-		return fail("write failed: " + err.Error())
+		return writeFailed(err)
 	}
-	fm, body, _ := frontmatter.Split(text)
-	if fm == nil {
-		return fail("file has no frontmatter; add a block first.")
-	}
-	reviewed := Today()
-	docID, _ := fm.Get("doc_id")
-	if cur, _ := fm.Get("last_reviewed"); cur == reviewed {
-		return jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
-			"message", "No fields differ — nothing written.")
-	}
-	fm.Set("last_reviewed", reviewed)
-	if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", []string{"last_reviewed"}, "next_step", nextStep)
+	return out
 }
 
 // BackfillAliases gives every folder note (<folder>/index.md) an Obsidian
@@ -433,44 +458,48 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 		if !strings.HasSuffix(d.RelativePath, "/index.md") || d.ReadOnlyDir != "" {
 			continue
 		}
-		full := filepath.Join(root, d.RelativePath)
-		text, err := v.ReadText(full)
+		wrote, err := v.Update(filepath.Join(root, d.RelativePath), withTitleAlias)
 		if err != nil {
 			return fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
 		}
-		fm, body, _ := frontmatter.Split(text)
-		titleV, _ := fm.Get("title")
-		if fm == nil || fm.Len() == 0 || !pystr.Truthy(titleV) {
+		if !wrote {
 			skipped++
 			continue
-		}
-		title := pystr.Str(titleV)
-		existingV, _ := fm.Get("aliases")
-		var existing []any
-		switch x := existingV.(type) {
-		case []any:
-			existing = x
-		case nil:
-		default:
-			if pystr.Truthy(x) {
-				existing = []any{x}
-			}
-		}
-		if slices.ContainsFunc(existing, func(a any) bool { return a == title }) {
-			skipped++
-			continue
-		}
-		aliases := []any{title}
-		for _, a := range existing {
-			if a != title {
-				aliases = append(aliases, a)
-			}
-		}
-		fm.Set("aliases", aliases)
-		if err := v.AtomicWrite(full, frontmatter.Serialize(fm)+body); err != nil {
-			return fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
 		}
 		updated = append(updated, d.RelativePath)
 	}
 	return jsonx.New("ok", true, "updated", updated, "updated_count", len(updated), "skipped", skipped)
+}
+
+// withTitleAlias puts a folder note's title first in its aliases, or returns
+// the text unchanged when it has no title or already carries the alias.
+func withTitleAlias(text string) string {
+	fm, body, _ := frontmatter.Split(text)
+	titleV, _ := fm.Get("title")
+	if fm == nil || fm.Len() == 0 || !pystr.Truthy(titleV) {
+		return text
+	}
+	title := pystr.Str(titleV)
+	existingV, _ := fm.Get("aliases")
+	var existing []any
+	switch x := existingV.(type) {
+	case []any:
+		existing = x
+	case nil:
+	default:
+		if pystr.Truthy(x) {
+			existing = []any{x}
+		}
+	}
+	if slices.ContainsFunc(existing, func(a any) bool { return a == title }) {
+		return text
+	}
+	aliases := []any{title}
+	for _, a := range existing {
+		if a != title {
+			aliases = append(aliases, a)
+		}
+	}
+	fm.Set("aliases", aliases)
+	return frontmatter.Serialize(fm) + body
 }

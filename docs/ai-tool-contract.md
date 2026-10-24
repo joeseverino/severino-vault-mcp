@@ -63,6 +63,37 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 [Cordon v4](https://github.com/joeseverino/cordon) contract; prefer it over
 restating commands from this doc.
 
+## Writing a note from outside the server
+
+The server rewrites a note by reading it, editing, and renaming a new file
+over it. A process that writes the same note directly, such as an
+append-only hook adding a line, takes the note's lock for the duration of its
+append, so the server's rewrite never drops that line:
+
+- Lock file: `<vault root>/.locks/<path of the note relative to the vault
+  root, clean (no `./`, `..` or doubled `/`), every "/" replaced by
+  "%">.lock`. `Projects/Example/queue.md` locks
+  `.locks/Projects%Example%queue.md.lock`. Create `.locks/` and the file if
+  absent; never delete them.
+- Lock: an exclusive `flock(2)` on that file, held from before the note is
+  opened until after it is closed. Never lock the note itself: a rewrite
+  replaces its inode, so a lock on the old one guards nothing.
+- Write with `O_APPEND`, and keep the hold short: the server waits up to ten
+  seconds for the lock, then fails the write with a retry as its next step.
+
+```go
+lock, _ := os.OpenFile(filepath.Join(vault, ".locks", strings.ReplaceAll(rel, "/", "%")+".lock"), os.O_RDWR|os.O_CREATE, 0o644)
+defer lock.Close() // closing releases the lock
+syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
+note, _ := os.OpenFile(filepath.Join(vault, rel), os.O_WRONLY|os.O_APPEND, 0)
+note.WriteString(line); note.Close()
+```
+
+On Linux, `flock <lock file> sh -c 'printf ... >> <note>'` does the same
+from a shell. A writer that skips the lock is still caught when its append
+lands before the server's final re-read: the server re-applies its edit over
+the new bytes. Only the lock closes the last window.
+
 ## Response discipline
 
 - A short runbook gets a short answer.

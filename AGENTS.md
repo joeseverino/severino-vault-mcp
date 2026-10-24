@@ -51,6 +51,11 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   Code plugin (`.claude-plugin/plugin.json`, `.mcp.json`).
 - `tests/golden/`: `schema.json`, `cli-describe.json`, `mcp-tools.txt`. A diff
   there is a deliberate contract change; regenerate with the binary.
+- The note lock (`fsx.LockPath`, documented for outside writers in
+  `docs/ai-tool-contract.md`): any process that writes a vault note, such as
+  an append-only hook, takes an exclusive `flock` on
+  `<vault>/.locks/<vault-relative path, "/" as "%">.lock` for the whole write.
+  Changing the path rule is a contract change for every such writer.
 
 ## Safety
 
@@ -58,9 +63,13 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   unless the caller asks and the local unlock succeeds. Text search never reads
   restricted bodies.
 - Writes are schema-specific: validate against the vault's profile, keep
-  `doc_id` immutable, serialize with `frontmatter.Serialize`, replace through
-  `fsx.Vault.AtomicWrite` (atomic, confined to the vault by `os.Root`). Never
-  write vault files any other way.
+  `doc_id` immutable, serialize with `frontmatter.Serialize`, and change an
+  existing note only through `fsx.Vault.Update` (`AtomicCreate` for a new
+  one). Update holds the note lock from read to rename and re-reads before
+  the rename, re-running the edit if a writer that skipped the lock appended,
+  so its edit function may run more than once. Everything is confined to the
+  vault by `os.Root`. Never write vault files any other way:
+  `TestOnlyFsxWritesFiles` fails on an `os` file write outside `fsx`.
 - A doc's body is written through `write_doc` (`core.WriteDoc`, CLI
   `write-doc`): create checks the new block with `Profile.Check`, so a created
   doc passes `validate`; section edits change no frontmatter but `last_reviewed`.
@@ -87,7 +96,9 @@ scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the
 - `mcpserver` tests drive the real server through an in-memory client; the
   provider seam is tested against the test binary re-executed as a provider.
 - Seams: `gate.Approve` (the 1Password read behind the restricted unlock;
-  no test runs the real `op`), `clock.Now`. A failed atomic
-  write is simulated with a read-only directory.
+  no test runs the real `op`), `clock.Now`, `fsx.BeforeReplace` (the window
+  between a rewrite's read and its rename; `testkit.AppendDuringWrite` lands
+  an outside append there), `fsx.LockWait`. A failed atomic write is
+  simulated with a read-only directory.
 - Compare a written body byte for byte as `text[frontmatter.BodyOffset(text):]`;
   `frontmatter.Split` trims the trailing newline.

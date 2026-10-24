@@ -2,7 +2,9 @@
 package daily
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -98,27 +100,38 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 		return fsx.Fail("daily note write failed: " + err.Error())
 	}
 	defer v.Close()
-	info, err := v.Stat(path)
-	created := err != nil || !info.Mode().IsRegular()
-	var text string
-	if created {
-		text = frontmatter.Serialize(jsonx.New(
+	writeFailed := func(err error) *jsonx.Obj { return fsx.Fail("daily note write failed: " + err.Error()) }
+	// A note that appears between the failed update and the create is
+	// updated on the second pass.
+	for range 2 {
+		inserted := false
+		wrote, err := v.Update(path, func(text string) string {
+			next, ins := UpsertRegion(text, RegionID, content)
+			inserted = ins
+			return next
+		})
+		if err == nil {
+			return jsonx.New("ok", true, "wrote", relative, "changed", wrote, "created", false, "inserted", wrote && inserted)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return writeFailed(err)
+		}
+		text := frontmatter.Serialize(jsonx.New(
 			"doc_id", "daily-"+day.Format("20060102"),
 			"created", clock.Now().Format("2006-01-02 15:04:05"),
 			"date", day.Format("2006-01-02"),
 		))
-	} else {
-		text, _ = v.ReadText(path)
+		newText, inserted := UpsertRegion(text, RegionID, content)
+		if err := v.MkdirAll(filepath.Dir(path)); err != nil {
+			return writeFailed(err)
+		}
+		err = v.AtomicCreate(path, newText)
+		if err == nil {
+			return jsonx.New("ok", true, "wrote", relative, "changed", true, "created", true, "inserted", inserted)
+		}
+		if !errors.Is(err, fsx.ErrExists) {
+			return writeFailed(err)
+		}
 	}
-	newText, inserted := UpsertRegion(text, RegionID, content)
-	if newText == text {
-		return jsonx.New("ok", true, "wrote", relative, "changed", false, "created", false, "inserted", false)
-	}
-	if err := v.MkdirAll(filepath.Dir(path)); err != nil {
-		return fsx.Fail("daily note write failed: " + err.Error())
-	}
-	if err := v.AtomicWrite(path, newText); err != nil {
-		return fsx.Fail("daily note write failed: " + err.Error())
-	}
-	return jsonx.New("ok", true, "wrote", relative, "changed", true, "created", created, "inserted", inserted)
+	return writeFailed(fsx.ErrChanged)
 }

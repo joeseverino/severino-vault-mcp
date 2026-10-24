@@ -1,0 +1,30 @@
+# The toolchain and every local gate, declared once.
+#
+#   mise install        the pinned tools (versions here, checksums in mise.lock)
+#   mise run check      the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, invariants
+#   mise run golden     re-emit the public surfaces and diff them against tests/golden
+#   mise run evals      score retrieval on the fixture vault (SVMC_EVAL_VAULT for a real one)
+#   mise tasks          the list
+
+min_version = "2026.10.15"
+
+[settings.task]
+# Tasks that run together print one after another, each whole and labeled.
+output = "keep-order"
+
+[tools]
+# Matches go.mod's toolchain line, which CI uses.
+go = "1.27.3"
+shellcheck = "0.11.0"
+
+[tasks.check]
+description = "The CI gate, run locally"
+run = "scripts/check.sh"
+
+[tasks.golden]
+description = "Re-emit the public surfaces and diff them against tests/golden"
+run = "bash tests/golden/verify.sh"
+
+[tasks.evals]
+description = "Score retrieval on the fixture vault; SVMC_EVAL_VAULT scores a real vault read-only"
+run = "scripts/evals.sh"

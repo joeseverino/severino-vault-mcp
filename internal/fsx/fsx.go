@@ -1,7 +1,8 @@
 // Package fsx holds durable file writes and the vault-root path checks every
 // writer shares. Every read and mutation of a vault file goes through an
 // os.Root, so a path (or a symlink swapped in after a check) can never reach
-// outside the configured vault.
+// outside the configured vault. An existing note changes only through
+// Vault.Update, which holds the note's lock across read and replace.
 package fsx
 
 import (
@@ -177,23 +178,6 @@ func (v *Vault) stageSibling(rel string, data []byte, infix string) (string, err
 		return name, nil
 	}
 	return "", fmt.Errorf("stage %s: no free temp name", rel)
-}
-
-// AtomicWrite durably replaces p through a fsynced sibling temp file.
-func (v *Vault) AtomicWrite(p, text string) error {
-	rel, err := v.Rel(p)
-	if err != nil {
-		return err
-	}
-	staged, err := v.stageSibling(rel, []byte(text), ".svmc-")
-	if err != nil {
-		return err
-	}
-	if err := v.root.Rename(staged, rel); err != nil {
-		_ = v.root.Remove(staged)
-		return err
-	}
-	return nil
 }
 
 // AtomicCreate durably creates p and never replaces an existing file:
