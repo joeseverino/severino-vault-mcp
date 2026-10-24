@@ -63,7 +63,7 @@ func TestALockedNoteFailsTheEditWithARetry(t *testing.T) {
 	fsx.LockWait = 20 * time.Millisecond
 	release := tk.HoldLock(t, root, logRel)
 	defer release()
-	r := core.WriteDoc(v, core.WriteDocArgs{Mode: "append_section", RelativePath: logRel, Heading: "Entries", Body: "- x\n"})
+	r := core.WriteDoc(v, core.WriteDocArgs{Mode: "append_section", RelativePath: logRel, Heading: new("Entries"), Body: "- x\n"})
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), fsx.ErrLocked.Error()) {
 		t.Fatal(jsonx.Compact(r))
 	}

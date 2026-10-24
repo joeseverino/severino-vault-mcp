@@ -26,12 +26,12 @@ func TestCoreToolsCarryHonestAnnotations(t *testing.T) {
 		if a.ReadOnlyHint != readOnly {
 			t.Errorf("%s readOnlyHint %v", name, a.ReadOnlyHint)
 		}
-		destructive := slices.Contains([]string{"set_frontmatter", "write_doc", "task_write"}, name)
+		destructive := slices.Contains([]string{"set_frontmatter", "write_doc", "task_write", "queue"}, name)
 		if !readOnly && (a.DestructiveHint == nil || *a.DestructiveHint != destructive) {
 			t.Errorf("%s destructiveHint %v, want %v", name, a.DestructiveHint, destructive)
 		}
 	}
-	for _, name := range []string{"write_doc", "task_write", "log_entries"} {
+	for _, name := range []string{"write_doc", "task_write", "log_entries", "queue"} {
 		if all[name].Annotations.IdempotentHint {
 			t.Errorf("%s appends or adds, so repeating it is not idempotent", name)
 		}
@@ -69,6 +69,14 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "fields": []string{"line", "text", "closed", "resolution"}, "open_only": false}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson", "resolution": "x"}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson one", "resolution": "x"}},
+		{"queue", map[string]any{"action": "add", "project": "backlog", "kind": "delegated", "text": "Schema check", "agent": "a1",
+			"links": map[string]any{"branch": "pass/x"}, "blocked_by": []string{"backlog-9"}}},
+		{"queue", map[string]any{"action": "set", "agent": "a1", "status": "returned", "owner": "worker"}},
+		{"queue", map[string]any{"action": "set", "id": "backlog-1", "claim": true, "owner": "someone-else"}},
+		{"queue", map[string]any{"action": "list", "all": true, "fields": []string{"id", "owner", "links", "blocked_by", "agent"}}},
+		{"queue", map[string]any{"action": "close", "id": "backlog-1", "resolution": "example-repo@abc1234"}},
+		{"queue", map[string]any{"action": "list", "project": "backlog", "status": "all", "fields": []string{"resolution", "links.branch"}}},
+		{"queue", map[string]any{"action": "list"}},
 	}
 	resolved := map[string]*jsonschema.Resolved{}
 	for _, name := range coreTools {

@@ -17,7 +17,8 @@ const rotateRel = "03 Runbooks/Rotate Example Token.md"
 
 func rotateArgs() core.WriteDocArgs {
 	return core.WriteDocArgs{Mode: "create", RelativePath: rotateRel, Body: "## Steps\n\n1. Run `x`.\n",
-		New: write.NewDoc{DocID: "rb-rotate-example-token", Title: "Rotate Example Token", DocType: "runbook", System: "homelab"}}
+		DocID: "rb-rotate-example-token",
+		New:   write.With("title", "Rotate Example Token", "doc_type", "runbook", "system", "homelab")}
 }
 
 func mustOK(t *testing.T, r *jsonx.Obj) *jsonx.Obj {
@@ -70,14 +71,14 @@ func TestWriteDocCreateRefusesWithoutWriting(t *testing.T) {
 	root := tk.FakeVault(t)
 	v := tk.Vault(root)
 	cases := map[string]func(*core.WriteDocArgs){
-		"status 'proposed' not in ['active', 'archived', 'deprecated', 'draft']": func(a *core.WriteDocArgs) { a.New.Status = "proposed" },
+		"status 'proposed' not in ['active', 'archived', 'deprecated', 'draft']": func(a *core.WriteDocArgs) { a.New = a.New.Set("status", "proposed") },
 		"body starts with a `---` block":                                         func(a *core.WriteDocArgs) { a.Body = "---\ndoc_id: rb-x\n---\n\nText.\n" },
-		"creating a doc needs system":                                            func(a *core.WriteDocArgs) { a.New.System = "" },
-		"doc_id 'runbook-x' must start with":                                     func(a *core.WriteDocArgs) { a.New.DocID = "runbook-x" },
-		"doc_id 'rb-add-nginx-proxy-host' already exists":                        func(a *core.WriteDocArgs) { a.New.DocID = "rb-add-nginx-proxy-host" },
+		"creating a doc needs system":                                            func(a *core.WriteDocArgs) { a.New = a.New.Set("system", "") },
+		"doc_id 'runbook-x' must start with":                                     func(a *core.WriteDocArgs) { a.DocID = "runbook-x" },
+		"doc_id 'rb-add-nginx-proxy-host' already exists":                        func(a *core.WriteDocArgs) { a.DocID = "rb-add-nginx-proxy-host" },
 		"under the indexed dirs":                                                 func(a *core.WriteDocArgs) { a.RelativePath = "Elsewhere/Rotate.md" },
 		"path escapes vault root":                                                func(a *core.WriteDocArgs) { a.RelativePath = "../Rotate.md" },
-		"heading only applies":                                                   func(a *core.WriteDocArgs) { a.Heading = "Steps" },
+		"heading only applies":                                                   func(a *core.WriteDocArgs) { a.Heading = new("Steps") },
 	}
 	for want, mutate := range cases {
 		a := rotateArgs()
@@ -93,7 +94,7 @@ func TestWriteDocCreateRefusesWithoutWriting(t *testing.T) {
 }
 
 func sectionArgs(mode, heading, body string) core.WriteDocArgs {
-	return core.WriteDocArgs{Mode: mode, Heading: heading, Body: body, New: write.NewDoc{DocID: "rb-backup-ops"}}
+	return core.WriteDocArgs{Mode: mode, Heading: &heading, Body: body, DocID: "rb-backup-ops"}
 }
 
 func splitHead(t *testing.T, text string) (string, string) {
@@ -108,7 +109,7 @@ func TestWriteDocReplaceSectionKeepsFrontmatterButLastReviewed(t *testing.T) {
 	mustOK(t, core.WriteDoc(v, rotateArgs()))
 	path := filepath.Join(root, rotateRel)
 	before := tk.Read(t, path)
-	r := mustOK(t, core.WriteDoc(v, core.WriteDocArgs{Mode: "replace_section", RelativePath: rotateRel, Heading: "Steps", Body: "1. Run `y`.\n"}))
+	r := mustOK(t, core.WriteDoc(v, core.WriteDocArgs{Mode: "replace_section", RelativePath: rotateRel, Heading: new("Steps"), Body: "1. Run `y`.\n"}))
 	after := tk.Read(t, path)
 	if r.Str("doc_id") != "rb-rotate-example-token" || tk.Get(r, "wrote_bytes") != len(after) {
 		t.Fatal(jsonx.Compact(r))
@@ -177,14 +178,14 @@ func TestWriteDocSectionRefusals(t *testing.T) {
 	for want, a := range map[string]core.WriteDocArgs{
 		"no heading 'Goal' in 03 Runbooks/Backup Ops.md; pass one of ['Routine operations', 'Troubleshooting', 'Troubleshooting'] exactly": sectionArgs("replace_section", "Goal", "x"),
 		"heading 'Troubleshooting' appears 2 times":                         sectionArgs("replace_section", "Troubleshooting", "x"),
-		"mode 'append_section' requires heading":                            sectionArgs("append_section", "", "x"),
+		"mode 'append_section' requires heading":                            {Mode: "append_section", Body: "x", DocID: "rb-backup-ops"},
 		"body is empty":                                                     sectionArgs("append_section", "Routine operations", "\n"),
-		"frontmatter fields only apply to mode 'create'":                    {Mode: "replace_section", Heading: "Routine operations", Body: "x", New: write.NewDoc{DocID: "rb-backup-ops", Status: "draft"}},
-		"unknown doc_id 'rb-nope'":                                          {Mode: "replace_section", Heading: "Goal", Body: "x", New: write.NewDoc{DocID: "rb-nope"}},
-		"no registered doc at 01 Projects/untagged.md":                      {Mode: "replace_section", Heading: "Untagged", Body: "x", RelativePath: "01 Projects/untagged.md"},
+		"frontmatter fields only apply to mode 'create'":                    {Mode: "replace_section", Heading: new("Routine operations"), Body: "x", DocID: "rb-backup-ops", New: write.With("status", "draft")},
+		"unknown doc_id 'rb-nope'":                                          {Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-nope"},
+		"no registered doc at 01 Projects/untagged.md":                      {Mode: "replace_section", Heading: new("Untagged"), Body: "x", RelativePath: "01 Projects/untagged.md"},
 		"unknown mode 'rewrite'":                                            {Mode: "rewrite", Body: "x"},
-		"infra-local-pki is restricted; rerun with include_restricted=True": {Mode: "replace_section", Heading: "Local PKI", Body: "x", New: write.NewDoc{DocID: "infra-local-pki"}},
-		"infra-local-pki is restricted and the unlock was refused: Restricted unlock is not configured": {Mode: "replace_section", Heading: "Local PKI", Body: "x", IncludeRestricted: true, New: write.NewDoc{DocID: "infra-local-pki"}},
+		"infra-local-pki is restricted; rerun with include_restricted=True": {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", DocID: "infra-local-pki"},
+		"infra-local-pki is restricted and the unlock was refused: Restricted unlock is not configured": {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", IncludeRestricted: true, DocID: "infra-local-pki"},
 	} {
 		r := core.WriteDoc(v, a)
 		if r.Bool("ok") || !strings.Contains(r.Str("error"), want) {
@@ -201,7 +202,7 @@ func TestWriteDocSectionRefusesFrontmatterThatNoLongerValidates(t *testing.T) {
 	path := filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md")
 	tk.Write(t, path, strings.Replace(tk.Read(t, path), "status: active", "status: proposed", 1))
 	before := tk.Read(t, path)
-	r := core.WriteDoc(tk.Vault(root), core.WriteDocArgs{Mode: "replace_section", Heading: "Goal", Body: "x", New: write.NewDoc{DocID: "rb-add-nginx-proxy-host"}})
+	r := core.WriteDoc(tk.Vault(root), core.WriteDocArgs{Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-add-nginx-proxy-host"})
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "status 'proposed' not in") || !strings.Contains(r.Str("error"), "set_frontmatter") {
 		t.Fatal(jsonx.Compact(r))
 	}

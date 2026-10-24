@@ -1,5 +1,14 @@
 package cli
 
+import (
+	"slices"
+	"strings"
+
+	"github.com/joeseverino/severino-vault-mcp/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/internal/write"
+)
+
 // Arg is one argument of a command. Flags start with "--".
 type Arg struct {
 	Name       string
@@ -52,6 +61,55 @@ const (
 )
 
 func pretty(help string) Arg { return Arg{Name: "--pretty", Help: help} }
+
+// The frontmatter arguments of update-frontmatter and write-doc's create,
+// from the labs profile; a list's whole-list flag is --set-<field>.
+var (
+	updateArgs = write.Args(schema.Labs.Settable(), "set_", false)
+	createArgs = write.Args(slices.DeleteFunc(schema.Labs.Settable(), func(f schema.Field) bool { return f.Name == "doc_id" }), "", true)
+)
+
+// frontmatterFlags are the flags of frontmatter arguments.
+func frontmatterFlags(args []write.Arg) []Arg {
+	out := make([]Arg, 0, len(args))
+	for _, a := range args {
+		flag := Arg{Name: "--" + strings.ReplaceAll(a.Key, "_", "-"), Help: a.Help()}
+		switch {
+		case a.Op == write.OpTouch:
+		case a.Op != write.OpSet:
+			flag.TakesValue, flag.Multi = true, true
+		default:
+			flag.TakesValue, flag.Int = true, a.Field.Kind == schema.KindInteger
+		}
+		out = append(out, flag)
+	}
+	return out
+}
+
+// changesFrom reads the frontmatter flags a command line gives.
+func changesFrom(p Parsed, args []write.Arg) write.Changes {
+	var c write.Changes
+	for _, a := range args {
+		if !p.Has(a.Key) {
+			continue
+		}
+		var value any
+		switch {
+		case a.Op == write.OpTouch:
+			value = p.Bool(a.Key)
+		case a.Op != write.OpSet:
+			value = p.List(a.Key)
+		case a.Field.Kind == schema.KindInteger:
+			value = p.Int(a.Key)
+		case a.Field.Kind == schema.KindBoolean:
+			value = p.Str(a.Key) == "true"
+		default:
+			value = p.Str(a.Key)
+		}
+		c.Apply(a, value)
+	}
+	return c
+}
 
 // fieldsArg is the field mask the MCP tools take as `fields`; given, it also
 // trims the result to the MCP's lean envelope.
@@ -122,45 +180,22 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runPromoteNote},
-		{Name: "update-frontmatter", Effect: "read",
-			Summary: "Update fields in an existing vault doc's frontmatter (the one writer — doc_id is immutable). Enum + relation fields " +
-				"are validated against the schema. Used by the Obsidian relation editor so author-time edits can't dangle.",
-			Args: []Arg{
-				{Name: "relative_path", Help: "Vault-relative path to the doc."},
-				{Name: "--title", TakesValue: true},
-				{Name: "--doc-type", TakesValue: true},
-				{Name: "--system", TakesValue: true},
-				{Name: "--environment", TakesValue: true},
-				{Name: "--status", TakesValue: true},
-				{Name: "--sensitivity", TakesValue: true},
-				{Name: "--set-related-projects", Help: "Replace related_projects (empty clears).", TakesValue: true, Multi: true},
-				{Name: "--set-related-assets", Help: "Replace related_assets (empty clears).", TakesValue: true, Multi: true},
-				{Name: "--set-tags", Help: "Replace tags (empty clears).", TakesValue: true, Multi: true},
-				{Name: "--touch-last-reviewed", Help: "Set last_reviewed to today."},
-				pretty(prettyHelp),
-			},
+		{Name: "update-frontmatter", Effect: "vault_write",
+			Summary: "Set fields in a vault doc's frontmatter: the MCP set_frontmatter tool, one flag per field the labs profile " +
+				"declares, each validated against it (doc_id never changes once set). Used by the Obsidian relation editor so author-time edits can't dangle.",
+			Args: append(append([]Arg{{Name: "relative_path", Help: "Vault-relative path to the doc."}},
+				frontmatterFlags(updateArgs)...), pretty(prettyHelp)),
 			Run: runUpdateFrontmatter},
 		{Name: "write-doc", Effect: "vault_write",
 			Summary: "Create a registered doc, or replace or append to one section of its body, with the markdown body on stdin " +
 				"(no frontmatter). The MCP write_doc tool: create validates the new frontmatter with the rules validate checks; " +
 				"section modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
-			Args: []Arg{
+			Args: append(append([]Arg{
 				{Name: "--mode", Help: "create (default), replace_section or append_section.", TakesValue: true, Default: "create"},
 				{Name: "--relative-path", Help: "Vault-relative path; required to create.", TakesValue: true},
 				{Name: "--doc-id", Help: "The new doc's id on create; the doc to edit otherwise.", TakesValue: true},
-				{Name: "--heading", Help: "Exact heading text of the section to edit (section modes).", TakesValue: true},
-				{Name: "--title", TakesValue: true},
-				{Name: "--doc-type", TakesValue: true},
-				{Name: "--system", TakesValue: true},
-				{Name: "--environment", TakesValue: true},
-				{Name: "--status", TakesValue: true},
-				{Name: "--sensitivity", TakesValue: true},
-				{Name: "--last-reviewed", Help: "ISO date (default today).", TakesValue: true},
-				{Name: "--tags", TakesValue: true, Multi: true},
-				{Name: "--related-projects", TakesValue: true, Multi: true},
-				{Name: "--related-assets", TakesValue: true, Multi: true},
-				pretty(prettyHelp),
-			},
+				{Name: "--heading", Help: "Exact heading text of the section to edit (section modes); \"\" for the text before the first heading.", TakesValue: true},
+			}, frontmatterFlags(createArgs)...), pretty(prettyHelp)),
 			Run: runWriteDoc},
 		{Name: "log-entries", Effect: "vault_write",
 			Summary: "List an append-only log note's entries (one top-level bullet each), or close one by appending ' → <resolution>' " +
@@ -177,6 +212,37 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runLogEntries},
+		{Name: "queue", Effect: "vault_write",
+			Summary: "Add, list, set, claim, close or promote work items in a project's queue (01 Projects/<project>/Queue.md, " +
+				"or 07 Backlog/Queue.md) and print compact JSON; the MCP queue tool. Hooks call it: name the queue with --cwd, and " +
+				"pass a value that starts with a dash as --flag=value. Exits 0 if ok, 1 on a refused call, 2 on a usage error.",
+			Args: []Arg{
+				{Name: "action", Help: "list, add, set, close or promote.", Choices: core.QueueActions},
+				{Name: "id", Optional: true, Help: "set, close, promote: the item's id, e.g. example-3."},
+				{Name: "--project", Help: "The queue's project folder under 01 Projects, or backlog.", TakesValue: true},
+				{Name: "--repo", Help: "A repository directory name, resolved through each project's index.md repos.", TakesValue: true},
+				{Name: "--cwd", Help: "A working directory, resolved to its repository and then its project.", TakesValue: true},
+				{Name: "--all", Help: "list: every queue."},
+				{Name: "--agent", Help: "add: the worker's agent id. list: that agent's items. set, close, promote: the item by agent.", TakesValue: true},
+				{Name: "--kind", Help: "add: next, delegated, decision or follow-up. list: only this kind.", TakesValue: true},
+				{Name: "--text", Help: "add: one line saying what the work is. set: replace it.", TakesValue: true},
+				{Name: "--owner", Help: "add, set: who holds the item ('' or - for nobody). list: that owner's items.", TakesValue: true},
+				{Name: "--pr", Help: "Link: a PR number or URL ('' removes it on set).", TakesValue: true},
+				{Name: "--branch", Help: "Link: a branch.", TakesValue: true},
+				{Name: "--commit", Help: "Link: commits, comma-separated.", TakesValue: true},
+				{Name: "--slug", Help: "Link: a content slug.", TakesValue: true},
+				{Name: "--blocked-by", Help: "add, set: item ids that must close first.", TakesValue: true, Multi: true},
+				{Name: "--status", Help: "set: open, returned or parked. close: closed (default) or dropped. list: comma-separated statuses or all (default open,returned).", TakesValue: true},
+				{Name: "--ready", Help: "list: open next and follow-up items whose blockers are all closed or dropped."},
+				{Name: "--contains", Help: "list: items whose text contains this (case-insensitive).", TakesValue: true},
+				{Name: "--limit", Help: "list: most items to print (default 0: all).", TakesValue: true, Int: true, Default: "0"},
+				{Name: "--claim", Help: "set: take the item for --owner only if nobody holds it."},
+				{Name: "--resolution", Help: "close: one line, e.g. repo@sha, a PR, a doc id, or why it was dropped.", TakesValue: true},
+				{Name: "--content", Help: "promote: the body doc's markdown.", TakesValue: true},
+				fieldsArg("list: item fields to print (id, project, kind, status, owner, text, links, blocked_by, body, alias, agent, resolution); omit for every field."),
+				pretty(prettyHelp),
+			},
+			Run: runQueue},
 		{Name: "task-reconcile", Effect: "read",
 			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status — the idempotent tidy sweep for statuses " +
 				"edited by hand (a Base/Properties edit) that didn't move through task-move.",

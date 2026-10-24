@@ -63,6 +63,7 @@ Shared, each taking `vault`:
 | `task_board` | Open tasks, best first (`limit`, default 25; `status`, `project` and `fields`), with the projects tasks can be filed in. |
 | `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`; `items=[...]` applies several in one call and reports each. |
 | `log_entries` | An append-only log note, one bullet per entry. `action="list"`: the open entries as `{line, text}` (`contains`, `limit`, `open_only`, `fields`). `action="close"`: append ` → <resolution>` to the one open entry `match` names. |
+| `queue` | A project's work queue (`01 Projects/<project>/Queue.md`, or `07 Backlog/Queue.md`), named by `project`, `repo` or `cwd`. `action`: `list` (open and returned; `all`, `kind`, `status`, `owner`, `agent`, `ready`, `contains`, `fields`), `add` (kind, text; returns the id), `set` (status, owner, text, links, blocked_by; `claim=true` takes an unowned item), `close` (resolution; `status=dropped` for work not done), `promote` (a body doc). Every write holds the note's lock. |
 
 A failure is `{"ok": false, "error": ...}` plus `next_steps`, the calls that
 recover from it, each naming one of these tools; a `find` with no hits carries

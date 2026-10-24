@@ -179,6 +179,7 @@ type Doc struct {
 	BodyStartLine   int
 	Sections        []sections.Section
 	Extra           *jsonx.Obj // frontmatter keys the engine doesn't consume
+	Frontmatter     *jsonx.Obj // the whole parsed block
 }
 
 // Stem is the file name without its extension.
@@ -424,5 +425,6 @@ func (l *Loader) makeDoc(p, rel string, fm *jsonx.Obj, body string, start int) *
 		BodyStartLine:   start,
 		Sections:        sections.Parse(body, start),
 		Extra:           extra,
+		Frontmatter:     fm,
 	}
 }

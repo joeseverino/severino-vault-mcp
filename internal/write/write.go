@@ -59,145 +59,103 @@ func strList(v []string) []any {
 	return out
 }
 
-func fieldErrors(p *schema.Profile, task bool, checks ...[2]string) []string {
-	var errs []string
-	for _, c := range checks {
-		if e := p.FieldError(c[0], c[1], task); e != "" {
-			errs = append(errs, e)
+// createNeeds are the fields a new block has no default for.
+var createNeeds = []string{"doc_id", "title", "doc_type", "system"}
+
+// absentForCreate lists the createNeeds c leaves empty.
+func absentForCreate(c Changes) []string {
+	var absent []string
+	for _, name := range createNeeds {
+		if pystr.Strip(c.Str(name)) == "" {
+			absent = append(absent, name)
 		}
 	}
-	return errs
+	return absent
 }
 
-// docIDTaken is the failure for a doc_id another doc already holds, nil when free.
-func docIDTaken(idx *vault.Index, docID string) *jsonx.Obj {
-	if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-		return fail(fmt.Sprintf("doc_id %s is already duplicated at %s", pystr.Repr(docID), pystr.ReprList(dups)))
+// newFrontmatter is the block a create writes from c: a task gets the task
+// fields, anything else the doc fields, each defaulted when c leaves it out;
+// every other field c gives follows.
+func newFrontmatter(c Changes) *jsonx.Obj {
+	def := func(name, fallback string) string {
+		if s := c.Str(name); s != "" {
+			return s
+		}
+		return fallback
 	}
-	if existing, ok := idx.ByDocID[docID]; ok {
-		return fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
-	}
-	return nil
-}
-
-// newFrontmatter is the block a create writes: a task gets the task fields,
-// anything else the doc fields. lastReviewed "" is today.
-func newFrontmatter(docID, title, docType, system, environment, status, sensitivity, lastReviewed string,
-	tags, relatedProjects, relatedAssets []string, hasTags bool) *jsonx.Obj {
-	reviewed := lastReviewed
-	if reviewed == "" {
+	list := func(name string) []any { return strList(c.Lists[name].created()) }
+	reviewed := def("last_reviewed", Today())
+	if slices.Contains(c.Touch, "last_reviewed") {
 		reviewed = Today()
 	}
-	if docType == "task" {
-		taskTags := tags
-		if !hasTags || len(tags) == 0 {
-			taskTags = []string{"backlog"}
+	var fm *jsonx.Obj
+	task := c.Str("doc_type") == "task"
+	if task {
+		tags := c.Lists["tags"].created()
+		if len(tags) == 0 {
+			tags = []string{"backlog"}
 		}
-		return jsonx.New(
-			"doc_id", docID, "title", title, "doc_type", "task", "status", status,
-			"related_projects", strList(relatedProjects),
-			"effort", "S", "priority", "med", "created", reviewed,
-			"tags", strList(taskTags),
+		fm = jsonx.New(
+			"doc_id", c.Str("doc_id"), "title", c.Str("title"), "doc_type", "task", "status", def("status", "active"),
+			"related_projects", list("related_projects"),
+			"effort", def("effort", "S"), "priority", def("priority", "med"), "created", def("created", reviewed),
+			"tags", strList(tags),
+		)
+	} else {
+		fm = jsonx.New(
+			"doc_id", c.Str("doc_id"), "title", c.Str("title"), "doc_type", c.Str("doc_type"), "system", c.Str("system"),
+			"environment", def("environment", "other"), "status", def("status", "active"), "sensitivity", def("sensitivity", "internal"),
+			"last_reviewed", reviewed,
+			"related_projects", list("related_projects"),
+			"related_assets", list("related_assets"),
+			"tags", list("tags"),
 		)
 	}
-	return jsonx.New(
-		"doc_id", docID, "title", title, "doc_type", docType, "system", system,
-		"environment", environment, "status", status, "sensitivity", sensitivity,
-		"last_reviewed", reviewed,
-		"related_projects", strList(relatedProjects),
-		"related_assets", strList(relatedAssets),
-		"tags", strList(tags),
-	)
-}
-
-// AddFrontmatter prepends a new block to a file that has none.
-func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system, environment, status, sensitivity string,
-	tags, relatedProjects, relatedAssets []string, hasTags, hasProjects, hasAssets bool, lastReviewed string, p *schema.Profile) *jsonx.Obj {
-	isTask := docType == "task"
-	checks := [][2]string{{"doc_type", docType}, {"status", status}}
-	if !isTask {
-		checks = [][2]string{{"doc_type", docType}, {"environment", environment}, {"status", status}, {"sensitivity", sensitivity}}
-	}
-	errs := fieldErrors(p, isTask, append(checks, [2]string{"doc_id", docID})...)
-	if len(errs) > 0 {
-		return fail(strings.Join(errs, "; "))
-	}
-	v, full, perr := indexedPath(l, relativePath)
-	if perr != nil {
-		return perr
-	}
-	defer v.Close()
-	taken := docIDTaken(l.Index(true), docID)
-	payload := newFrontmatter(docID, title, docType, system, environment, status, sensitivity, lastReviewed,
-		tags, relatedProjects, relatedAssets, hasTags)
-	var refused *jsonx.Obj
-	size := 0
-	_, err := v.Update(full, func(body string) string {
-		refused = nil
+	for _, name := range c.names() {
+		if fm.Has(name) || (task && name == "last_reviewed") {
+			continue
+		}
 		switch {
-		case strings.HasPrefix(pystr.LStrip(body), "---"):
-			refused = fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
-			return body
-		case taken != nil:
-			refused = taken
-			return body
-		}
-		text := frontmatter.Serialize(payload) + body
-		size = len(text)
-		return text
-	})
-	if err != nil {
-		return writeFailed(err)
-	}
-	if refused != nil {
-		return refused
-	}
-	l.Index(true)
-	if isTask {
-		return jsonx.New("ok", true, "relative_path", relativePath, "doc_id", docID)
-	}
-	rel, _ := filepath.Rel(l.Config.VaultPath, full)
-	if r, err := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full); err == nil {
-		rel = r
-	}
-	return jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "wrote_bytes", size, "next_step", nextStep)
-}
-
-// ListOp is a list field change: Set replaces; Add appends new values;
-// Remove drops values. Nil means "not given".
-type ListOp struct {
-	Set, Add, Remove []string
-	HasSet           bool
-}
-
-func (op ListOp) given() bool { return op.HasSet || op.Add != nil || op.Remove != nil }
-
-func applyListOp(current []string, op ListOp) []string {
-	if op.HasSet {
-		return slices.Clone(op.Set)
-	}
-	out := slices.Clone(current)
-	if len(op.Remove) > 0 {
-		out = slices.DeleteFunc(out, func(v string) bool { return slices.Contains(op.Remove, v) })
-	}
-	for _, v := range op.Add {
-		if !slices.Contains(out, v) {
-			out = append(out, v)
+		case slices.Contains(c.Touch, name):
+			fm.Set(name, Today())
+		case c.Lists[name].given():
+			fm.Set(name, list(name))
+		default:
+			fm.Set(name, c.Values[name])
 		}
 	}
-	return out
+	return fm
 }
 
-// Update holds the optional fields of an update; nil pointers are unchanged.
-type Update struct {
-	// Register gives a block that has no doc_id its first one.
-	Register                                                 *string
-	TouchLastReviewed                                        bool
-	LastReviewed                                             *string
-	Title, DocType, System, Environment, Status, Sensitivity *string
-	Tags, RelatedProjects, RelatedAssets                     ListOp
+// held is the problem with a unique field's values: another doc that may
+// carry the field already holds one, compared case-insensitively. "" when
+// every value is free. self is the doc being written.
+func held(idx *vault.Index, f schema.Field, values []string, self string) string {
+	for _, d := range idx.Docs {
+		if d.RelativePath == self || d.Frontmatter == nil || !f.InScope(d.RelativePath) {
+			continue
+		}
+		cur, _ := d.Frontmatter.Get(f.Name)
+		if cur == nil {
+			continue
+		}
+		theirs := vault.CoerceList(cur)
+		for _, v := range values {
+			if !slices.ContainsFunc(theirs, func(t string) bool { return strings.EqualFold(t, v) }) {
+				continue
+			}
+			name := f.Name
+			if f.IsList() {
+				name += " entry"
+			}
+			return fmt.Sprintf("%s %s already exists at %s; a value belongs to one doc, so change it there first",
+				name, pystr.Repr(v), d.RelativePath)
+		}
+	}
+	return ""
 }
 
+// valueList reads a frontmatter value as a list of strings.
 func valueList(v any) []string {
 	switch x := v.(type) {
 	case nil:
@@ -219,30 +177,27 @@ func valueList(v any) []string {
 	return []string{pystr.Str(v)}
 }
 
-// UpdateFrontmatter changes fields in an existing block; doc_id is immutable.
-func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema.Profile) *jsonx.Obj {
-	var checks [][2]string
-	for _, f := range []struct {
-		key string
-		val *string
-	}{{"doc_type", u.DocType}, {"environment", u.Environment}, {"status", u.Status}, {"sensitivity", u.Sensitivity}} {
-		if f.val != nil {
-			checks = append(checks, [2]string{f.key, *f.val})
-		}
-	}
-	if errs := fieldErrors(p, false, checks...); len(errs) > 0 {
-		return fail(strings.Join(errs, "; "))
+// SetFrontmatter applies c to the doc at relativePath, validated against p:
+// a file without frontmatter gets a new block, an existing block is changed
+// in place. Every field p declares can be set; an immutable one only while
+// unset.
+func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.Profile) *jsonx.Obj {
+	if msg := c.undeclared(p); msg != "" {
+		return fail(msg)
 	}
 	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}
 	defer v.Close()
-	root := fsx.Resolve(l.Config.VaultPath)
-	rel, _ := filepath.Rel(root, full)
+	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
+	var idx *vault.Index
+	if slices.ContainsFunc(c.names(), func(name string) bool { f, _ := p.Field(name); return f.Unique }) {
+		idx = l.Index(true)
+	}
 	var out *jsonx.Obj
 	wrote, err := v.Update(full, func(text string) string {
-		next, o := updateFields(text, rel, u)
+		next, o := applyChanges(text, rel, c, p, idx)
 		out = o
 		return next
 	})
@@ -255,59 +210,42 @@ func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema
 	return out
 }
 
-// updateFields applies u to a note's text: the new text and the result to
+// applyChanges is c applied to a note's text: the new text and the result to
 // report, or the text unchanged and a failure or no-op result.
-func updateFields(text, rel string, u Update) (string, *jsonx.Obj) {
-	fm, body, _ := frontmatter.Split(text)
-	if fm == nil {
-		return text, fail("file has no frontmatter; add a block first.")
+func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
+	before, body, _ := frontmatter.Split(text)
+	if before == nil {
+		return createBlock(text, rel, c, p, idx)
 	}
-	changed := map[string]bool{}
-	if u.Register != nil {
-		fm.Delete("doc_id")
-		fm = jsonx.New("doc_id", *u.Register).Merge(fm)
-		changed["doc_id"] = true
-	}
-	for _, f := range []struct {
-		key string
-		val *string
-	}{{"title", u.Title}, {"doc_type", u.DocType}, {"system", u.System}, {"environment", u.Environment}, {"status", u.Status}, {"sensitivity", u.Sensitivity}} {
-		if f.val == nil {
-			continue
+	fm := before.Clone()
+	var changed []string
+	set := func(name string, value any) {
+		if cur, has := fm.Get(name); has && cur != nil && pystr.Str(cur) == pystr.Str(value) {
+			if _, isList := cur.([]any); !isList {
+				return
+			}
 		}
-		cur, ok := fm.Get(f.key)
-		if s, isStr := cur.(string); !ok || !isStr || s != *f.val {
-			fm.Set(f.key, *f.val)
-			changed[f.key] = true
-		}
+		fm.Set(name, value)
+		changed = append(changed, name)
 	}
-	var reviewed *string
-	if u.TouchLastReviewed {
-		t := Today()
-		reviewed = &t
-	} else if u.LastReviewed != nil {
-		reviewed = u.LastReviewed
-	}
-	if reviewed != nil {
-		cur, ok := fm.Get("last_reviewed")
-		if s, isStr := cur.(string); !ok || !isStr || s != *reviewed {
-			fm.Set("last_reviewed", *reviewed)
-			changed["last_reviewed"] = true
-		}
-	}
-	for _, f := range []struct {
-		key string
-		op  ListOp
-	}{{"tags", u.Tags}, {"related_projects", u.RelatedProjects}, {"related_assets", u.RelatedAssets}} {
-		if !f.op.given() {
-			continue
-		}
-		cur, _ := fm.Get(f.key)
-		current := valueList(cur)
-		next := applyListOp(current, f.op)
-		if !slices.Equal(next, current) {
-			fm.Set(f.key, strList(next))
-			changed[f.key] = true
+	for _, name := range c.names() {
+		f, _ := p.Field(name)
+		cur, _ := fm.Get(name)
+		switch {
+		case slices.Contains(c.Touch, name):
+			set(name, Today())
+		case c.Lists[name].given():
+			current := valueList(cur)
+			if next := applyListOp(current, c.Lists[name]); !slices.Equal(next, current) {
+				fm.Set(name, strList(next))
+				changed = append(changed, name)
+			}
+		default:
+			value := c.Values[name]
+			if f.Immutable && pystr.Truthy(cur) && pystr.Str(cur) != pystr.Str(value) {
+				return text, fail(fmt.Sprintf("%s is immutable (file has %s, got %s)", name, pystr.Repr(pystr.Str(cur)), pystr.Repr(pystr.Str(value))))
+			}
+			set(name, value)
 		}
 	}
 	docID, _ := fm.Get("doc_id")
@@ -315,99 +253,67 @@ func updateFields(text, rel string, u Update) (string, *jsonx.Obj) {
 		return text, jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
 			"message", "No fields differ — nothing written.")
 	}
-	keys := make([]string, 0, len(changed))
-	for k := range changed {
-		keys = append(keys, k)
+	task := schema.IsTask(fm)
+	var errs []string
+	for _, name := range changed {
+		f, _ := p.Field(name)
+		if !f.InScope(rel) {
+			errs = append(errs, f.ScopeError(rel))
+			continue
+		}
+		v, _ := fm.Get(name)
+		errs = append(errs, p.Problems(name, v, task)...)
+		if f.Unique && idx != nil {
+			old, _ := before.Get(name)
+			fresh := slices.DeleteFunc(valueList(v), func(s string) bool { return slices.Contains(valueList(old), s) })
+			if e := held(idx, f, fresh, rel); e != "" {
+				errs = append(errs, e)
+			}
+		}
 	}
-	slices.Sort(keys)
-	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel, "changed_fields", keys, "next_step", nextStep)
+	if len(errs) > 0 {
+		return text, fail(strings.Join(errs, "; "))
+	}
+	slices.Sort(changed)
+	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel,
+		"changed_fields", changed, "next_step", nextStep)
 }
 
-// Set holds set_frontmatter's arguments. Nil pointers and nil lists are "not given".
-type Set struct {
-	DocID, Title, DocType, System, Environment, Status, Sensitivity *string
-	Tags, RelatedProjects, RelatedAssets                            ListOp
-	LastReviewed                                                    *string
-	TouchLastReviewed                                               bool
+// createBlock prepends the block c builds to a file that has none.
+func createBlock(text, rel string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
+	if strings.HasPrefix(pystr.LStrip(text), "---") {
+		return text, fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
+	}
+	if absent := absentForCreate(c); len(absent) > 0 {
+		return text, fail("no frontmatter yet; creating one needs " + strings.Join(absent, ", "))
+	}
+	for _, op := range c.Lists {
+		if len(op.Remove) > 0 {
+			return text, fail("no frontmatter yet; remove_* lists only apply to an update")
+		}
+	}
+	fm := newFrontmatter(c)
+	if errs := checkNew(fm, rel, p, idx); len(errs) > 0 {
+		return text, fail(strings.Join(errs, "; "))
+	}
+	out := frontmatter.Serialize(fm) + text
+	return out, jsonx.New("ok", true, "doc_id", c.Str("doc_id"), "relative_path", rel, "wrote_bytes", len(out), "next_step", nextStep)
 }
 
-func strOr(p *string, def string) string {
-	if p == nil || *p == "" {
-		return def
-	}
-	return *p
-}
-
-// SetFrontmatter creates the block when absent, else updates it.
-func SetFrontmatter(l *vault.Loader, relativePath string, s Set, p *schema.Profile) *jsonx.Obj {
-	v, full, perr := indexedPath(l, relativePath)
-	if perr != nil {
-		return perr
-	}
-	defer v.Close()
-	text, err := v.ReadText(full)
-	if err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	existing, _, _ := frontmatter.Split(text)
-	if existing == nil {
-		var absent []string
-		for _, f := range []struct {
-			name string
-			val  *string
-		}{{"doc_id", s.DocID}, {"title", s.Title}, {"doc_type", s.DocType}, {"system", s.System}} {
-			if f.val == nil || *f.val == "" {
-				absent = append(absent, f.name)
-			}
+// checkNew is every problem with a new block at rel: the profile's rules,
+// and each unique field's value held by another doc.
+func checkNew(fm *jsonx.Obj, rel string, p *schema.Profile, idx *vault.Index) []string {
+	errs := p.Check(fm, rel)
+	for _, f := range p.Settable() {
+		v, _ := fm.Get(f.Name)
+		if !f.Unique || v == nil || idx == nil {
+			continue
 		}
-		if len(absent) > 0 {
-			return fail("no frontmatter yet; creating one needs " + strings.Join(absent, ", "))
-		}
-		if len(s.Tags.Remove) > 0 || len(s.RelatedProjects.Remove) > 0 || len(s.RelatedAssets.Remove) > 0 {
-			return fail("no frontmatter yet; remove_* lists only apply to an update")
-		}
-		merged := func(op ListOp) ([]string, bool) {
-			if !op.HasSet && op.Add == nil {
-				return nil, false
-			}
-			return applyListOp(op.Set, ListOp{Add: op.Add}), true
-		}
-		tags, hasTags := merged(s.Tags)
-		projects, hasProjects := merged(s.RelatedProjects)
-		assets, hasAssets := merged(s.RelatedAssets)
-		reviewed := ""
-		if s.LastReviewed != nil {
-			reviewed = *s.LastReviewed
-		}
-		return AddFrontmatter(l, relativePath, *s.DocID, *s.Title, *s.DocType, *s.System,
-			strOr(s.Environment, "other"), strOr(s.Status, "active"), strOr(s.Sensitivity, "internal"),
-			tags, projects, assets, hasTags, hasProjects, hasAssets, reviewed, p)
-	}
-	var register *string
-	if s.DocID != nil {
-		cur, _ := existing.Get("doc_id")
-		if c, _ := cur.(string); c != "" {
-			if c != *s.DocID {
-				return fail(fmt.Sprintf("doc_id is immutable (file has %s, got %s)", pystr.Repr(c), pystr.Repr(*s.DocID)))
-			}
-		} else {
-			if errs := fieldErrors(p, false, [2]string{"doc_id", *s.DocID}); len(errs) > 0 {
-				return fail(strings.Join(errs, "; "))
-			}
-			if taken := docIDTaken(l.Index(false), *s.DocID); taken != nil {
-				return taken
-			}
-			register = s.DocID
+		if e := held(idx, f, valueList(v), rel); e != "" {
+			errs = append(errs, e)
 		}
 	}
-	return UpdateFrontmatter(l, relativePath, Update{
-		Register:          register,
-		TouchLastReviewed: s.TouchLastReviewed,
-		LastReviewed:      s.LastReviewed,
-		Title:             s.Title, DocType: s.DocType, System: s.System,
-		Environment: s.Environment, Status: s.Status, Sensitivity: s.Sensitivity,
-		Tags: s.Tags, RelatedProjects: s.RelatedProjects, RelatedAssets: s.RelatedAssets,
-	}, p)
+	return errs
 }
 
 // TouchReviewed sets last_reviewed to today without rebuilding the index.

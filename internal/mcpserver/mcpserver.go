@@ -18,6 +18,8 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/queue"
+	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
@@ -73,7 +75,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write", "log_entries"}
+var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write", "log_entries", "queue"}
 
 // ----- schemas ------------------------------------------------------------------
 
@@ -339,6 +341,64 @@ func result(o *jsonx.Obj) *mcp.CallToolResult {
 
 type handlers struct{ reg *vaults.Registry }
 
+// fields are the frontmatter fields every vault's profile declares.
+func (h *handlers) fields() []schema.Field {
+	var profiles []*schema.Profile
+	for _, v := range h.reg.Vaults {
+		if v.Profile != nil {
+			profiles = append(profiles, v.Profile)
+		}
+	}
+	return schema.Union(profiles...)
+}
+
+// frontmatterProps are the input properties of frontmatter arguments.
+func frontmatterProps(fargs []write.Arg) *jsonx.Obj {
+	o := jsonx.New()
+	for _, a := range fargs {
+		switch {
+		case a.Op == write.OpTouch:
+			o.Set(a.Key, boolean(a.Help()))
+		case a.Op != write.OpSet:
+			o.Set(a.Key, strList(a.Help()))
+		case a.Field.Kind == schema.KindInteger:
+			o.Set(a.Key, jsonx.New("type", []string{"integer", "null"}, "default", nil, "description", a.Help()))
+		case a.Field.Kind == schema.KindBoolean:
+			o.Set(a.Key, jsonx.New("type", []string{"boolean", "null"}, "default", nil, "description", a.Help()))
+		default:
+			o.Set(a.Key, optStr(a.Help()))
+		}
+	}
+	return o
+}
+
+// readChanges reads the frontmatter arguments a call gives.
+func readChanges(a args, fargs []write.Arg) (write.Changes, error) {
+	var c write.Changes
+	for _, fa := range fargs {
+		if _, given := a.value(fa.Key); !given {
+			continue
+		}
+		var value any
+		var err error
+		switch {
+		case fa.Op == write.OpTouch, fa.Field.Kind == schema.KindBoolean:
+			value, err = a.boolean(fa.Key)
+		case fa.Op != write.OpSet:
+			value, _, err = a.list(fa.Key)
+		case fa.Field.Kind == schema.KindInteger:
+			value, err = a.integer(fa.Key, 0)
+		default:
+			value, err = a.str(fa.Key, false, "")
+		}
+		if err != nil {
+			return c, err
+		}
+		c.Apply(fa, value)
+	}
+	return c, nil
+}
+
 func (h *handlers) vault(a args) (*core.Vault, string, error) {
 	name, err := a.str("vault", false, vaults.DefaultVault)
 	if err != nil {
@@ -451,22 +511,13 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		return core.ReadDoc(v, id, r), nil
 	})
 
+	fields := h.fields()
+	setArgs := write.Args(fields, "", false)
 	setProps := jsonx.New(
 		"relative_path", str(`Path from the vault root, e.g. "03 Runbooks/Add Proxy Host.md".`),
 		"vault", h.vaultProp("Which vault."),
-		"doc_id", optStr("Stable id; required to create, must match when updating."),
-	)
-	for _, f := range []string{"title", "doc_type", "system", "environment", "status", "sensitivity"} {
-		setProps.Set(f, optStr("Field value."))
-	}
-	for _, f := range []string{"tags", "related_projects", "related_assets"} {
-		setProps.Set(f, strList("Replace the list."))
-		setProps.Set("add_"+f, strList("Append to the list."))
-		setProps.Set("remove_"+f, strList("Remove from the list (update only)."))
-	}
-	setProps.Set("last_reviewed", optStr("ISO date. Defaults to today on create."))
-	setProps.Set("touch_last_reviewed", boolean("Set last_reviewed to today (update)."))
-	h.add(s, "set_frontmatter", descSet, object(setProps, []string{"relative_path"}), func(a args) (*jsonx.Obj, error) {
+	).Merge(frontmatterProps(setArgs))
+	h.add(s, "set_frontmatter", descSet(fields), object(setProps, []string{"relative_path"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
 			return nil, err
@@ -475,56 +526,23 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		var set write.Set
-		for _, f := range []struct {
-			name string
-			dst  **string
-		}{{"doc_id", &set.DocID}, {"title", &set.Title}, {"doc_type", &set.DocType}, {"system", &set.System},
-			{"environment", &set.Environment}, {"status", &set.Status}, {"sensitivity", &set.Sensitivity}, {"last_reviewed", &set.LastReviewed}} {
-			if *f.dst, err = a.opt(f.name); err != nil {
-				return nil, err
-			}
-		}
-		for _, f := range []struct {
-			name string
-			dst  *write.ListOp
-		}{{"tags", &set.Tags}, {"related_projects", &set.RelatedProjects}, {"related_assets", &set.RelatedAssets}} {
-			whole, has, err := a.list(f.name)
-			if err != nil {
-				return nil, err
-			}
-			add, _, err := a.list("add_" + f.name)
-			if err != nil {
-				return nil, err
-			}
-			remove, _, err := a.list("remove_" + f.name)
-			if err != nil {
-				return nil, err
-			}
-			*f.dst = write.ListOp{Set: whole, HasSet: has, Add: add, Remove: remove}
-		}
-		if set.TouchLastReviewed, err = a.boolean("touch_last_reviewed"); err != nil {
+		c, err := readChanges(a, setArgs)
+		if err != nil {
 			return nil, err
 		}
-		return core.SetFrontmatter(v, rel, set), nil
+		return core.SetFrontmatter(v, rel, c), nil
 	})
 
+	createArgs := write.Args(slices.DeleteFunc(slices.Clone(fields), func(f schema.Field) bool { return f.Name == "doc_id" }), "", true)
 	writeProps := jsonx.New(
 		"mode", enum(core.WriteDocModes, "create", "create, replace_section or append_section; see the tool description."),
 		"body", str("Markdown without frontmatter: the whole doc for create, the section's new content otherwise."),
 		"vault", h.vaultProp("Which vault."),
 		"relative_path", optStr(`Path from the vault root, e.g. "03 Runbooks/Add Proxy Host.md". Required to create.`),
 		"doc_id", optStr("Stable id: the new doc's on create, the doc to edit otherwise (or give relative_path)."),
-	)
-	for _, f := range []string{"title", "doc_type", "system", "environment", "status", "sensitivity"} {
-		writeProps.Set(f, optStr("Frontmatter field, create only."))
-	}
-	for _, f := range []string{"tags", "related_projects", "related_assets"} {
-		writeProps.Set(f, strList("Frontmatter list, create only."))
-	}
-	writeProps.Set("last_reviewed", optStr("ISO date, create only. Defaults to today."))
-	writeProps.Set("heading", optStr("The section's exact heading text, any level, without the #s. Section modes only."))
-	writeProps.Set("include_restricted", boolean("Edit a restricted doc; local policy still decides."))
+		"heading", optStr(`The section's exact heading text, any level, without the #s; "" for the text before the first heading. Section modes only.`),
+		"include_restricted", boolean("Edit a restricted doc; local policy still decides."),
+	).Merge(frontmatterProps(createArgs))
 	h.add(s, "write_doc", descWriteDoc, object(writeProps, []string{"body"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -537,23 +555,17 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if w.Body, err = a.str("body", true, ""); err != nil {
 			return nil, err
 		}
-		for _, f := range []struct {
-			name string
-			dst  *string
-		}{{"relative_path", &w.RelativePath}, {"heading", &w.Heading}, {"doc_id", &w.New.DocID}, {"title", &w.New.Title},
-			{"doc_type", &w.New.DocType}, {"system", &w.New.System}, {"environment", &w.New.Environment}, {"status", &w.New.Status},
-			{"sensitivity", &w.New.Sensitivity}, {"last_reviewed", &w.New.LastReviewed}} {
-			if *f.dst, err = a.str(f.name, false, ""); err != nil {
-				return nil, err
-			}
+		if w.RelativePath, err = a.str("relative_path", false, ""); err != nil {
+			return nil, err
 		}
-		for _, f := range []struct {
-			name string
-			dst  *[]string
-		}{{"tags", &w.New.Tags}, {"related_projects", &w.New.RelatedProjects}, {"related_assets", &w.New.RelatedAssets}} {
-			if *f.dst, _, err = a.list(f.name); err != nil {
-				return nil, err
-			}
+		if w.DocID, err = a.str("doc_id", false, ""); err != nil {
+			return nil, err
+		}
+		if w.Heading, err = a.opt("heading"); err != nil {
+			return nil, err
+		}
+		if w.New, err = readChanges(a, createArgs); err != nil {
+			return nil, err
 		}
 		if w.IncludeRestricted, err = a.boolean("include_restricted"); err != nil {
 			return nil, err
@@ -696,7 +708,109 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		return core.LogEntries(v, id, l), nil
 	})
 
+	linkProps := jsonx.New()
+	for _, k := range queue.LinkKeys {
+		linkProps.Set(k, jsonx.New("type", []string{"string", "null"}))
+	}
+	h.add(s, "queue", descQueue, object(jsonx.New(
+		"action", enum(core.QueueActions, core.QueueActions[0], "list, add, set, close or promote; see the tool description."),
+		"vault", h.vaultProp("Which vault."),
+		"project", optStr("The queue's project folder under 01 Projects, or backlog."),
+		"repo", optStr("A repository directory name; the project whose index.md lists it under repos."),
+		"cwd", optStr("A working directory; resolved to its repository, then to the project."),
+		"all", boolean("list: every queue."),
+		"id", optStr("set, close, promote: the item's id, e.g. example-3."),
+		"agent", optStr("add: the worker's agent id. list: only that agent's items. set, close, promote: the item by agent instead of id."),
+		"kind", optStr("add: "+strings.Join(queue.Kinds, ", ")+". list: only this kind."),
+		"text", optStr("add: one line saying what the work is. set: replace it. Escaped in the note, never by you."),
+		"owner", optStr("add, set: who holds the item (one word; \"\" or \"-\" for nobody). list: only that owner's items."),
+		"links", jsonx.New("type", []string{"object", "null"}, "default", nil, "properties", linkProps, "additionalProperties", false,
+			"description", "add, set, close: typed links, each one word; on set, \"\" removes one."),
+		"blocked_by", strList("add, set: item ids that must close before this one is ready."),
+		"status", optStr("set: open, returned (delegated only) or parked. close: closed (default) or dropped. list: comma-separated statuses or all; default open,returned."),
+		"ready", boolean("list: only open next and follow-up items whose blockers are all closed or dropped."),
+		"contains", optStr("list: only items whose text contains this (case-insensitive)."),
+		"limit", integer(queueLimit, "list: most items to return; 0 for all. `count` says how many matched."),
+		"claim", boolean("set: take the item for owner only if nobody holds it; fails naming the holder otherwise."),
+		"resolution", optStr("close: one line, e.g. repo@sha, a PR, a doc id, or why it was dropped."),
+		"content", optStr("promote: the body doc's markdown (no frontmatter)."),
+		"fields", strList("list: item fields to return. Default: id, kind, status, owner, text; also project, links "+
+			"(or links.pr, ...), blocked_by, body, alias, agent, resolution."),
+	), nil), func(a args) (*jsonx.Obj, error) {
+		v, _, err := h.vault(a)
+		if err != nil {
+			return nil, err
+		}
+		q, err := queueArgs(a)
+		if err != nil {
+			return nil, err
+		}
+		return core.Queue(v, q), nil
+	})
+
 	h.addResources(s)
+}
+
+// queueLimit is the queue list's default cap.
+const queueLimit = 50
+
+func queueArgs(a args) (core.QueueArgs, error) {
+	q := core.QueueArgs{}
+	var err error
+	if q.Action, err = a.choice("action", core.QueueActions, core.QueueActions[0]); err != nil {
+		return q, err
+	}
+	for _, f := range []struct {
+		name string
+		dst  *string
+	}{{"project", &q.Project}, {"repo", &q.Repo}, {"cwd", &q.Cwd}, {"id", &q.ID}, {"agent", &q.Agent}, {"kind", &q.Kind},
+		{"status", &q.Status}, {"contains", &q.Contains}, {"resolution", &q.Resolution}, {"content", &q.Content}} {
+		if *f.dst, err = a.str(f.name, false, ""); err != nil {
+			return q, err
+		}
+	}
+	if q.Text, err = a.opt("text"); err != nil {
+		return q, err
+	}
+	if q.Owner, err = a.opt("owner"); err != nil {
+		return q, err
+	}
+	for _, f := range []struct {
+		name string
+		dst  *bool
+	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}} {
+		if *f.dst, err = a.boolean(f.name); err != nil {
+			return q, err
+		}
+	}
+	if q.Limit, err = a.integer("limit", queueLimit); err != nil {
+		return q, err
+	}
+	if q.BlockedBy, q.HasBlockedBy, err = a.list("blocked_by"); err != nil {
+		return q, err
+	}
+	if q.Fields, _, err = a.list("fields"); err != nil {
+		return q, err
+	}
+	if raw, ok := a.value("links"); ok {
+		o, isObj := raw.(*jsonx.Obj)
+		if !isObj {
+			return q, argError{msg: "links: input should be an object", arg: "links"}
+		}
+		q.Links = map[string]string{}
+		for _, k := range o.Keys() {
+			v, _ := o.Get(k)
+			switch x := v.(type) {
+			case nil:
+				q.Links[k] = ""
+			case string:
+				q.Links[k] = x
+			default:
+				return q, argError{msg: "links." + k + ": input should be a valid string", arg: "links"}
+			}
+		}
+	}
+	return q, nil
 }
 
 // logLimit is log_entries' default cap on a list.
@@ -806,12 +920,28 @@ public, internal and sensitive bodies are released (sensitive ones carry an
 sections returns just those sections (the hit's ` + "`section`" + ` is the cheap read);
 fields=["outline"] lists the doc's sections without any text.`
 
-const descSet = `Create or update a doc's frontmatter, validated against the vault's schema.
+// descSet is set_frontmatter's description, its field list derived from the
+// vaults' profiles.
+func descSet(fields []schema.Field) string {
+	names := make([]string, 0, len(fields))
+	for _, f := range fields {
+		name := f.Name
+		if f.Scope != "" {
+			name += " (" + f.Scope + " only)"
+		}
+		names = append(names, name)
+	}
+	return `Create or update a doc's frontmatter, validated against the vault's schema.
 
 A file without frontmatter gets a new block (doc_id, title, doc_type and
 system are required; environment, status and sensitivity default to
 other, active, internal). A file with frontmatter is updated in place:
-omitted fields stay as they are, and doc_id can never change.`
+omitted fields stay as they are, and doc_id never changes once set. A list
+field is replaced whole, or edited with add_<field> and remove_<field>.
+
+Settable fields, as the vaults' profiles declare them (a field the chosen
+vault does not declare is refused): ` + strings.Join(names, ", ") + "."
+}
 
 const descWriteDoc = `Create a registered doc, or edit one section of its body, validated against the vault's schema.
 
@@ -822,7 +952,8 @@ create (default): write relative_path with body and a new frontmatter block
     when the body has no H1.
 replace_section: replace the content under heading (doc_id or
     relative_path names the doc) up to the next heading of the same or
-    higher level; the heading line stays.
+    higher level; the heading line stays. heading "" is the text before
+    the first heading.
 append_section: add body to the end of that section.
 Section modes keep the frontmatter as it is except last_reviewed, which
 becomes today. Restricted docs need include_restricted and a Touch ID approval through 1Password.`
@@ -836,6 +967,27 @@ close: append " → <resolution>" to the one open entry match names; zero or
     several matches is an error listing the candidates. The frontmatter
     stays as it is except last_reviewed, which becomes today.
 Restricted notes are refused; notes in read-only folders can be listed, not closed.`
+
+const descQueue = `Track work in a project's queue: one Obsidian task per item in
+01 Projects/<project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md).
+Kinds: next, delegated (a worker holds it), decision (the user must
+answer), follow-up. Status: open, returned (delegated only), parked, closed,
+dropped; a box ticked in Obsidian reads as closed.
+
+Name the queue by project, repo, or cwd (resolved through each project's
+index.md repos list; a cwd no project lists falls back to the backlog and
+says so in fallback).
+list (default): open and returned items; all=true spans every queue;
+    filter by kind, status, owner, agent, contains; ready=true is open next
+    and follow-up work whose blocked_by items are all closed or dropped.
+add: kind and text (owner, links, blocked_by, agent optional); returns the
+    new id. The first add creates the queue note.
+set: id (or agent) and what changes: status, owner, text, links,
+    blocked_by. claim=true with owner takes an unowned item atomically.
+close: id (or agent) and resolution; status=dropped for work not done; the
+    line moves to ## Closed.
+promote: id; creates a body doc for an item that needs prose and records it.
+Every write holds the note's lock; ids are never typed by the caller.`
 
 const descBoard = `A vault's task board: open work, counts, recently shipped, and the projects tasks can go in.`
 

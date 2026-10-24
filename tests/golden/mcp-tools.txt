@@ -1,5 +1,6 @@
 find
 log_entries
+queue
 read_doc
 set_frontmatter
 task_board

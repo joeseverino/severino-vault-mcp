@@ -1,13 +1,16 @@
 // Package schema is the frontmatter profile framework: a named bundle of
-// enum sets, id prefixes, the task lifecycle, and per-doc-type field rules.
-// The labs and education profiles are built in; other vaults load theirs as
-// data (a profile contract), so domain values never have to live here.
+// enum sets, id prefixes, the task lifecycle, the fields a vault's docs carry,
+// and per-doc-type field rules. The labs and education profiles are built in;
+// other vaults load theirs as data (a profile contract), so domain values
+// never have to live here.
 package schema
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -18,28 +21,92 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
 
-// Field is one domain-supplied frontmatter rule.
+// Field kinds.
+const (
+	KindString  = "string"
+	KindEnum    = "enum"
+	KindInteger = "integer"
+	KindBoolean = "boolean"
+	KindList    = "list"
+	KindDate    = "date"
+	KindPath    = "path"
+)
+
+// Field is one frontmatter field rule: a field a profile declares (Name set),
+// which set_frontmatter writes and validate checks, or a doc_type's field rule.
 type Field struct {
+	Name     string
 	Required bool
-	Kind     string // string, integer, boolean, list, date
+	Kind     string // one of the Kind constants
 	Choices  []string
-	Pattern  string
-	Minimum  *int
-	Maximum  *int
+	// TaskChoices replace Choices on a doc_type: task doc (status's lifecycle).
+	TaskChoices []string
+	// Prefixes: the value starts with one of these.
+	Prefixes []string
+	// Pattern matches the whole value, or each item of a list; Shape says it
+	// in words for the error.
+	Pattern, Shape string
+	Minimum        *int
+	Maximum        *int
+	// Reserved are values no doc may take.
+	Reserved []string
+	// Scope is the path.Match pattern a doc's vault-relative path matches to
+	// carry the field; "" is every doc.
+	Scope string
+	// Unique: no two docs share the value, or any one list item, compared
+	// case-insensitively.
+	Unique bool
+	// Immutable: once set, the value never changes.
+	Immutable bool
+	// Touch: the date can be set to today without naming it.
+	Touch bool
+	// Example and Help describe the field to a caller.
+	Example, Help string
+}
+
+// IsList reports a list field.
+func (f Field) IsList() bool { return f.Kind == KindList }
+
+// InScope reports whether the doc at rel may carry the field.
+func (f Field) InScope(rel string) bool {
+	if f.Scope == "" {
+		return true
+	}
+	ok, _ := path.Match(f.Scope, filepath.ToSlash(path.Clean(filepath.ToSlash(rel))))
+	return ok
+}
+
+// ScopeError is the refusal for a field set on a doc outside its scope.
+func (f Field) ScopeError(rel string) string {
+	return fmt.Sprintf("%s only applies to docs at %s, not %s", f.Name, pystr.Repr(f.Scope), rel)
 }
 
 // Validate checks one value against the rule.
-func (f Field) Validate(name string, value any) []string {
+func (f Field) Validate(name string, value any) []string { return f.check(name, value, false) }
+
+// check is Validate with the task lifecycle selected by task.
+func (f Field) check(name string, value any, task bool) []string {
 	if missing(value) {
 		if f.Required {
 			return []string{"missing required field: " + name}
 		}
 		return nil
 	}
+	if f.Kind == KindList {
+		items, ok := value.([]any)
+		if !ok {
+			return []string{name + " must be a list"}
+		}
+		var errs []string
+		for _, item := range items {
+			errs = append(errs, f.valueRules(name+" entry", item, false)...)
+		}
+		return errs
+	}
 	var errs []string
 	var parsed *int
 	switch f.Kind {
-	case "integer":
+	case KindInteger:
 		if _, isBool := value.(bool); isBool {
 			errs = append(errs, name+" must be an integer")
 		} else if n, err := strconv.Atoi(strings.TrimSpace(pystr.Str(value))); err != nil {
@@ -47,34 +114,24 @@ func (f Field) Validate(name string, value any) []string {
 		} else {
 			parsed = &n
 		}
-	case "boolean":
+	case KindBoolean:
 		if _, ok := value.(bool); !ok {
 			errs = append(errs, name+" must be a boolean")
 		}
-	case "list":
-		if _, ok := value.([]any); !ok {
-			errs = append(errs, name+" must be a list")
-		}
-	case "date":
+	case KindDate:
 		if !IsISODate(pystr.Str(value)) {
 			errs = append(errs, name+" must be an ISO date (YYYY-MM-DD)")
+		}
+	case KindPath:
+		if s, ok := value.(string); !ok || !strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "~/") {
+			errs = append(errs, name+" must be an absolute path or start with ~/")
 		}
 	default:
 		if _, ok := value.(string); !ok {
 			errs = append(errs, name+" must be a string")
 		}
 	}
-	text := pystr.Str(value)
-	if len(f.Choices) > 0 {
-		if e := NotIn(name, text, Sorted(f.Choices)); e != "" {
-			errs = append(errs, e)
-		}
-	}
-	if f.Pattern != "" {
-		if re, err := regexp.Compile(`\A(?:` + f.Pattern + `)\z`); err == nil && !re.MatchString(text) {
-			errs = append(errs, fmt.Sprintf("%s=%s does not match %s", name, pystr.ReprAny(value), pystr.Repr(f.Pattern)))
-		}
-	}
+	errs = append(errs, f.valueRules(name, value, task)...)
 	if parsed != nil {
 		if f.Minimum != nil && *parsed < *f.Minimum {
 			errs = append(errs, fmt.Sprintf("%s must be at least %d", name, *f.Minimum))
@@ -82,6 +139,38 @@ func (f Field) Validate(name string, value any) []string {
 		if f.Maximum != nil && *parsed > *f.Maximum {
 			errs = append(errs, fmt.Sprintf("%s must be at most %d", name, *f.Maximum))
 		}
+	}
+	return errs
+}
+
+// valueRules are the rules on a value's text: choices, prefixes, pattern and
+// reserved values.
+func (f Field) valueRules(name string, value any, task bool) []string {
+	var errs []string
+	text := pystr.Str(value)
+	choices, suffix := f.Choices, ""
+	if task && len(f.TaskChoices) > 0 {
+		choices, suffix = f.TaskChoices, " (task lifecycle)"
+	}
+	if len(choices) > 0 {
+		if e := NotIn(name, text, Sorted(choices)); e != "" {
+			errs = append(errs, e+suffix)
+		}
+	}
+	if len(f.Prefixes) > 0 && !slices.ContainsFunc(f.Prefixes, func(p string) bool { return strings.HasPrefix(text, p) }) {
+		errs = append(errs, fmt.Sprintf("%s %s must start with one of %s", name, pystr.Repr(text), pystr.ReprList(f.Prefixes)))
+	}
+	if f.Pattern != "" {
+		if re, err := regexp.Compile(`\A(?:` + f.Pattern + `)\z`); err == nil && !re.MatchString(text) {
+			if f.Shape != "" {
+				errs = append(errs, fmt.Sprintf("%s %s must be %s", name, pystr.ReprAny(value), f.Shape))
+			} else {
+				errs = append(errs, fmt.Sprintf("%s=%s does not match %s", name, pystr.ReprAny(value), pystr.Repr(f.Pattern)))
+			}
+		}
+	}
+	if slices.Contains(f.Reserved, text) {
+		errs = append(errs, fmt.Sprintf("%s %s is reserved; pick another", name, pystr.Repr(text)))
 	}
 	return errs
 }
@@ -104,17 +193,48 @@ func IsISODate(s string) bool {
 // Contract is the field rule as data.
 func (f Field) Contract() *jsonx.Obj {
 	o := jsonx.New("kind", f.Kind, "required", f.Required)
-	if len(f.Choices) > 0 {
-		o.Set("choices", slices.Sorted(slices.Values(f.Choices)))
+	for _, l := range []struct {
+		key    string
+		values []string
+		sorted bool
+	}{{"choices", f.Choices, true}, {"task_choices", f.TaskChoices, true}, {"prefixes", f.Prefixes, false}} {
+		if len(l.values) > 0 {
+			if l.sorted {
+				o.Set(l.key, Sorted(l.values))
+			} else {
+				o.Set(l.key, slices.Clone(l.values))
+			}
+		}
 	}
-	if f.Pattern != "" {
-		o.Set("pattern", f.Pattern)
+	for _, s := range [][2]string{{"pattern", f.Pattern}, {"shape", f.Shape}} {
+		if s[1] != "" {
+			o.Set(s[0], s[1])
+		}
 	}
 	if f.Minimum != nil {
 		o.Set("minimum", *f.Minimum)
 	}
 	if f.Maximum != nil {
 		o.Set("maximum", *f.Maximum)
+	}
+	if len(f.Reserved) > 0 {
+		o.Set("reserved", Sorted(f.Reserved))
+	}
+	if f.Scope != "" {
+		o.Set("scope", f.Scope)
+	}
+	for _, b := range []struct {
+		key string
+		on  bool
+	}{{"unique", f.Unique}, {"immutable", f.Immutable}, {"touch", f.Touch}} {
+		if b.on {
+			o.Set(b.key, true)
+		}
+	}
+	for _, s := range [][2]string{{"example", f.Example}, {"help", f.Help}} {
+		if s[1] != "" {
+			o.Set(s[0], s[1])
+		}
 	}
 	return o
 }
@@ -154,7 +274,10 @@ type Profile struct {
 	TaskStatuses       []string
 	TaskRequiredFields []string
 	TaskFields         []string
-	DocumentSchemas    map[string]DocumentSchema
+	// Fields are the profile's own frontmatter fields, after the ones every
+	// profile shares (Settable lists both).
+	Fields          []Field
+	DocumentSchemas map[string]DocumentSchema
 }
 
 // HasDocType and friends test membership.
@@ -174,36 +297,81 @@ func (p *Profile) HasPrefix(docID string) bool {
 	return false
 }
 
-// FieldError is the enum and doc_id-prefix rule for one frontmatter value, in
-// set_frontmatter's words; "" when the value is allowed or the field has no
-// such rule. task selects the task lifecycle for status.
-func (p *Profile) FieldError(field, value string, task bool) string {
-	var allowed []string
-	suffix := ""
-	switch field {
-	case "doc_id":
-		if p.HasPrefix(value) {
-			return ""
-		}
-		return fmt.Sprintf("doc_id %s must start with one of %s", pystr.Repr(value), pystr.ReprList(p.DocIDPrefixes))
-	case "doc_type":
-		allowed = p.DocTypes
-	case "environment":
-		allowed = p.Environments
-	case "sensitivity":
-		allowed = p.Sensitivities
-	case "status":
-		allowed = p.Statuses
-		if task {
-			allowed, suffix = p.TaskStatuses, " (task lifecycle)"
-		}
-	default:
-		return ""
+// Task effort and priority values.
+var (
+	Efforts    = []string{"L", "M", "S"}
+	Priorities = []string{"high", "low", "med"}
+)
+
+// shared are the fields every profile carries, their enums taken from the
+// profile's sets.
+func (p *Profile) shared() []Field {
+	return []Field{
+		{Name: "doc_id", Kind: KindString, Prefixes: p.DocIDPrefixes, Unique: true, Immutable: true,
+			Help: "Stable id; required to create, and fixed once set."},
+		{Name: "title", Kind: KindString, Help: "The doc's title."},
+		{Name: "doc_type", Kind: KindEnum, Choices: p.DocTypes, Help: "What kind of doc this is."},
+		{Name: "system", Kind: KindString, Help: "The system the doc is about."},
+		{Name: "environment", Kind: KindEnum, Choices: p.Environments, Help: "Where that system runs."},
+		{Name: "status", Kind: KindEnum, Choices: p.Statuses, TaskChoices: p.TaskStatuses,
+			Help: "The doc's lifecycle state (a task's own lifecycle for tasks)."},
+		{Name: "sensitivity", Kind: KindEnum, Choices: p.Sensitivities, Help: "Who may read the body."},
+		{Name: "last_reviewed", Kind: KindDate, Touch: true, Help: "When the doc was last checked against reality."},
+		{Name: "tags", Kind: KindList, Help: "Tags."},
+		{Name: "related_projects", Kind: KindList, Help: "Projects the doc belongs to, as folder names under the projects folder."},
+		{Name: "related_assets", Kind: KindList, Help: "Assets the doc touches."},
+		{Name: "aliases", Kind: KindList, Help: "Other names Obsidian resolves links by."},
+		{Name: "effort", Kind: KindEnum, Choices: Efforts, Help: "A task's size."},
+		{Name: "priority", Kind: KindEnum, Choices: Priorities, Help: "A task's priority."},
+		{Name: "created", Kind: KindDate, Help: "When a task was filed."},
+		{Name: "closed", Kind: KindDate, Help: "When a task was finished."},
 	}
-	if e := NotIn(field, value, Sorted(allowed)); e != "" {
-		return e + suffix
+}
+
+// Settable is every frontmatter field the profile declares, in order: the
+// shared fields, then its own. Required follows RequiredFields.
+func (p *Profile) Settable() []Field {
+	out := append(p.shared(), p.Fields...)
+	for i := range out {
+		out[i].Required = slices.Contains(p.RequiredFields, out[i].Name)
 	}
-	return ""
+	return out
+}
+
+// Union is every field the profiles declare, in order of first declaration;
+// a name keeps its first profile's rule.
+func Union(profiles ...*Profile) []Field {
+	var out []Field
+	for _, p := range profiles {
+		for _, f := range p.Settable() {
+			if !slices.ContainsFunc(out, func(o Field) bool { return o.Name == f.Name }) {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+// Field is the declared field name.
+func (p *Profile) Field(name string) (Field, bool) {
+	for _, f := range p.Settable() {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return Field{}, false
+}
+
+// Problems checks one value of a declared field, in set_frontmatter's words;
+// nil when it is allowed or the field is not declared. task selects the task
+// lifecycle for status.
+func (p *Profile) Problems(name string, value any, task bool) []string {
+	f, ok := p.Field(name)
+	if !ok {
+		return nil
+	}
+	f.Required = false
+	return f.check(name, value, task)
 }
 
 // NotIn is the one wording of an enum problem, "" when value is allowed.
@@ -215,19 +383,27 @@ func NotIn(field, value string, allowed []string) string {
 	return fmt.Sprintf("%s %s not in %s", field, pystr.Repr(value), pystr.ReprList(allowed))
 }
 
-// dateFields are the frontmatter dates a profile reads, whatever the doc_type.
-var dateFields = []string{"last_reviewed", "created", "closed"}
-
-// Check validates a whole frontmatter block with the rules set_frontmatter
-// applies when it writes one: required fields, enums (tasks use the task
-// lifecycle and skip environment and sensitivity), the doc_id prefix, ISO
-// dates, and the per-doc-type field rules.
-func (p *Profile) Check(fm *jsonx.Obj) []string {
+// IsTask reports a doc_type: task block.
+func IsTask(fm *jsonx.Obj) bool {
 	dt, _ := fm.Get("doc_type")
-	task := pystr.Str(orEmpty(dt)) == "task"
-	required, enums := p.RequiredFields, []string{"doc_type", "environment", "status", "sensitivity"}
+	return pystr.Str(orEmpty(dt)) == "task"
+}
+
+// docOnly reports a field a doc requires and a task does not carry, which a
+// task's block is not held to (environment, sensitivity).
+func (p *Profile) docOnly(name string) bool {
+	return slices.Contains(p.RequiredFields, name) && !slices.Contains(p.TaskRequiredFields, name) && !slices.Contains(p.TaskFields, name)
+}
+
+// Check validates a whole frontmatter block at rel with the rules
+// set_frontmatter writes by: required fields (a task's own set for tasks),
+// every declared field's rule and scope (a task skips the doc-only fields),
+// and the per-doc-type field rules.
+func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
+	task := IsTask(fm)
+	required := p.RequiredFields
 	if task {
-		required, enums = p.TaskRequiredFields, []string{"doc_type", "status"}
+		required = p.TaskRequiredFields
 	}
 	var errs []string
 	for _, name := range required {
@@ -235,16 +411,16 @@ func (p *Profile) Check(fm *jsonx.Obj) []string {
 			errs = append(errs, "missing required field: "+name)
 		}
 	}
-	for _, name := range append(enums, "doc_id") {
-		if v, _ := fm.Get(name); pystr.Truthy(v) {
-			if e := p.FieldError(name, pystr.Str(v), task); e != "" {
-				errs = append(errs, e)
-			}
+	for _, f := range p.Settable() {
+		v, _ := fm.Get(f.Name)
+		if missing(v) || (task && p.docOnly(f.Name)) {
+			continue
 		}
-	}
-	for _, name := range dateFields {
-		v, _ := fm.Get(name)
-		errs = append(errs, Field{Kind: "date"}.Validate(name, v)...)
+		f.Required = false
+		errs = append(errs, f.check(f.Name, v, task)...)
+		if !f.InScope(rel) {
+			errs = append(errs, f.ScopeError(rel))
+		}
 	}
 	return append(errs, p.ValidateDocument(fm)...)
 }
@@ -277,9 +453,14 @@ func (p *Profile) ContractDict() *jsonx.Obj {
 		}
 		schemas.Set(name, fields)
 	}
+	fields := jsonx.New()
+	for _, f := range p.Settable() {
+		fields.Set(f.Name, f.Contract())
+	}
 	o := jsonx.New("contract_version", 1, "name", p.Name)
 	o.Merge(p.AsDict())
 	o.Set("task_fields", slices.Clone(p.TaskFields))
+	o.Set("fields", fields)
 	o.Set("document_schemas", schemas)
 	return o
 }
@@ -396,6 +577,9 @@ func diff(a, b map[string]bool) []string {
 
 var universalTaskStatuses = []string{"open", "active", "parked", "done", "wontfix"}
 
+// projectIndex is where a labs project's index note lives.
+const projectIndex = "01 Projects/*/index.md"
+
 // Labs is the Severino Labs ops profile. HQ commits Labs.AsDict().
 var Labs = &Profile{
 	Name: "labs",
@@ -404,12 +588,22 @@ var Labs = &Profile{
 	Environments:       []string{"homelab", "vps", "wordpress", "cloudflare", "tailscale", "adguard", "unifi", "local_mac", "other"},
 	Statuses:           []string{"draft", "active", "deprecated", "archived"},
 	Sensitivities:      []string{"public", "internal", "sensitive", "restricted"},
-	DocIDPrefixes:      []string{"rb-", "infra-", "report-", "project-", "note-", "task-"},
+	DocIDPrefixes:      []string{"rb-", "infra-", "report-", "project-", "note-", "task-", "queue-"},
 	RequiredFields:     []string{"doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity"},
 	TaskStatuses:       universalTaskStatuses,
 	TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"},
 	TaskFields:         []string{"status", "related_projects", "effort", "priority", "created", "closed"},
-	DocumentSchemas:    map[string]DocumentSchema{},
+	Fields: []Field{
+		{Name: "project_path", Kind: KindPath, Scope: projectIndex, Example: "~/Code/Projects/example",
+			Help: "Where the project's working copy lives on this machine."},
+		{Name: "repos", Kind: KindList, Scope: projectIndex, Unique: true, Pattern: `[^/\\]+`,
+			Shape: `a bare repository directory name, with no "/"`, Example: "example-repo",
+			Help: "Repository directory names whose sessions use this project's work queue (see the queue tool)."},
+		{Name: "queue_prefix", Kind: KindString, Scope: projectIndex, Unique: true, Pattern: `[a-z][a-z0-9]{0,11}`,
+			Shape: "lowercase letters and digits, starting with a letter, at most 12 characters", Reserved: []string{"backlog"},
+			Example: "hq", Help: "The id prefix of this project's work queue items."},
+	},
+	DocumentSchemas: map[string]DocumentSchema{},
 }
 
 // Education is the coursework profile.
@@ -424,35 +618,101 @@ var Education = &Profile{
 	TaskStatuses:       universalTaskStatuses,
 	TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"},
 	TaskFields:         []string{"status", "related_projects", "effort", "priority", "created", "closed"},
-	DocumentSchemas:    map[string]DocumentSchema{},
+	Fields: []Field{
+		{Name: "course", Kind: KindString, Example: "CS6035", Help: "The course code a note, assignment or resource belongs to."},
+		{Name: "code", Kind: KindString, Example: "CS6035", Help: "A course's own code."},
+		{Name: "term", Kind: KindString, Example: "Fall 2026", Help: "When a course is taken."},
+		{Name: "track", Kind: KindString, Help: "The degree requirement a course fills."},
+		{Name: "credits", Kind: KindInteger, Help: "A course's credit hours."},
+		{Name: "grade", Kind: KindString, Help: "A finished course's grade."},
+	},
+	DocumentSchemas: map[string]DocumentSchema{},
+}
+
+// strs reads a contract list of strings.
+func strs(v any) ([]string, bool) {
+	switch x := v.(type) {
+	case []string:
+		return slices.Clone(x), true
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// fieldFromContract reads one field rule; where names it in errors.
+func fieldFromContract(where string, ro *jsonx.Obj) (Field, error) {
+	field := Field{Kind: ro.Str("kind"), Required: ro.Bool("required"), Pattern: ro.Str("pattern"), Shape: ro.Str("shape"),
+		Scope: ro.Str("scope"), Unique: ro.Bool("unique"), Immutable: ro.Bool("immutable"), Touch: ro.Bool("touch"),
+		Example: ro.Str("example"), Help: ro.Str("help")}
+	if field.Kind == "" {
+		field.Kind = KindString
+	}
+	for _, l := range []struct {
+		key string
+		dst *[]string
+	}{{"choices", &field.Choices}, {"task_choices", &field.TaskChoices}, {"prefixes", &field.Prefixes}, {"reserved", &field.Reserved}} {
+		v, ok := ro.Get(l.key)
+		if !ok {
+			continue
+		}
+		// Choices may be numbers in a hand-written contract; they compare as text.
+		if arr, isArr := v.([]any); isArr {
+			for _, item := range arr {
+				*l.dst = append(*l.dst, pystr.Str(item))
+			}
+			continue
+		}
+		s, isList := strs(v)
+		if !isList {
+			return field, fmt.Errorf("%s.%s must be a list", where, l.key)
+		}
+		*l.dst = s
+	}
+	for _, bound := range []struct {
+		key string
+		dst **int
+	}{{"minimum", &field.Minimum}, {"maximum", &field.Maximum}} {
+		if v, ok := ro.Get(bound.key); ok {
+			n, err := strconv.Atoi(fmt.Sprint(v))
+			if err != nil {
+				return field, fmt.Errorf("%s.%s must be an integer", where, bound.key)
+			}
+			*bound.dst = &n
+		}
+	}
+	return field, nil
 }
 
 // FromContract builds a profile from its contract (ContractDict's shape).
+// The contract's fields list repeats the shared fields, which the profile
+// derives from its sets; only its own fields are read from it.
 func FromContract(c *jsonx.Obj) (*Profile, error) {
-	str := func(k string) string { return c.Str(k) }
 	list := func(k string) ([]string, error) {
 		v, ok := c.Get(k)
 		if !ok {
 			return nil, fmt.Errorf("profile contract is missing %s", k)
 		}
-		if strs, ok := v.([]string); ok {
-			return slices.Clone(strs), nil
-		}
-		arr, ok := v.([]any)
-		if !ok {
-			return nil, fmt.Errorf("profile contract %s must be a list", k)
-		}
-		out := make([]string, 0, len(arr))
-		for _, item := range arr {
-			s, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("profile contract %s must hold strings", k)
+		if _, isList := v.([]any); !isList {
+			if _, isStrs := v.([]string); !isStrs {
+				return nil, fmt.Errorf("profile contract %s must be a list", k)
 			}
-			out = append(out, s)
+		}
+		out, ok := strs(v)
+		if !ok {
+			return nil, fmt.Errorf("profile contract %s must hold strings", k)
 		}
 		return out, nil
 	}
-	p := &Profile{Name: str("name"), DocumentSchemas: map[string]DocumentSchema{}}
+	p := &Profile{Name: c.Str("name"), DocumentSchemas: map[string]DocumentSchema{}}
 	if p.Name == "" {
 		return nil, fmt.Errorf("profile contract is missing name")
 	}
@@ -470,6 +730,32 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 			return nil, err
 		}
 	}
+	if fv, ok := c.Get("fields"); ok {
+		fo, isObj := fv.(*jsonx.Obj)
+		if !isObj {
+			return nil, fmt.Errorf("profile contract fields must be an object")
+		}
+		shared := map[string]bool{}
+		for _, f := range p.shared() {
+			shared[f.Name] = true
+		}
+		for _, name := range fo.Keys() {
+			if shared[name] {
+				continue
+			}
+			rv, _ := fo.Get(name)
+			ro, ok := rv.(*jsonx.Obj)
+			if !ok {
+				return nil, fmt.Errorf("fields.%s must be an object", name)
+			}
+			field, err := fieldFromContract("fields."+name, ro)
+			if err != nil {
+				return nil, err
+			}
+			field.Name, field.Required = name, false
+			p.Fields = append(p.Fields, field)
+		}
+	}
 	schemas, _ := c.Get("document_schemas")
 	if so, ok := schemas.(*jsonx.Obj); ok {
 		for _, docType := range so.Keys() {
@@ -485,29 +771,9 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 				if !ok {
 					return nil, fmt.Errorf("document_schemas.%s.%s must be an object", docType, name)
 				}
-				field := Field{Kind: ro.Str("kind"), Required: ro.Bool("required"), Pattern: ro.Str("pattern")}
-				if field.Kind == "" {
-					field.Kind = "string"
-				}
-				switch ch, _ := ro.Get("choices"); x := ch.(type) {
-				case []string:
-					field.Choices = slices.Clone(x)
-				case []any:
-					for _, item := range x {
-						field.Choices = append(field.Choices, pystr.Str(item))
-					}
-				}
-				for _, bound := range []struct {
-					key string
-					dst **int
-				}{{"minimum", &field.Minimum}, {"maximum", &field.Maximum}} {
-					if v, ok := ro.Get(bound.key); ok {
-						n, err := strconv.Atoi(fmt.Sprint(v))
-						if err != nil {
-							return nil, fmt.Errorf("document_schemas.%s.%s.%s must be an integer", docType, name, bound.key)
-						}
-						*bound.dst = &n
-					}
+				field, err := fieldFromContract("document_schemas."+docType+"."+name, ro)
+				if err != nil {
+					return nil, err
 				}
 				ds.Fields[name] = field
 			}

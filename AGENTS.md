@@ -6,6 +6,22 @@ One Go binary: a stdio MCP server for every vault (labs, edu, and any vault a
 provider adds) plus a CLI over the labs vault. Go 1.27, the official MCP SDK, and one
 TOML parser; nothing else.
 
+## Principles
+
+- Use what exists before building: a platform built-in (Claude Code, MCP, Go's
+  standard library, mise), a proven tool, or a primitive already in this repo.
+  Build only what nothing proven does, and say what was checked.
+- Prefer an open standard over a house format wherever one fits: MCP, JSON
+  Schema, AIP-161 field masks, Agent Skills, Obsidian Tasks and Dataview fields,
+  POSIX locks, ISO 8601. A house format needs a reason no standard covers.
+- Decide formats before data exists: changing a shape after notes carry it is a
+  migration.
+- Emit once, derive everywhere: each fact, rule or shape has one source here
+  (`schema` for field rules and the settable frontmatter fields, `fsx.Vault.Update` for writes, `core/fields.go` for
+  masks, `core/next.go` for next steps, the command table for CLI surfaces) and
+  everything else derives from it. A second copy is a defect; remove it and add
+  the guard that stops a third.
+
 ## Shape
 
 ```
@@ -14,8 +30,8 @@ internal/cli             command table -> parsing, --help, describe; one runner 
 internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
-internal/core            the 7 shared tools, transport-free (the MCP adapter and tests both call these)
-internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,daily,brief,doctor,education,hqmanifest}
+internal/core            the 8 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 ```
@@ -56,6 +72,11 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   an append-only hook, takes an exclusive `flock` on
   `<vault>/.locks/<vault-relative path, "/" as "%">.lock` for the whole write.
   Changing the path rule is a contract change for every such writer.
+- The work queue (`queue` tool and CLI, `docs/ai-tool-contract.md#work-queue`):
+  the item line grammar in `internal/queue`, the `queue_prefix` and `repos`
+  keys of a project's `index.md`, and the CLI's flags and compact JSON are
+  read by session and worker hooks and by HQ. Changing any of them is a
+  contract change for those callers; keep `Parse(Format(item)) == item`.
 
 ## Safety
 

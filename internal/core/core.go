@@ -1,6 +1,6 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, task_board, task_write and
-// log_entries, plus the two resource renderers. Each
+// read_doc, set_frontmatter, write_doc, task_board, task_write,
+// log_entries and queue, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
 // these functions.
@@ -543,25 +543,28 @@ func RenderDoc(v *Vault, docID string) string {
 }
 
 // SetFrontmatter creates or updates a doc's frontmatter.
-func SetFrontmatter(v *Vault, relativePath string, s write.Set) *jsonx.Obj {
+func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
-	return guide(write.SetFrontmatter(v.Loader, relativePath, s, v.Profile), v.setSteps(relativePath, s.DocID))
+	return guide(write.SetFrontmatter(v.Loader, relativePath, c, v.Profile), v.setSteps(relativePath, c.Str("doc_id")))
 }
 
 // WriteDocModes are write_doc's modes; the first is the default.
 var WriteDocModes = []string{"create", "replace_section", "append_section"}
 
-// WriteDocArgs are write_doc's arguments. New carries the frontmatter a
-// create writes; New.DocID also names the doc a section mode edits.
+// WriteDocArgs are write_doc's arguments. DocID is the new doc's id on
+// create and names the doc a section mode edits; New carries the rest of the
+// frontmatter a create writes. Heading nil is not given; "" is the preamble,
+// the text before the first heading.
 type WriteDocArgs struct {
 	Mode              string
 	RelativePath      string
-	Heading           string
+	DocID             string
+	Heading           *string
 	Body              string
 	IncludeRestricted bool
-	New               write.NewDoc
+	New               write.Changes
 }
 
 // WriteDoc creates a registered doc, or edits one section of its body, with
@@ -570,47 +573,49 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}
+	heading := ""
+	if a.Heading != nil {
+		heading = *a.Heading
+	}
 	switch a.Mode {
 	case "create":
 		if a.RelativePath == "" {
-			name := a.New.Title
+			name := a.New.Str("title")
 			if name == "" {
 				name = "Doc Title"
 			}
 			return failNext("mode 'create' requires relative_path", v.writable(name+".md"))
 		}
-		if a.Heading != "" {
+		if a.Heading != nil {
 			return failNext("heading only applies to replace_section and append_section",
 				Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" without heading",
-				Call("write_doc", "mode", "replace_section", "relative_path", a.RelativePath, "heading", a.Heading)+" to edit an existing doc")
+				Call("write_doc", "mode", "replace_section", "relative_path", a.RelativePath, "heading", heading)+" to edit an existing doc")
 		}
-		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New, v.Profile), v.createSteps(a.RelativePath, a.New.DocID))
+		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New.Set("doc_id", a.DocID), v.Profile), v.createSteps(a.RelativePath, a.DocID))
 	case "replace_section", "append_section":
 	default:
 		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")),
 			Call("write_doc", "mode", WriteDocModes[0])+" or another listed mode")
 	}
-	n := a.New
-	target := n.DocID
+	target := a.DocID
 	if target == "" {
 		target = a.RelativePath
 	}
-	if n.Title != "" || n.DocType != "" || n.System != "" || n.Environment != "" || n.Status != "" || n.Sensitivity != "" ||
-		n.LastReviewed != "" || n.Tags != nil || n.RelatedProjects != nil || n.RelatedAssets != nil {
+	if !a.New.Empty() {
 		return failNext("frontmatter fields only apply to mode 'create'; change them with set_frontmatter",
-			Call("set_frontmatter", "relative_path", pathOf(v, n.DocID, a.RelativePath))+" with the frontmatter fields",
+			Call("set_frontmatter", "relative_path", pathOf(v, a.DocID, a.RelativePath))+" with the frontmatter fields",
 			Call("write_doc", "mode", a.Mode, "doc_id", target)+" with only heading and body")
 	}
-	if pystr.Strip(a.Heading) == "" {
-		return failNext(fmt.Sprintf("mode %s requires heading", pystr.Repr(a.Mode)),
+	if a.Heading == nil {
+		return failNext(fmt.Sprintf("mode %s requires heading (\"\" for the text before the first heading)", pystr.Repr(a.Mode)),
 			Call("read_doc", "doc_id", target, "fields", []string{"outline"})+" to list its headings")
 	}
-	d, err, steps := registeredDoc(v, n.DocID, a.RelativePath)
+	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath)
 	if err != "" {
 		return failNext(err, steps...)
 	}
 	if d.Sensitivity == gate.Restricted {
-		retry := Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", a.Heading, "include_restricted", true)
+		retry := Call("write_doc", "mode", a.Mode, "doc_id", d.DocID, "heading", heading, "include_restricted", true)
 		if !a.IncludeRestricted {
 			return failNext(d.DocID+" is restricted; rerun with include_restricted=True, which also needs a Touch ID approval through 1Password",
 				retry+" with the same body, from the main session, only if the user asked for this edit")
@@ -621,7 +626,7 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			return failNext(d.DocID+" is restricted and the unlock was refused: "+msg, retry+" with the same body, once the user has fixed the unlock")
 		}
 	}
-	return guide(write.EditSection(v.Loader, d.RelativePath, a.Heading, a.Body, a.Mode == "append_section", v.Profile), v.sectionSteps(d, a.Mode))
+	return guide(write.EditSection(v.Loader, d.RelativePath, heading, a.Body, a.Mode == "append_section", v.Profile), v.sectionSteps(d, a.Mode))
 }
 
 // noProfile is the step for a vault without a schema profile.
@@ -697,7 +702,7 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	if fm == nil {
 		return rel, []string{"missing YAML frontmatter"}, true
 	}
-	return rel, v.Profile.Check(fm), true
+	return rel, v.Profile.Check(fm, rel), true
 }
 
 // BoardArgs are task_board's options beyond the filter. Limit caps the tasks

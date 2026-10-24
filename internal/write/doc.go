@@ -15,34 +15,20 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
-// NewDoc is a created doc's frontmatter. Empty Environment, Status and
-// Sensitivity take set_frontmatter's defaults; empty LastReviewed is today.
-type NewDoc struct {
-	DocID, Title, DocType, System, Environment, Status, Sensitivity, LastReviewed string
-	Tags, RelatedProjects, RelatedAssets                                          []string
-}
-
 // CreateDoc writes a new doc, frontmatter and body, in one atomic create.
-// The block is checked with the rules validate applies, so a created doc
-// always passes validate.
-func CreateDoc(l *vault.Loader, relativePath, body string, n NewDoc, p *schema.Profile) *jsonx.Obj {
-	var absent []string
-	for _, f := range [][2]string{{"doc_id", n.DocID}, {"title", n.Title}, {"doc_type", n.DocType}, {"system", n.System}} {
-		if pystr.Strip(f[1]) == "" {
-			absent = append(absent, f[0])
-		}
+// The block is built and checked the way set_frontmatter creates one, so a
+// created doc always passes validate.
+func CreateDoc(l *vault.Loader, relativePath, body string, c Changes, p *schema.Profile) *jsonx.Obj {
+	if msg := c.undeclared(p); msg != "" {
+		return fail(msg)
 	}
-	if len(absent) > 0 {
+	if absent := absentForCreate(c); len(absent) > 0 {
 		return fail("creating a doc needs " + strings.Join(absent, ", "))
 	}
 	if strings.HasPrefix(pystr.LStrip(body), "---") {
 		return fail("body starts with a `---` block; pass the body without frontmatter and give its fields as arguments")
 	}
-	fm := newFrontmatter(n.DocID, n.Title, n.DocType, n.System, def(n.Environment, "other"), def(n.Status, "active"),
-		def(n.Sensitivity, "internal"), n.LastReviewed, n.Tags, n.RelatedProjects, n.RelatedAssets, n.Tags != nil)
-	if errs := p.Check(fm); len(errs) > 0 {
-		return fail(strings.Join(errs, "; "))
-	}
+	fm := newFrontmatter(c)
 	v, err := fsx.OpenVault(l.Config.VaultPath)
 	if err != nil {
 		return fail("write failed: " + err.Error())
@@ -62,11 +48,11 @@ func CreateDoc(l *vault.Loader, relativePath, body string, n NewDoc, p *schema.P
 	if _, err := v.Stat(rel); err == nil {
 		return exists
 	}
-	if taken := docIDTaken(l.Index(true), n.DocID); taken != nil {
-		return taken
+	if errs := checkNew(fm, rel, p, l.Index(true)); len(errs) > 0 {
+		return fail(strings.Join(errs, "; "))
 	}
 	if !hasH1(body) {
-		body = "# " + n.Title + "\n\n" + body
+		body = "# " + c.Str("title") + "\n\n" + body
 	}
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
@@ -82,14 +68,7 @@ func CreateDoc(l *vault.Loader, relativePath, body string, n NewDoc, p *schema.P
 		return fail("write failed: " + err.Error())
 	}
 	l.Index(true)
-	return jsonx.New("ok", true, "doc_id", n.DocID, "relative_path", rel, "wrote_bytes", len(text), "next_step", nextStep)
-}
-
-func def(v, fallback string) string {
-	if v == "" {
-		return fallback
-	}
-	return v
+	return jsonx.New("ok", true, "doc_id", c.Str("doc_id"), "relative_path", rel, "wrote_bytes", len(text), "next_step", nextStep)
 }
 
 func hasH1(body string) bool {
@@ -123,6 +102,17 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 // today, and must still validate; the file is replaced atomically. extra are
 // key/value pairs the result carries after relative_path.
 func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
+	return editBody(l, relativePath, p, edit, true, extra...)
+}
+
+// EditBodyUnindexed is EditBody without rebuilding the index after the write,
+// for a note read from disk on every use (a work queue), so a hook's one
+// write does not pay for a scan of the whole vault.
+func EditBodyUnindexed(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), extra ...any) *jsonx.Obj {
+	return editBody(l, relativePath, p, edit, false, extra...)
+}
+
+func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func(body, rel string) (string, *jsonx.Obj), reindex bool, extra ...any) *jsonx.Obj {
 	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
@@ -146,7 +136,7 @@ func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 		}
 		newText := touchReviewed(head, Today()) + newBody
 		fm, _, _ := frontmatter.Split(newText)
-		if errs := p.Check(fm); len(errs) > 0 {
+		if errs := p.Check(fm, rel); len(errs) > 0 {
 			out = fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
 			return text
 		}
@@ -167,14 +157,20 @@ func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 		}
 		return out.Set("no_op", true).Set("wrote_bytes", 0)
 	}
-	l.Index(true)
+	if reindex {
+		l.Index(true)
+	}
 	return out.Set("wrote_bytes", size).Set("next_step", nextStep)
 }
 
-// spliceSection rewrites the content under heading in body.
+// spliceSection rewrites the content under heading in body; heading ""
+// names the preamble, the text before the first heading.
 func spliceSection(body, heading, content string, appendMode bool, rel string) (string, *jsonx.Obj) {
 	needle := pystr.Strip(heading)
 	all := sections.Headings(body)
+	if needle == "" {
+		return splicePreamble(body, all, content, appendMode), nil
+	}
 	texts := make([]string, len(all))
 	var matches []sections.Heading
 	for i, h := range all {
@@ -217,6 +213,31 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 		sb.WriteString("\n" + strings.Join(lines[end:], "\n"))
 	}
 	return sb.String(), nil
+}
+
+// splicePreamble rewrites the text before the first heading of body (all of
+// it when there is none), keeping the blank lines that open the body.
+func splicePreamble(body string, all []sections.Heading, content string, appendMode bool) string {
+	lines := strings.Split(body, "\n")
+	end := len(lines)
+	if len(all) > 0 {
+		end = all[0].Line
+	}
+	section := strings.Trim(content, "\n")
+	if existing := strings.Trim(strings.Join(lines[:end], "\n"), "\n"); appendMode && existing != "" {
+		section = existing + "\n\n" + section
+	}
+	lead := body[:len(body)-len(strings.TrimLeft(body, "\n"))]
+	rest := strings.Join(lines[end:], "\n")
+	switch {
+	case section == "" && end < len(lines):
+		return lead + rest
+	case section == "":
+		return lead
+	case end < len(lines):
+		return lead + section + "\n\n" + rest
+	}
+	return lead + section + "\n"
 }
 
 // touchReviewed sets last_reviewed in a frontmatter block, leaving every
