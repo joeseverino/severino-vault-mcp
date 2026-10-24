@@ -362,12 +362,17 @@ func TestProviderSpecsFromConfig(t *testing.T) {
 
 // The registered tool names are a contract Claude Code binds to:
 // tests/golden/mcp-tools.txt, composed as labs plus an empty edu vault.
+// SVMC_UPDATE_GOLDEN=1 rewrites it.
 func TestToolNamesMatchTheGolden(t *testing.T) {
 	root := tk.Dir(t)
 	env := tk.Env(root, "SVMC_EDU_CONFIG", eduConfig(t, root))
 	got := strings.Join(names(tools(t, connect(t, vaults.Build(context.Background(), env, io.Discard)))), "\n") + "\n"
 	wd, _ := os.Getwd()
-	golden, err := os.ReadFile(filepath.Join(wd, "..", "..", "tests", "golden", "mcp-tools.txt"))
+	path := filepath.Join(wd, "..", "..", "tests", "golden", "mcp-tools.txt")
+	if os.Getenv("SVMC_UPDATE_GOLDEN") == "1" { // mise run golden:update
+		tk.Write(t, path, got)
+	}
+	golden, err := os.ReadFile(path)
 	if err != nil || got != string(golden) {
 		t.Fatalf("tool names drifted:\n%s", got)
 	}

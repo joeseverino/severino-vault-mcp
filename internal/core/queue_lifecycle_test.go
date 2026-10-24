@@ -159,9 +159,9 @@ func TestAnItemCarriesItsCreatedDateBaseAndOwns(t *testing.T) {
 	}
 }
 
-// A claim with kind delegated also takes a decision, when the orchestrator
+// A claim with kind delegated also takes a decision, when the coordinating session
 // (main) owns it or nobody does; any other owner keeps it.
-func TestAClaimTakesTheOrchestratorsDecision(t *testing.T) {
+func TestAClaimTakesTheCoordinatingSessionsDecision(t *testing.T) {
 	root, v := queueVault(t)
 	claim := func(id, agent string) *jsonx.Obj {
 		return core.Queue(v, core.QueueArgs{Action: "set", ID: id, Claim: true, Owner: new("worker"), Agent: agent, Kind: "delegated"})
@@ -176,18 +176,18 @@ func TestAClaimTakesTheOrchestratorsDecision(t *testing.T) {
 	if r := mustOK(t, claim(unowned, "a2")); tk.Get(r, "item.kind") != "delegated" || tk.Get(r, "item.agent") != "a2" {
 		t.Fatal(jsonx.Compact(r))
 	}
-	joes := add(t, v, "Example Tracker", "decision", "Joe decides", func(a *core.QueueArgs) { a.Owner = new("joe") })
+	alexs := add(t, v, "Example Tracker", "decision", "The owner decides", func(a *core.QueueArgs) { a.Owner = new("alex") })
 	path := filepath.Join(root, trackerQueue)
 	before := tk.Read(t, path)
-	r = claim(joes, "a3")
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "joe") || r.Str("owner") != "joe" {
+	r = claim(alexs, "a3")
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "alex") || r.Str("owner") != "alex" {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if tk.Read(t, path) != before {
 		t.Fatal("a refused claim changed the note")
 	}
 	// Without a claim a decision still does not become delegated.
-	if r := core.Queue(v, core.QueueArgs{Action: "set", ID: joes, Kind: "delegated", Agent: "a3"}); r.Bool("ok") {
+	if r := core.Queue(v, core.QueueArgs{Action: "set", ID: alexs, Kind: "delegated", Agent: "a3"}); r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", Agent: "a1", Resolution: "example-tracker@abc1234"}))

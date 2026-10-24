@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
@@ -101,28 +100,14 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 // moveSource is the registered doc a move names, or why there is none and
 // what to call instead.
 func moveSource(v *Vault, a MoveArgs) (*vault.Doc, string, []string) {
-	idx := v.Loader.Index(true)
-	var d *vault.Doc
-	switch {
-	case a.DocID != "" && a.RelativePath != "":
-		return nil, "pass doc_id or relative_path, not both", []string{Call("move_doc", "doc_id", a.DocID, "to", a.To) + " without relative_path"}
-	case a.DocID != "":
-		if dups, ok := idx.DuplicateDocIDs[a.DocID]; ok {
-			return nil, fmt.Sprintf("duplicate doc_id %q at %s; move one by relative_path", a.DocID, pystr.Quoted(dups)),
-				[]string{Call("move_doc", "relative_path", dups[0], "to", a.To)}
+	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath, func(args ...any) string {
+		return Call("move_doc", append(args, "to", a.To)...)
+	})
+	if d == nil {
+		if steps == nil {
+			steps = []string{Call("find", "query", strings.TrimSuffix(path.Base(a.RelativePath), ".md")) + " to get the doc's doc_id or path"}
 		}
-		d = idx.ByDocID[a.DocID]
-		if d == nil {
-			return nil, "unknown doc_id " + strconv.Quote(a.DocID), []string{Call("find", "query", a.DocID) + " to get a doc_id, then retry with it"}
-		}
-	case a.RelativePath != "":
-		d = v.docAt(a.RelativePath)
-		if d == nil {
-			return nil, "no registered doc at " + a.RelativePath,
-				[]string{Call("find", "query", strings.TrimSuffix(path.Base(a.RelativePath), ".md")) + " to get the doc's doc_id or path"}
-		}
-	default:
-		return nil, "pass doc_id or relative_path", []string{Call("find", "query", "...") + " to get the doc's doc_id"}
+		return nil, err, steps
 	}
 	if d.ReadOnlyDir != "" {
 		return nil, fmt.Sprintf("%s is in %q, a read-only folder: its notes keep their own place and frontmatter", d.RelativePath, d.ReadOnlyDir),

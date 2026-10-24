@@ -28,8 +28,10 @@ TOML parser; nothing else.
   `jsonx.Obj`, `jsonx.Strings`, `vault.CoerceList`, `fsx.IsDir` and `fsx.IsFile`:
   `TestOneCoercion`; `vault.ProjectFolders` lists the projects folder:
   `TestOneProjectLister`; `config.Under` tests a path inside a folder:
-  `TestOneUnderCheck`; `pystr.Quoted` writes a list into a message, and no
-  fmt call formats a slice: `TestListsReachTextThroughQuoted`).
+  `TestOneUnderCheck`; `core.resolveDoc` turns the doc reference every tool
+  takes (doc_id, title or vault path) into a doc: `TestOneDocResolver`;
+  `pystr.Quoted` writes a list into a message, and no fmt call formats a
+  slice: `TestListsReachTextThroughQuoted`).
 
 ## Shape
 
@@ -44,7 +46,7 @@ internal/core            the 8 shared tools, transport-free (the MCP adapter and
 internal/{vault,sections,links,search,query,frontmatter,schema,gate,write,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,tabular}  shared plumbing
-internal/evals           the retrieval eval behind scripts/evals.sh
+internal/evals           the retrieval eval behind `mise run evals`
 internal/testkit         throwaway vaults for tests; internal/fuzzseed: sample-vault fuzz seeds
 internal/archtest        source guards (tests only): one home per fact
 examples/sample-vault    the demo vault CI validates and replays
@@ -52,7 +54,7 @@ mise.toml                the tools and the gate's tasks; .golangci.yml its lint 
 docs/                    architecture, safety model, tool contract, testing and CI, releases
 ```
 
-- HQ, the site, resume-engine and the queue hooks parse this output as JSON;
+- HQ, the site, resume-engine and editor and agent hooks parse this output as JSON;
   the golden files pin its bytes. `jsonx.Obj` keeps insertion order on top of
   `encoding/json`, so a payload's key order is the order it was built in. The
   frontmatter parser is a constrained YAML subset (numbers and dates stay
@@ -89,8 +91,7 @@ docs/                    architecture, safety model, tool contract, testing and 
   holds it to `Profile.Check`'s verdict on every fixture doc.
 - README's tool table, between its `tools:begin`/`tools:end` markers, is
   generated from the registered tools (name and the description's first
-  paragraph); `TestReadmeToolsTable` fails on drift, and
-  `SVMC_UPDATE_README=1 go test -run TestReadmeToolsTable ./internal/mcpserver`
+  paragraph); `TestReadmeToolsTable` fails on drift, and `mise run readme`
   rewrites it. Never edit it by hand.
 - The note lock (`fsx.LockFile`, documented for outside writers in
   `docs/ai-tool-contract.md`): any process that writes a vault note, such as
@@ -115,7 +116,7 @@ docs/                    architecture, safety model, tool contract, testing and 
 - The work queue (`queue` tool and CLI, `docs/ai-tool-contract.md#work-queue`):
   the item line grammar in `internal/queue`, the `queue_prefix` and `repos`
   keys of a project's `index.md`, and the CLI's flags and compact JSON are
-  read by session and worker hooks and by HQ. Changing any of them is a
+  read by editor and agent hooks and by HQ. Changing any of them is a
   contract change for those callers; keep `Parse(Format(item)) == item`.
 
 ## Safety
@@ -143,8 +144,16 @@ mise run check                  # the CI gate: every check:* task and golden, in
 mise run check:test             # one check alone (check:vet, check:lint, check:gofmt, ...), the fast inner loop
 mise tasks                      # every task and what it checks
 mise run golden                 # re-emit tests/golden and diff
+mise run golden:update          # rewrite tests/golden from the binary (a deliberate contract change)
 mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
+mise run readme                 # regenerate README's tool table
+mise run fuzz FuzzSplit         # one fuzz target, 20s (--time 1m for longer)
+mise run bench IndexBuild       # benchmarks matching a pattern (all without one)
+mise run install                # build into ~/.local/bin and print --fingerprint; main checkout only
 ```
+
+- `go install` from a clone lands in mise's Go bin, off `PATH`; `mise run
+  install` builds to `~/.local/bin` and refuses in a worktree.
 
 - Run the eval before changing ranking, `find` output or tool descriptions,
   and raise `TestEvalFloors` when the numbers improve. Decide on the real-vault
@@ -170,3 +179,8 @@ mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores
   `frontmatter.Split` trims the trailing newline.
 - A fixture at a size edge ends without a newline, since the index trims a
   final one from a body, and a failure message prints sizes, never the body.
+- A number decoded from CLI JSON is a float64, never equal to a Go int
+  through `testkit.Get`; compare `jsonx.Compact` strings, as the CLI tests do.
+- An end-to-end test of a client's protocol replays what that client
+  sends (a wire log from the go-sdk's `mcp.LoggingTransport` around a real
+  session), never the server's own idea of it.

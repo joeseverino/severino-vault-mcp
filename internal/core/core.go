@@ -71,29 +71,19 @@ func wikiTargets(text string) []string {
 	return out
 }
 
+// docForReference is the doc a quick index cell names, by its wiki links'
+// targets or, without any, the cell's text.
 func docForReference(idx *vault.Index, reference string) *vault.Doc {
 	clean := strings.Trim(pystr.Strip(reference), "`")
 	if clean == "" {
 		return nil
 	}
-	if d, ok := idx.ByDocID[clean]; ok {
-		return d
-	}
 	targets := wikiTargets(reference)
 	if len(targets) == 0 {
 		targets = []string{clean}
 	}
-	byTitle, byStem := map[string]*vault.Doc{}, map[string]*vault.Doc{}
-	for _, d := range idx.Docs {
-		byTitle[strings.ToLower(d.Title)] = d
-		byStem[strings.ToLower(d.Stem())] = d
-	}
 	for _, t := range targets {
-		lowered := strings.ToLower(t)
-		if d, ok := byTitle[lowered]; ok {
-			return d
-		}
-		if d, ok := byStem[lowered]; ok {
+		if d, _, _ := resolveDoc(idx, t); d != nil {
 			return d
 		}
 	}
@@ -107,8 +97,8 @@ type qiMatch struct {
 }
 
 func quickIndexMatches(idx *vault.Index, q string, limit int) []*jsonx.Obj {
-	qi, ok := idx.ByDocID[QuickIndexDocID]
-	if !ok {
+	qi, _, _ := resolveDoc(idx, QuickIndexDocID)
+	if qi == nil {
 		return nil
 	}
 	qt := search.Tokenize(q)
@@ -357,40 +347,21 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 	return out
 }
 
-func lookupDoc(v *Vault, identifier string) (*vault.Doc, *jsonx.Obj) {
-	idx := v.Loader.Index(false)
-	if d, ok := idx.ByDocID[identifier]; ok {
-		return d, nil
+// notFound is read_doc's answer for a reference that names no one doc.
+func notFound(ref string, why *unresolved) *jsonx.Obj {
+	retry := func(id string) string { return Call("read_doc", "doc_id", id) }
+	switch {
+	case len(why.paths) > 0:
+		return steer(jsonx.New("doc_id", ref, "found", false, "ambiguous", true,
+			"error", why.msg, "paths", why.paths), why.steps(ref, retry)...)
+	case len(why.candidates) > 0:
+		return steer(jsonx.New("doc_id", ref, "found", false, "ambiguous", true,
+			"error", why.msg, "candidates", why.candidateHits()), why.steps(ref, retry)...)
 	}
-	alias := vault.NormalizeAlias(identifier)
-	if target, ok := idx.Aliases[alias]; ok {
-		return idx.ByDocID[target], jsonx.New("input", identifier, "matched_alias", alias, "target_doc_id", target)
-	}
-	if alias == "" {
-		return nil, nil
-	}
-	for _, c := range idx.Docs {
-		names := []string{c.DocID, c.Title, c.RelativePath, c.Stem()}
-		for _, n := range names {
-			if vault.NormalizeAlias(n) == alias {
-				return c, jsonx.New("input", identifier, "matched_alias", c.Title, "target_doc_id", c.DocID, "source", "title_or_path")
-			}
-		}
-	}
-	return nil, nil
-}
-
-func notFound(v *Vault, identifier string) *jsonx.Obj {
-	if dups, ok := v.Loader.Index(false).DuplicateDocIDs[identifier]; ok {
-		return steer(jsonx.New("doc_id", identifier, "found", false, "ambiguous", true,
-			"error", "duplicate doc_id "+strconv.Quote(identifier), "paths", slices.Clone(dups)),
-			Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+identifier)+
-				" and tell the user; neither doc can be read until one file's doc_id changes")
-	}
-	return steer(jsonx.New("doc_id", identifier, "found", false,
+	return steer(jsonx.New("doc_id", ref, "found", false,
 		"alias_hint", "For recurring local phrases, add an entry to the vault aliases "+
 			"file configured by `SVMC_ALIASES_PATH` or `[aliases].path`."),
-		Call("find", "query", identifier)+" to get a doc_id, then retry read_doc with it")
+		Call("find", "query", ref)+" to get a doc_id, then retry read_doc with it")
 }
 
 func withheld(base *jsonx.Obj, result, message string) *jsonx.Obj {
@@ -402,7 +373,7 @@ func withheld(base *jsonx.Obj, result, message string) *jsonx.Obj {
 	return steer(base, unlockSteps(base.Str("doc_id"), result)...)
 }
 
-// unlock asks 1Password, and so Joe's Touch ID, to release one restricted
+// unlock asks 1Password, and so the user's Touch ID, to release one restricted
 // doc. The service-account check comes first: with a token in the
 // environment op would answer without a human.
 func unlock(v *Vault, _, _ string) (bool, string, string) {
@@ -644,9 +615,9 @@ func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
 }
 
 func readDoc(v *Vault, docID string, a ReadArgs, bounded bool) *jsonx.Obj {
-	d, alias := lookupDoc(v, docID)
+	d, alias, why := resolveDoc(v.Loader.Index(false), docID)
 	if d == nil {
-		return notFound(v, docID)
+		return notFound(docID, why)
 	}
 	base := jsonx.New("doc_id", d.DocID, "found", true).Merge(query.Hit(d))
 	if alias != nil {
@@ -697,17 +668,16 @@ func RenderDoc(v *Vault, docID string) string {
 	if f := v.Unreadable(); f != nil {
 		return "# Vault Unreadable\n\n" + f.Str("error") + "\n"
 	}
-	idx := v.Loader.Index(false)
-	d, ok := idx.ByDocID[docID]
-	if !ok {
-		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
+	d, _, why := resolveDoc(v.Loader.Index(false), docID)
+	if d == nil {
+		if len(why.paths) > 0 {
 			var lines []string
-			for _, p := range dups {
+			for _, p := range why.paths {
 				lines = append(lines, "- `"+p+"`")
 			}
 			return "# Duplicate Vault Doc ID\n\n`" + docID + "` is used by multiple indexed documents:\n\n" + strings.Join(lines, "\n") + "\n"
 		}
-		return "# Vault Doc Not Found\n\nNo indexed doc has doc_id `" + docID + "`. Use `find`."
+		return "# Vault Doc Not Found\n\n" + why.msg + "\n"
 	}
 	if !gate.Releasable(d.Sensitivity) {
 		return fmt.Sprintf("# %s\n\n%s\n\n- doc_id: `%s`\n- path: `%s`\n- system: `%s`\n- sensitivity: `%s`\n",
@@ -724,7 +694,35 @@ func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
 	if v.Profile == nil {
 		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
+	// A registered doc is named as every tool names one; a file without
+	// frontmatter yet has only its path.
+	d, _, why := resolveDoc(v.Loader.Index(true), relativePath)
+	switch {
+	case d != nil:
+		relativePath = d.RelativePath
+	case len(why.paths) > 0 || len(why.candidates) > 0:
+		return failNext(why.msg, why.steps(relativePath, func(id string) string { return Call("set_frontmatter", "relative_path", id) })...)
+	}
 	return guide(write.SetFrontmatter(v.Loader, relativePath, c, v.Profile), v.setSteps(relativePath, c.Str("doc_id")))
+}
+
+// TouchReviewed sets a doc's last_reviewed to today. ref names the doc as
+// every tool names one; a file without frontmatter yet has only its path.
+func TouchReviewed(v *Vault, ref string) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
+	if v.Profile == nil {
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
+	}
+	d, _, why := resolveDoc(v.Loader.Index(true), ref)
+	switch {
+	case d != nil:
+		ref = d.RelativePath
+	case len(why.paths) > 0 || len(why.candidates) > 0:
+		return failNext(why.msg, why.steps(ref, func(id string) string { return Call("touch-reviewed", "doc_id", id) })...)
+	}
+	return write.TouchReviewed(v.Loader, ref, v.Profile)
 }
 
 // WriteDocModes are write_doc's modes; the first is the default.
@@ -811,7 +809,17 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return failNext(`mode "delete_section" takes no body`,
 			Call("write_doc", "mode", "delete_section", "doc_id", target, "heading", heading)+" without body")
 	}
-	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath)
+	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath, func(args ...any) string {
+		return Call("write_doc", append([]any{"mode", a.Mode}, args...)...)
+	})
+	if d == nil && a.DocID == "" && steps == nil {
+		msg := "no registered doc at " + a.RelativePath + `; create it with mode "create", or register it with set_frontmatter`
+		if v.outsideWritable(a.RelativePath) {
+			return failNext(msg, v.writable(a.RelativePath))
+		}
+		return failNext(msg, Call("write_doc", "mode", "create", "relative_path", a.RelativePath)+" to create it",
+			Call("set_frontmatter", "relative_path", a.RelativePath)+" with doc_id, title, doc_type and system to register an existing file")
+	}
 	if err != "" {
 		return failNext(err, steps...)
 	}
@@ -929,9 +937,10 @@ func replaceTextSteps(v *Vault, d *vault.Doc, a WriteDocArgs, out *jsonx.Obj) *j
 // noProfile is the step for a vault without a schema profile.
 var noProfile = Call("find", "query", "...", "vault", "labs") + " and write in a vault with a schema profile"
 
-// pathOf is the vault-relative path a doc_id or path names, for a step.
+// pathOf is the vault-relative path a doc reference or path names, for a
+// step.
 func pathOf(v *Vault, docID, relativePath string) string {
-	if d, ok := v.Loader.Index(false).ByDocID[docID]; ok {
+	if d, _, _ := resolveDoc(v.Loader.Index(false), docID); d != nil {
 		return d.RelativePath
 	}
 	if relativePath != "" {
@@ -940,38 +949,29 @@ func pathOf(v *Vault, docID, relativePath string) string {
 	return "..."
 }
 
-// registeredDoc finds the indexed doc an edit names by doc_id or path. A
-// failure comes with its next steps.
-func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []string) {
-	idx := v.Loader.Index(true)
+// registeredDoc finds the indexed doc an edit names by doc_id or
+// relative_path, either one resolved by resolveDoc. retry is the edit's call
+// with other arguments, for the steps. A failure comes with its next steps,
+// except a relative_path that names no doc, which has none so the caller
+// can say what a path without a doc can become.
+func registeredDoc(v *Vault, docID, relativePath string, retry func(args ...any) string) (*vault.Doc, string, []string) {
+	ref := docID
 	switch {
 	case docID != "" && relativePath != "":
-		return nil, "pass doc_id or relative_path, not both", []string{Call("write_doc", "doc_id", docID) + " without relative_path"}
-	case docID != "":
-		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-			return nil, fmt.Sprintf("duplicate doc_id %q at %s; resolve the duplicate first", docID, pystr.Quoted(dups)),
-				[]string{Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+docID) + " and tell the user"}
-		}
-		if d, ok := idx.ByDocID[docID]; ok {
-			return d, "", nil
-		}
-		return nil, "unknown doc_id " + strconv.Quote(docID) + "; call `find` to get one",
-			[]string{Call("find", "query", docID) + " to get a doc_id, then retry with it"}
-	case relativePath != "":
-		clean := filepath.Clean(strings.TrimLeft(relativePath, "/"))
-		for _, d := range idx.WithArchived() {
-			if d.RelativePath == clean {
-				return d, "", nil
-			}
-		}
-		msg := "no registered doc at " + relativePath + `; create it with mode "create", or register it with set_frontmatter`
-		if v.outsideWritable(relativePath) {
-			return nil, msg, []string{v.writable(relativePath)}
-		}
-		return nil, msg, []string{Call("write_doc", "mode", "create", "relative_path", relativePath) + " to create it",
-			Call("set_frontmatter", "relative_path", relativePath) + " with doc_id, title, doc_type and system to register an existing file"}
+		return nil, "pass doc_id or relative_path, not both", []string{retry("doc_id", docID) + " without relative_path"}
+	case docID == "" && relativePath == "":
+		return nil, "pass doc_id or relative_path", []string{Call("find", "query", "...") + " to get the doc's doc_id"}
+	case docID == "":
+		ref = relativePath
 	}
-	return nil, "pass doc_id or relative_path", []string{Call("find", "query", "...") + " to get the doc's doc_id"}
+	d, _, why := resolveDoc(v.Loader.Index(true), ref)
+	if d != nil {
+		return d, "", nil
+	}
+	if docID == "" && why.paths == nil && why.candidates == nil {
+		return nil, why.msg, nil
+	}
+	return nil, why.msg, why.steps(ref, func(id string) string { return retry("doc_id", id) })
 }
 
 // CheckDoc validates one file's frontmatter against v's profile with the rules

@@ -182,7 +182,7 @@ func TestWriteDocSectionRefusals(t *testing.T) {
 		"mode \"append_section\" requires heading":    {Mode: "append_section", Body: "x", DocID: "rb-backup-ops"},
 		"body is empty": sectionArgs("append_section", "Routine operations", "\n"),
 		"frontmatter fields only apply to mode \"create\"":                                              {Mode: "replace_section", Heading: new("Routine operations"), Body: "x", DocID: "rb-backup-ops", New: write.With("status", "draft")},
-		"unknown doc_id \"rb-nope\"":                                                                    {Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-nope"},
+		"no doc has the doc_id, title or vault path \"rb-nope\"":                                        {Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-nope"},
 		"no registered doc at 01 Projects/untagged.md":                                                  {Mode: "replace_section", Heading: new("Untagged"), Body: "x", RelativePath: "01 Projects/untagged.md"},
 		"unknown mode \"rewrite\"":                                                                      {Mode: "rewrite", Body: "x"},
 		"infra-local-pki is restricted; rerun with include_restricted=True":                             {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", DocID: "infra-local-pki"},

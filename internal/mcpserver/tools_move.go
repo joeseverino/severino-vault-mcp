@@ -9,8 +9,8 @@ func (h *handlers) moveDoc() coreTool {
 	input := object(jsonx.New(
 		"to", str(`Destination from the vault root: a .md path ("Security/Reports/Example Audit.md"), or a folder ending in / to keep the file name.`),
 		"vault", h.vaultProp("Which vault."),
-		"doc_id", optStr("The doc to move (or give relative_path)."),
-		"relative_path", optStr("The doc's current path from the vault root."),
+		"doc_id", optStr(core.DocRefHelp("The doc to move")),
+		"relative_path", optStr("The doc's current path from the vault root, instead of doc_id."),
 		"with_folder", boolean("Move the doc's whole folder, files beside it included, into `to` (a folder)."),
 		"archive", boolean("Into the archive: set status: archived first instead of refusing a doc without it."),
 	), []string{"to"})

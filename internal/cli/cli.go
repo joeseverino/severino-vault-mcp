@@ -438,7 +438,7 @@ func runDoctor(c *Ctx, p Parsed) int {
 }
 
 func runTouchReviewed(c *Ctx, p Parsed) int {
-	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj { return write.TouchReviewed(l, p.Str("relative_path"), schema.Labs) })
+	return c.emit(core.TouchReviewed(c.labsVault(), p.Str("doc_id")), p.Bool("pretty"))
 }
 
 func runBackfillAliases(c *Ctx, p Parsed) int {
@@ -483,9 +483,7 @@ func optStr(p Parsed, k string) *string {
 }
 
 func runUpdateFrontmatter(c *Ctx, p Parsed) int {
-	return c.readLabs(p, func(l *vault.Loader) *jsonx.Obj {
-		return write.SetFrontmatter(l, p.Str("relative_path"), changesFrom(p, updateArgs), schema.Labs)
-	})
+	return c.emit(core.SetFrontmatter(c.labsVault(), p.Str("relative_path"), changesFrom(p, updateArgs)), p.Bool("pretty"))
 }
 
 func runWriteDoc(c *Ctx, p Parsed) int {

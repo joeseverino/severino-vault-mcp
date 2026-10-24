@@ -4,9 +4,15 @@
 #   mise run check          the whole gate, its checks in parallel
 #   mise run check:<name>   one check (mise tasks lists them)
 #   mise run golden         re-emit the public surfaces and diff them against tests/golden
-#   mise run evals          score retrieval on the fixture vault (SVMC_EVAL_VAULT for a real one)
+#   mise run golden:update  rewrite tests/golden from the binary
+#   mise run install        build the binary into ~/.local/bin (from the main checkout)
+#   mise tasks              every task and what it does
 
 min_version = "2026.10.15"
+
+[settings]
+# The platforms that install from this lock: macOS arm64 and the Linux x64 CI runners.
+lockfile_platforms = ["macos-arm64", "linux-x64"]
 
 [settings.task]
 # Tasks that run together print one after another, each whole and labeled.
@@ -108,6 +114,79 @@ fi
 description = "Re-emit the public surfaces and diff them against tests/golden"
 run = "bash tests/golden/verify.sh"
 
+[tasks."golden:update"]
+description = "Rewrite every file in tests/golden (and README's tool table) from the binary"
+depends = ["readme"]
+env = { SVMC_UPDATE_GOLDEN = "1" }
+run = "bash tests/golden/verify.sh"
+
+[tasks."release:tag-check"]
+description = "Refuse a release tag that is not vX.Y.Z or whose major go.mod's module path lacks"
+# The release workflow runs this before it builds; scripts/release_tag_check_test.go
+# holds the script to its cases.
+usage = '''
+arg "<tag>" help="The release tag, such as v3.1.0"
+'''
+run = 'module=$(go list -m) && sh scripts/release-tag-check.sh "${usage_tag?}" "$module"'
+
 [tasks.evals]
 description = "Score retrieval on the fixture vault; SVMC_EVAL_VAULT scores a real vault read-only"
-run = "scripts/evals.sh"
+# Arguments pass through to the eval: --json, --misses, --backends ours,grep,
+# --cases <file>. No usage spec, so mise forwards them as given.
+run = "go run ./internal/evals/cmd/evals"
+
+[tasks.install]
+description = "Build severino-vault-mcp into ~/.local/bin and print its --fingerprint"
+# mise points GOBIN at the selected Go's own bin, so `go install` would land
+# off PATH; the build names its target instead.
+run = [
+  # A linked worktree's git dir differs from the repository's common one.
+  '''
+if [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]; then
+  echo "refused: install replaces the binary every session runs; run it from the main checkout" >&2
+  exit 1
+fi
+''',
+  # Built beside its place and renamed over it, so a session that starts
+  # during the build runs the old binary, never a half-written one.
+  'go build -trimpath -ldflags="-s -w" -o "$HOME/.local/bin/severino-vault-mcp.new" ./cmd/severino-vault-mcp && mv -f "$HOME/.local/bin/severino-vault-mcp.new" "$HOME/.local/bin/severino-vault-mcp"',
+  '"$HOME/.local/bin/severino-vault-mcp" --fingerprint',
+]
+
+[tasks.readme]
+description = "Regenerate README's tool table from the registered tools"
+env = { SVMC_UPDATE_README = "1" }
+run = "go test -count=1 -run '^TestReadmeToolsTable$' ./internal/mcpserver"
+
+[tasks.fuzz]
+description = "Run one fuzz target, found by name in the test files"
+usage = '''
+arg "<target>" help="The fuzz function, such as FuzzSplit"
+flag "--time <duration>" help="How long to fuzz" default="20s"
+'''
+run = '''
+target="${usage_target?}"
+case "$target" in
+  Fuzz*) ;;
+  *) echo "fuzz: $target is not a Fuzz function" >&2; exit 2 ;;
+esac
+files=$(git grep -l -E "^func $target\(" -- '*_test.go' || true)
+if [ -z "$files" ]; then
+  echo "fuzz: no test file defines $target" >&2
+  exit 2
+fi
+if [ "$(echo "$files" | wc -l)" -gt 1 ]; then
+  echo "fuzz: $target is defined in more than one package:" >&2
+  echo "$files" >&2
+  exit 2
+fi
+dir=$(dirname "$files")
+go test "./$dir" -run '^$' -fuzz "^$target\$" -fuzztime "${usage_time?}"
+'''
+
+[tasks.bench]
+description = "Run the benchmarks whose names match a pattern (all of them by default)"
+usage = '''
+arg "[pattern]" help="A -bench pattern, such as IndexBuild" default="."
+'''
+run = "go test ./... -run '^$' -bench \"${usage_pattern?}\""

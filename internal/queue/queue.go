@@ -50,7 +50,7 @@ func Done(status string) bool { return status == "closed" || status == "dropped"
 // dependsOn and created.
 var LinkKeys = []string{"pr", "branch", "commit", "slug"}
 
-// Unowned is the owner argument meaning nobody; the line simply omits owner.
+// Unowned is the owner argument meaning nobody; the line omits owner.
 const Unowned = "-"
 
 // TokenRule says what a one-word value (owner, agent, link, body) may

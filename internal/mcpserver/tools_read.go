@@ -44,7 +44,7 @@ func (h *handlers) find() coreTool {
 
 func (h *handlers) readDoc() coreTool {
 	input := object(jsonx.New(
-		"doc_id", str("A `find` hit's doc_id (a title or vault path also resolves)."),
+		"doc_id", str(core.DocRefHelp("The doc")),
 		"vault", h.vaultProp("Which vault the doc lives in."),
 		"sections", strList("Sections to read, each a slug, heading path, heading text, unique slug prefix or 1-based outline position."),
 		"fields", strList("Doc fields to return; `outline` lists sections with sizes, `body` is the whole body, frontmatter fields (`tags`, `system`) add more."),

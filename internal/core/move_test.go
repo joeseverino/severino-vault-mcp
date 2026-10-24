@@ -138,7 +138,7 @@ func TestMoveDocRefusalsLeaveTheVaultAloneAndSayWhatToDo(t *testing.T) {
 		"not a path":          {core.MoveArgs{DocID: "rb-harden-example-site", To: "Security/Harden"}, "must end in .md"},
 		"no destination":      {core.MoveArgs{DocID: "rb-harden-example-site"}, "to is required"},
 		"same place":          {core.MoveArgs{DocID: "rb-harden-example-site", To: "03 Runbooks/"}, "already there"},
-		"unknown doc":         {core.MoveArgs{DocID: "rb-missing", To: "Security/"}, "unknown doc_id"},
+		"unknown doc":         {core.MoveArgs{DocID: "rb-missing", To: "Security/"}, "no doc has the doc_id, title or vault path"},
 		"both names":          {core.MoveArgs{DocID: auditID, RelativePath: auditRel, To: "Security/"}, "not both"},
 		"neither name":        {core.MoveArgs{To: "Security/"}, "pass doc_id or relative_path"},
 		"folder to a file":    {core.MoveArgs{DocID: auditID, To: "Security/Audit.md", WithFolder: true}, "give to ending in /"},

@@ -46,10 +46,10 @@
       "summary": "Set last_reviewed to today on a vault doc and print JSON. Exits 0 if ok, 1 otherwise.",
       "args": [
         {
-          "name": "relative_path",
+          "name": "doc_id",
           "positional": true,
           "required": true,
-          "help": "Vault-relative path, e.g. '03 Runbooks/Generate Internal Service Certificate.md'."
+          "help": "The doc: its doc_id (from `find`), its title, or its vault path."
         },
         {
           "name": "--pretty",
@@ -142,13 +142,13 @@
     },
     {
       "name": "read",
-      "summary": "Read one vault doc by doc_id and print JSON. With --sections, return just those sections (the token-minimal path); without it, the whole body. Honors the sensitivity gate: restricted bodies are withheld (no interactive unlock on the CLI path).",
+      "summary": "Read one vault doc and print JSON. With --sections, return just those sections (the token-minimal path); without it, the whole body. Honors the sensitivity gate: restricted bodies are withheld (no interactive unlock on the CLI path).",
       "args": [
         {
           "name": "doc_id",
           "positional": true,
           "required": true,
-          "help": "Stable doc_id, e.g. 'rb-add-nginx-proxy-host'."
+          "help": "The doc: its doc_id (from `find`), its title, or its vault path."
         },
         {
           "name": "--sections",
@@ -193,7 +193,7 @@
           "name": "relative_path",
           "positional": true,
           "required": true,
-          "help": "Vault-relative path to the doc."
+          "help": "The doc: its doc_id (from `find`), its title, or its vault path. A file without frontmatter yet goes by its vault path."
         },
         {
           "name": "--doc-id",
@@ -518,7 +518,7 @@
           "name": "--relative-path",
           "positional": false,
           "required": false,
-          "help": "Vault-relative path; required to create.",
+          "help": "Vault-relative path: required to create, or the doc to edit instead of --doc-id.",
           "flags": [
             "--relative-path"
           ],
@@ -528,7 +528,7 @@
           "name": "--doc-id",
           "positional": false,
           "required": false,
-          "help": "The new doc's id on create; the doc to edit otherwise.",
+          "help": "On create, the new doc's id; otherwise the doc to edit: its doc_id (from `find`), its title, or its vault path.",
           "flags": [
             "--doc-id"
           ],
@@ -753,7 +753,7 @@
           "name": "--doc-id",
           "positional": false,
           "required": false,
-          "help": "The doc to move.",
+          "help": "The doc to move: its doc_id (from `find`), its title, or its vault path.",
           "flags": [
             "--doc-id"
           ],
@@ -864,7 +864,7 @@
           "name": "doc_id",
           "positional": true,
           "required": true,
-          "help": "The log note's doc_id."
+          "help": "The log note: its doc_id (from `find`), its title, or its vault path."
         },
         {
           "name": "--all",

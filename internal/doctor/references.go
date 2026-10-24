@@ -47,7 +47,7 @@ type checkout struct {
 	root    string // project_path expanded; "" when the index sets none
 	repos   []string
 	present bool
-	told    bool // the missing checkout was reported
+	prefix  string // queue_prefix
 	tests   map[string]bool
 	tasks   map[string]bool
 	ignore  []string // root .gitignore patterns; nil until read
@@ -75,8 +75,7 @@ func (x ref) String() string {
 }
 
 // check adds a warning naming each reference in a living part of the doc at
-// rel that none of its projects' checkouts has, and once per run for a
-// project whose checkout is not on this machine.
+// rel that none of its projects' checkouts has.
 func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 	if fm == nil || fm.Text("doc_type") == schema.QueueDocType {
 		return // a queue names the paths its open work will create
@@ -103,10 +102,6 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 	for _, c := range outs {
 		if c.present {
 			present = append(present, c)
-		} else if !c.told {
-			c.told = true
-			r.add(Finding{c.index, "warning", fmt.Sprintf("project_path %q is not a folder on this machine, so the code its docs name is not checked",
-				c.written), ""})
 		}
 	}
 	if len(present) == 0 {
@@ -145,6 +140,34 @@ func (rs *references) check(r *Report, rel, body string, fm *jsonx.Obj) {
 		strings.Join(where, " or "), strings.Join(items, ", ")), ""})
 }
 
+// checkProjects warns on each project index the queue cannot route to: one
+// with a project_path but no repos or no queue_prefix, and one whose
+// project_path is not a folder on this machine.
+func (rs *references) checkProjects(r *Report) {
+	for _, name := range vault.ProjectFolders(rs.vault) {
+		c := rs.checkout(name)
+		if c.written == "" {
+			continue
+		}
+		var lacks []string
+		if len(c.repos) == 0 {
+			lacks = append(lacks, "repos")
+		}
+		if c.prefix == "" {
+			lacks = append(lacks, "queue_prefix")
+		}
+		if len(lacks) > 0 {
+			r.add(Finding{c.index, "warning", fmt.Sprintf("sets project_path but not %s, so the queue cannot route to this project; "+
+				"set_frontmatter on this note with repos (the checkout's folder name) and queue_prefix (a short item id prefix)",
+				strings.Join(lacks, " or ")), ""})
+		}
+		if !c.present {
+			r.add(Finding{c.index, "warning", fmt.Sprintf("project_path %q is not a folder on this machine, so the code its docs name is not checked; "+
+				"set_frontmatter project_path to the checkout's current folder", c.written), ""})
+		}
+	}
+}
+
 // projects are the project folders the doc at rel belongs to: the one it
 // sits in, then its related_projects.
 func (rs *references) projects(rel string, fm *jsonx.Obj) []string {
@@ -177,6 +200,7 @@ func (rs *references) checkout(name string) *checkout {
 	}
 	repos, _ := note.FM.Get("repos")
 	c.repos = vault.CoerceList(repos)
+	c.prefix = note.FM.Text("queue_prefix")
 	if c.written = note.FM.Text("project_path"); c.written != "" {
 		c.root = config.ExpandUser(c.written)
 		c.present = fsx.IsDir(c.root)

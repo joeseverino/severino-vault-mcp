@@ -1,8 +1,8 @@
 # Release Checklist
 
-A release is a `vX.Y.Z` tag pushed from `main`. Pick the version from the
-Conventional Commit titles since the last tag (`fix` a patch, `feat` a minor,
-`!` or a `BREAKING CHANGE` footer a major), then:
+A release is a `vX.Y.Z` tag on a commit already on `main`. Pick the version
+from the Conventional Commit titles since the last tag (`fix` a patch, `feat`
+a minor, `!` or a `BREAKING CHANGE` footer a major), then:
 
 ```bash
 git tag v3.0.0
@@ -13,7 +13,8 @@ The `release` workflow builds the darwin and linux (amd64, arm64) archives,
 writes `SHA256SUMS`, attests their provenance, and creates the GitHub Release
 with generated notes and those files attached. A major above v1 needs go.mod's
 module path to end in `/vN` first, or `go install ...@latest` cannot resolve
-it; the workflow refuses a tag whose major does not match.
+it; the workflow refuses a tag whose major does not match, or one on a commit
+that is not on `main`, before it builds anything.
 
 ## Repository Hygiene
 
@@ -44,10 +45,12 @@ In an MCP client, verify:
 ## Packaging
 
 ```bash
-go install ./cmd/severino-vault-mcp
+mise run install
 severino-vault-mcp --help
-severino-vault-mcp --fingerprint
 ```
+
+`install` builds into `~/.local/bin` from the main checkout and prints the
+installed binary's `--fingerprint`.
 
 After the tag's `release` run, confirm the release page lists the four
 archives and `SHA256SUMS`, that
@@ -58,8 +61,9 @@ installs the new version, and that the MCP client examples in `README.md` and
 ## Renovate Pull Requests
 
 Renovate (`renovate.json`) opens PRs for `gomod`, GitHub Actions and the tools
-in `mise.toml`. It waits 7 days after a release before proposing it, and keeps the Actions pinned to a SHA with
-the version comment updated, e.g. `uses: actions/checkout@<sha> # v7.0.1`.
+in `mise.toml`. It waits 7 days after a release before proposing it, and
+keeps the Actions pinned to a SHA with the version comment updated, e.g.
+`uses: actions/checkout@<sha> # v7.0.1`.
 The `codeql-action` steps arrive as one PR so init and analyze stay on one
 version.
 

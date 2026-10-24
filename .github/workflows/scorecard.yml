@@ -1,12 +1,14 @@
 name: OSSF Scorecard
 
+# Weekly, when branch protection changes, and on demand: the score measures
+# the repository's settings and practices, which a push rarely moves, so a run
+# on every push would only add a row to each commit.
 on:
   branch_protection_rule:
   schedule:
     # Weekly Tuesday 07:23 UTC.
     - cron: "23 7 * * 2"
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions: read-all
 
@@ -14,6 +16,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       security-events: write
       id-token: write

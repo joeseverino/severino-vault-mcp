@@ -2,7 +2,6 @@ package core
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/query"
@@ -13,34 +12,10 @@ import (
 // first in either mode: agents pass a doc_id or a title they were given, and
 // a body search or a token ranking would bury it under docs that mention it.
 
-// exactNames are the ways a query can name a doc, strongest first. A name
-// two docs share names neither, so a weaker kind is tried instead.
-var exactNames = []struct {
-	kind  string
-	names func(idx *vault.Index, d *vault.Doc) []string
-}{
-	{"doc_id", func(_ *vault.Index, d *vault.Doc) []string { return []string{d.DocID} }},
-	{"alias", func(idx *vault.Index, d *vault.Doc) []string {
-		var out []string
-		for alias, id := range idx.Aliases {
-			if id == d.DocID {
-				out = append(out, alias)
-			}
-		}
-		if d.Frontmatter != nil {
-			v, _ := d.Frontmatter.Get("aliases")
-			out = append(out, vault.CoerceList(v)...)
-		}
-		return out
-	}},
-	{"title", func(_ *vault.Index, d *vault.Doc) []string { return []string{d.Title} }},
-	{"file_name", func(_ *vault.Index, d *vault.Doc) []string { return []string{d.Stem()} }},
-}
-
 // exactDoc is the one doc among those keep accepts that q names, and how it
 // names it; nil when q names none, or names several alike.
 func exactDoc(idx *vault.Index, q string, keep query.Keep) (*vault.Doc, string) {
-	want := vault.NormalizeAlias(strings.Trim(strings.TrimSpace(q), "`\"'[]"))
+	want := normalName(q)
 	if want == "" {
 		return nil, ""
 	}
@@ -51,7 +26,7 @@ func exactDoc(idx *vault.Index, q string, keep query.Keep) (*vault.Doc, string) 
 			if keep != nil && !keep(d) {
 				continue
 			}
-			if slices.ContainsFunc(n.names(idx, d), func(s string) bool { return vault.NormalizeAlias(s) == want }) {
+			if matchedName(n.names(idx, d), want) != "" {
 				found = append(found, d)
 			}
 		}

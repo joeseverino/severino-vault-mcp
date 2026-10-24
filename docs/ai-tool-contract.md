@@ -46,7 +46,8 @@ first steps are the same `find` with the closest values the vault holds. A
 `find` result is held to 12,000 characters (`core.FindBudget`): past it,
 snippets shrink to their matched lines and then go, then hits go from the
 bottom, and `truncated` (`budget_chars`, `snippets_trimmed`, `hits_dropped`)
-with `next_steps` says what was cut and the calls that get it. An argument the schema refuses (an unknown name, a wrong type, a
+with `next_steps` says what was cut and the calls that get it. An argument
+the schema refuses (an unknown name, a wrong type, a
 value outside its enum, a missing required one) fails the same way, its step
 the corrected call: a filter given as `by` becomes that argument, a refused
 `fields` name becomes the field it most plausibly meant. Take a
@@ -59,7 +60,7 @@ with `{"ok": false, "error": "vault 'x' is unreadable ...: <OS error naming
 the path>"}`. Its `next_steps` say what to check (the configured vault path
 exists, this process may read it) instead of calling a tool. Never read it as
 "no such doc": an empty vault that can be read stays `ok`, a configured
-indexed folder that does not exist is simply absent.
+indexed folder that does not exist is absent.
 
 ## Sensitivity
 
@@ -181,9 +182,9 @@ grammar and its tests; `Parse(Format(item)) == item`.
   without a resolution until `close` records one and files it under
   `## Closed`. A closed or dropped item is not reopened: `set` with a status
   or a claim refuses it and names `add` for the work as a new item. `set` with
-`resolution` alone corrects a closed or dropped item's resolution in place;
-with a status, claim, release, agent or kind it is refused, and on an open
-item `close` is the way to record one.
+  `resolution` alone corrects a closed or dropped item's resolution in place;
+  with a status, claim, release, agent or kind it is refused, and on an open
+  item `close` is the way to record one.
 
 ```
 - [/] Build the store ([[Store Design|notes]]) #queue/delegated #owner/worker  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
@@ -239,8 +240,8 @@ text, ignoring case (`163` finds `hq-163`). `describe` lists every flag.
   another owner does (`owner`), or the item is done; it leaves the item
   `open`. With `--kind delegated` it also takes a `decision` item that
   `main` owns or nobody owns, keeping its id and text; a decision owned by
-  anyone else is refused with that `owner`. Landing closes it with `queue close --agent <agent id>
-  --resolution <repo>@<sha>`.
+  anyone else is refused with that `owner`. Landing closes it with
+  `queue close --agent <agent id> --resolution <repo>@<sha>`.
 - A brief without one files its worker with `queue add --agent <agent id>
   --text <goal>`; when that agent already holds an open item with that text
   in that queue, the call returns it with `no_op: true`.
@@ -274,8 +275,9 @@ whole change that makes it settable; a field the chosen vault does not
 declare is refused. `unset` (`--unset` on the CLI) takes field names to
 remove from an existing block with any list items, including a leftover key
 the profile no longer declares; a field the doc's type requires is refused,
-and the result passes the same introduced-problems check as any update. `schema --contract` carries the declarations under
-`fields`. A list left empty is not written: every writer leaves the key
+and the result passes the same introduced-problems check as any update.
+`schema --contract` carries the declarations under `fields`. A list left
+empty is not written: every writer leaves the key
 out, which every reader takes as no value.
 
 A doc_type may name its own required set in its document schema
@@ -588,8 +590,8 @@ append, so the server's rewrite never drops that line:
   - `<name>` is the note's path relative to the vault root, clean (no `./`,
     `..` or doubled `/`), with every "/" replaced by "%".
   - Example: vault root `/srv/example-vault`, note `Projects/Example/queue.md`,
-    `XDG_STATE_HOME` unset, `HOME=/home/joe` gives
-    `/home/joe/.local/state/severino-vault-mcp/locks/52f595614f5a30d2/Projects%Example%queue.md.lock`
+    `XDG_STATE_HOME` unset, `HOME=/home/example` gives
+    `/home/example/.local/state/severino-vault-mcp/locks/52f595614f5a30d2/Projects%Example%queue.md.lock`
     (`printf %s /srv/example-vault | shasum -a 256 | cut -c1-16`).
   - Create the directories (mode 0700) and the file if absent; never delete
     them.

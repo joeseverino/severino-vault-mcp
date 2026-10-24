@@ -129,7 +129,7 @@ func init() {
 			Args: []Arg{{Name: "--propose", Help: "Print starter frontmatter for markdown files that are missing it."}},
 			Run:  runDoctor},
 		{Name: "touch-reviewed", Summary: "Set last_reviewed to today on a vault doc and print JSON. Exits 0 if ok, 1 otherwise.", Effect: "vault_write",
-			Args: []Arg{{Name: "relative_path", Help: "Vault-relative path, e.g. '03 Runbooks/Generate Internal Service Certificate.md'."}, pretty(prettyHelp)},
+			Args: []Arg{{Name: "doc_id", Help: core.DocRefHelp("The doc")}, pretty(prettyHelp)},
 			Run:  runTouchReviewed},
 		{Name: "backfill-aliases", Effect: "vault_write",
 			Summary: "Set each folder-note's (`<folder>/index.md`) Obsidian `aliases` to its `title`, so `[[Title]]` resolves " +
@@ -148,10 +148,10 @@ func init() {
 			},
 			Run: runFind},
 		{Name: "read", Effect: "read",
-			Summary: "Read one vault doc by doc_id and print JSON. With --sections, return just those sections (the token-minimal path); " +
+			Summary: "Read one vault doc and print JSON. With --sections, return just those sections (the token-minimal path); " +
 				"without it, the whole body. Honors the sensitivity gate: restricted bodies are withheld (no interactive unlock on the CLI path).",
 			Args: []Arg{
-				{Name: "doc_id", Help: "Stable doc_id, e.g. 'rb-add-nginx-proxy-host'."},
+				{Name: "doc_id", Help: core.DocRefHelp("The doc")},
 				{Name: "--sections", Help: "Sections to read: a slug, heading path, heading text, unique slug prefix or 1-based outline position. Omit for the whole body.", TakesValue: true, Multi: true},
 				fieldsArg("Doc fields to print (e.g. outline for the section list without text); omit for every field."),
 				pretty(prettyHelp),
@@ -160,7 +160,7 @@ func init() {
 		{Name: "update-frontmatter", Effect: "vault_write",
 			Summary: "Set fields in a vault doc's frontmatter: the MCP set_frontmatter tool, one flag per field the labs profile " +
 				"declares, each validated against it (doc_id never changes once set). Used by the Obsidian relation editor so author-time edits can't dangle.",
-			Args: append(append([]Arg{{Name: "relative_path", Help: "Vault-relative path to the doc."}},
+			Args: append(append([]Arg{{Name: "relative_path", Help: core.DocRefHelp("The doc") + " A file without frontmatter yet goes by its vault path."}},
 				frontmatterFlags(updateArgs)...), Arg{Name: "--" + write.UnsetKey, Help: write.UnsetHelp, TakesValue: true, Multi: true}, pretty(prettyHelp)),
 			Run: runUpdateFrontmatter},
 		{Name: "write-doc", Effect: "vault_write",
@@ -169,8 +169,8 @@ func init() {
 				"the edit modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
 			Args: append(append([]Arg{
 				{Name: "--mode", Help: "create (default), replace_section, append_section, delete_section (no stdin) or replace_text (no stdin).", TakesValue: true, Default: "create"},
-				{Name: "--relative-path", Help: "Vault-relative path; required to create.", TakesValue: true},
-				{Name: "--doc-id", Help: "The new doc's id on create; the doc to edit otherwise.", TakesValue: true},
+				{Name: "--relative-path", Help: "Vault-relative path: required to create, or the doc to edit instead of --doc-id.", TakesValue: true},
+				{Name: "--doc-id", Help: core.DocRefHelp("On create, the new doc's id; otherwise the doc to edit"), TakesValue: true},
 				{Name: "--heading", Help: "The section to edit (section modes), or to search (replace_text): a heading path or section slug as find and the read_doc outline give them, or a unique heading text; \"\" for the text before the first heading.", TakesValue: true},
 				{Name: "--old-text", Help: "replace_text: the exact text to replace; it must occur exactly once in the body, or in the --heading section. Text that starts with a dash goes as --old-text=value.", TakesValue: true},
 				{Name: "--new-text", Help: "replace_text: what --old-text becomes; \"\" removes it. Text that starts with a dash goes as --new-text=value.", TakesValue: true},
@@ -182,7 +182,7 @@ func init() {
 				"rewrites the path links to it across the vault and lists the notes it changed.",
 			Args: []Arg{
 				{Name: "to", Help: "Destination from the vault root: a .md path, or a folder ending in / to keep the file name."},
-				{Name: "--doc-id", Help: "The doc to move.", TakesValue: true},
+				{Name: "--doc-id", Help: core.DocRefHelp("The doc to move"), TakesValue: true},
 				{Name: "--relative-path", Help: "The doc's current vault-relative path (instead of --doc-id).", TakesValue: true},
 				{Name: "--with-folder", Help: "Move the doc's whole folder, files beside it included, into the destination folder."},
 				{Name: "--archive", Help: "Into the archive: set status: archived first instead of refusing a doc without it."},
@@ -206,7 +206,7 @@ func init() {
 				"to name exactly one open entry, annotate one closed entry, and both write like a section edit.",
 			Args: []Arg{
 				{Name: "action", Help: "list, close or annotate.", Choices: core.LogActions},
-				{Name: "doc_id", Help: "The log note's doc_id."},
+				{Name: "doc_id", Help: core.DocRefHelp("The log note")},
 				{Name: "--all", Help: "list: include closed entries.", Dest: "include_closed"},
 				{Name: "--contains", Help: "list: only entries whose text contains this (case-insensitive).", TakesValue: true},
 				{Name: "--limit", Help: "list: most entries to print, in file order (default 0: all).", TakesValue: true, Int: true, Default: "0"},

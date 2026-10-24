@@ -75,3 +75,40 @@ func TestNoWriteLeavesARelatedProjectsEntryThatNamesNoFolder(t *testing.T) {
 		t.Fatalf("write_doc create: %v", created)
 	}
 }
+
+func indexWith(t *testing.T, root, project, extra string) {
+	t.Helper()
+	tk.Doc(t, filepath.Join(root, "01 Projects", project, "index.md"),
+		"doc_id: project-"+project+"\ntitle: "+project+"\ndoc_type: architecture_note\nsystem: Example Site\nenvironment: other\n"+
+			"status: active\nsensitivity: internal\nlast_reviewed: 2026-10-01\n"+extra, "# "+project+"\n")
+}
+
+func projectWarnings(root string) []string {
+	var out []string
+	for _, f := range findings(root) {
+		if f.Severity == "warning" && strings.HasPrefix(f.RelativePath, "01 Projects/") {
+			out = append(out, f.RelativePath+": "+f.Message)
+		}
+	}
+	return out
+}
+
+func TestDoctorWarnsOnAProjectTheQueueCannotRouteTo(t *testing.T) {
+	root := tk.Dir(t)
+	here := tk.Dir(t)
+	indexWith(t, root, "example-bare", "project_path: "+here)
+	indexWith(t, root, "example-routed", "project_path: "+here+"\nrepos:\n  - example-routed\nqueue_prefix: ex")
+	indexWith(t, root, "example-nopath", "")
+	indexWith(t, root, "example-gone", "project_path: "+filepath.Join(here, "missing")+"\nrepos:\n  - example-gone\nqueue_prefix: eg")
+
+	got := projectWarnings(root)
+	if len(got) != 2 {
+		t.Fatalf("want one warning each for the bare and the missing project, got %v", got)
+	}
+	if !strings.HasPrefix(got[0], "01 Projects/example-bare/index.md") || !strings.Contains(got[0], "repos or queue_prefix") || !strings.Contains(got[0], "set_frontmatter") {
+		t.Errorf("unrouted project: %s", got[0])
+	}
+	if !strings.HasPrefix(got[1], "01 Projects/example-gone/index.md") || !strings.Contains(got[1], "is not a folder on this machine") || !strings.Contains(got[1], "set_frontmatter") {
+		t.Errorf("missing checkout: %s", got[1])
+	}
+}

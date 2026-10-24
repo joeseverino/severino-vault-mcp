@@ -14,17 +14,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The gate is mise.toml's `check` task, the same run as on a laptop.
-  # Required check: `mise run check`.
+  # The gate: mise.toml's `check` task, the same run as on a laptop, and the
+  # branch's required status check.
   check:
     name: mise run check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Nothing installs that mise.lock does not record.
+      MISE_LOCKED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Installs the tools mise.lock pins and caches them.
+      # Installs the tools mise.lock pins. Only main writes the cache, so a
+      # pull request reads main's and cannot change what main installs.
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          cache_save: ${{ github.ref_name == github.event.repository.default_branch }}
 
       - run: mise run check
+
+  # A pull request that adds or bumps a dependency with a known high or
+  # critical advisory fails here.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

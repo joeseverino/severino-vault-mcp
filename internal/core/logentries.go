@@ -97,9 +97,9 @@ func LogEntries(v *Vault, docID string, a LogArgs) *jsonx.Obj {
 	default:
 		return failNext(fmt.Sprintf("unknown action %q; one of %s", a.Action, strings.Join(LogActions, ", ")), list())
 	}
-	d, _ := lookupDoc(v, docID)
+	d, _, why := resolveDoc(v.Loader.Index(false), docID)
 	if d == nil {
-		return failNext("unknown doc_id "+strconv.Quote(docID), Call("find", "query", docID)+" to get the log note's doc_id")
+		return failNext(why.msg, why.steps(docID, func(id string) string { return Call("log_entries", "doc_id", id, "action", a.Action) })...)
 	}
 	if d.Sensitivity == gate.Restricted {
 		return failNext(d.DocID+" is restricted; log_entries does not read or write restricted notes",
