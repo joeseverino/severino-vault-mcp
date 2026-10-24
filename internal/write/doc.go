@@ -52,6 +52,9 @@ func CreateDoc(l *vault.Loader, relativePath, body string, n NewDoc, p *schema.P
 	if err != nil {
 		return fail("path escapes vault root: " + relativePath)
 	}
+	if refused := readOnly(l, rel); refused != nil {
+		return refused
+	}
 	if !vault.IsDocPath(rel, l.Config.IndexedDirs) {
 		return fail("relative_path must be a .md file under the indexed dirs " + pystr.ReprList(l.Config.IndexedDirs) + ": " + relativePath)
 	}
@@ -106,7 +109,7 @@ func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode
 	if appendMode && pystr.Strip(body) == "" {
 		return fail("body is empty; nothing to append")
 	}
-	v, full, perr := fsx.IndexedPath(l.Config, relativePath)
+	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
 		return perr
 	}

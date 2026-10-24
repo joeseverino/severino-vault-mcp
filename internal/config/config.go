@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,7 @@ func (e Env) Lookup(k string) (string, bool) {
 type Config struct {
 	VaultPath                 string
 	IndexedDirs               []string
+	ReadOnlyDirs              []string
 	DailyNotesDir             string
 	AliasesPath               string
 	MetadataURL               string
@@ -52,8 +54,41 @@ type Config struct {
 	RestrictedAuditLog        string
 }
 
-// DefaultIndexedDirs are the labs vault's indexed folders.
-var DefaultIndexedDirs = []string{"01 Projects", "02 Infrastructure", "03 Runbooks", "07 Backlog"}
+// DefaultIndexedDirs are the labs vault's indexed folders: searched, read,
+// written and validated against the profile.
+var DefaultIndexedDirs = []string{"01 Projects", "02 Infrastructure", "03 Runbooks", "04 Reference", "07 Backlog"}
+
+// DefaultReadOnlyDirs are the labs vault's folders that find and read_doc
+// serve but writes and validate leave alone: inbox captures and daily notes
+// carry their own minimal frontmatter, and writeups and pages carry the
+// site's. They apply only while the indexed dirs are the defaults too.
+var DefaultReadOnlyDirs = []string{"00 Inbox", "05 Writeups", "06 Pages"}
+
+// SearchDirs is every folder the index reads: the indexed dirs, then the
+// read-only ones.
+func (c Config) SearchDirs() []string {
+	out := slices.Clone(c.IndexedDirs)
+	for _, d := range c.ReadOnlyDirs {
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// ReadOnlyDir is the read-only folder holding rel, a vault-relative path, or "".
+func (c Config) ReadOnlyDir(rel string) string {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	for _, d := range c.ReadOnlyDirs {
+		if slices.Contains(c.IndexedDirs, d) {
+			continue
+		}
+		if strings.HasPrefix(rel, filepath.ToSlash(filepath.Clean(d))+"/") {
+			return d
+		}
+	}
+	return ""
+}
 
 // ExpandUser expands a leading ~ the way Python's os.path.expanduser does.
 func ExpandUser(p string) string {
@@ -147,6 +182,23 @@ func strValue(section map[string]any, key, def string) string {
 	return def
 }
 
+// tomlList reads a TOML array or colon list of folders, and whether it was set.
+func tomlList(v any, def []string) ([]string, bool) {
+	switch x := v.(type) {
+	case []any:
+		out := []string{}
+		for _, item := range x {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out, true
+	case string:
+		return SplitColon(x), true
+	}
+	return slices.Clone(def), false
+}
+
 // Load builds a Config. path "" means SVMC_CONFIG, then DefaultPath.
 func Load(path string, env Env) Config {
 	if env == nil {
@@ -165,18 +217,13 @@ func Load(path string, env Env) Config {
 		unlock = Section(data, "secret_adjacent")
 	}
 
-	indexed := append([]string(nil), DefaultIndexedDirs...)
-	switch x := vault["indexed_dirs"].(type) {
-	case []any:
-		indexed = indexed[:0]
-		for _, item := range x {
-			if s, ok := item.(string); ok {
-				indexed = append(indexed, s)
-			}
-		}
-	case string:
-		indexed = SplitColon(x)
+	indexed, indexedSet := tomlList(vault["indexed_dirs"], DefaultIndexedDirs)
+	_, indexedEnv := env.Lookup("SVMC_INDEXED_DIRS")
+	readOnlyDefault := DefaultReadOnlyDirs
+	if indexedSet || indexedEnv {
+		readOnlyDefault = nil
 	}
+	readOnly, _ := tomlList(vault["read_only_dirs"], readOnlyDefault)
 
 	vaultPath := envPath(env, "SVMC_VAULT_PATH", strValue(vault, "path", "~/Documents/vault"))
 	aliases := Section(data, "aliases")
@@ -224,6 +271,7 @@ func Load(path string, env Env) Config {
 	return Config{
 		VaultPath:     vaultPath,
 		IndexedDirs:   envList(env, "SVMC_INDEXED_DIRS", indexed),
+		ReadOnlyDirs:  envList(env, "SVMC_READ_ONLY_DIRS", readOnly),
 		DailyNotesDir: dailyDir,
 		AliasesPath:   envPath(env, "SVMC_ALIASES_PATH", strValue(aliases, "path", aliasesDefault)),
 		MetadataURL:   metadataURL,

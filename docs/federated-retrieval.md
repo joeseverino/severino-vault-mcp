@@ -81,9 +81,9 @@ selects and returns one *section* instead of a whole body.
 sensitivity_default}`. The loader indexes those files alongside the vault,
 tagging every `Doc`/`Section` with `source` (`vault` | `repo:<name>`) and a
 `source_ref` (relative path; optionally the git commit). Repo docs lack
-frontmatter, so synthesize metadata the same way `_build` already does for
-`04 Reference` docs (`type: reference` → `ref-<slug>`): derive a `doc_id`,
-apply the source's `sensitivity_default`.
+frontmatter, so synthesize metadata the way the loader does for writeups and
+pages (`siteContentID`): derive a `doc_id`, apply the source's
+`sensitivity_default`.
 
 Default sources per repo (already present everywhere): `AGENTS.md`, `README.md`,
 `docs/**/*.md`, `CHANGELOG.md`. **Not** the code source tree — only

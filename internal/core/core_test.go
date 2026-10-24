@@ -602,6 +602,27 @@ func TestSetFrontmatterRefusesDocIDChange(t *testing.T) {
 	}
 }
 
+func TestSetFrontmatterRegistersABlockWithoutDocID(t *testing.T) {
+	root := tk.FakeVault(t)
+	path := filepath.Join(root, "01 Projects", "stub.md")
+	tk.Write(t, path, "---\ntags: [ci]\ncreated: 2026-06-01\n---\n# Stub\n")
+	set := write.Set{DocID: new("note-stub"), Title: new("Stub"), DocType: new("architecture_note"),
+		System: new("Stub"), Environment: new("other"), Status: new("active"), Sensitivity: new("internal")}
+	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub.md", set); !r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if body := tk.Read(t, path); !strings.HasPrefix(body, "---\ndoc_id: note-stub\n") || !strings.Contains(body, "created: 2026-06-01") {
+		t.Fatal(body)
+	}
+	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub.md", write.Set{DocID: new("note-other")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "immutable") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	tk.Write(t, filepath.Join(root, "01 Projects", "stub2.md"), "---\ntags: [ci]\n---\n# Stub 2\n")
+	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub2.md", write.Set{DocID: new("note-stub")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "already exists") {
+		t.Fatal(jsonx.Compact(r))
+	}
+}
+
 func TestSetFrontmatterTouchesLastReviewed(t *testing.T) {
 	root := tk.FakeVault(t)
 	r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md",
@@ -665,8 +686,63 @@ func TestFindTextFindsTextInBody(t *testing.T) {
 
 func TestFindTextAlwaysExcludesRestricted(t *testing.T) {
 	requireRG(t)
-	r := findBy(tk.Vault(tk.FakeVault(t)), "CA private key", "text")
-	if tk.Get(r, "match_count") != 0 || tk.Get(r, "excluded.restricted_skipped").(int) < 1 {
+	v := tk.Vault(tk.FakeVault(t))
+	// Words, a ripgrep pattern, and a word only the restricted body holds.
+	for _, q := range []string{"CA private key", "private.key", "offline"} {
+		r := findBy(v, q, "text")
+		if tk.Get(r, "excluded.restricted_skipped").(int) < 1 {
+			t.Fatal(jsonx.Compact(r))
+		}
+		for _, h := range tk.Hits(r, "hits") {
+			if h.Str("doc_id") == "infra-local-pki" && (h.Has("snippets") || h.Has("section_summary") || h.Has("heading")) {
+				t.Fatalf("%q surfaced the restricted body: %s", q, jsonx.Compact(h))
+			}
+		}
+		if q == "offline" && tk.Get(r, "match_count") != 0 {
+			t.Fatalf("a body-only word found the restricted doc: %s", jsonx.Compact(r))
+		}
+	}
+}
+
+func TestFindTextMatchesEveryWordInAnyOrder(t *testing.T) {
+	v := tk.Vault(tk.FakeVault(t))
+	r := findBy(v, "npm https", "text")
+	if tk.Get(r, "fallback") != nil || !slices.Contains(tk.IDs(tk.Hits(r, "hits")), "rb-add-nginx-proxy-host") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	h := tk.Hits(r, "hits")[0]
+	if snips, _ := h.Get("snippets"); h.Str("section") == "" || len(snips.([]*jsonx.Obj)) == 0 {
+		t.Fatal(jsonx.Compact(h))
+	}
+}
+
+func TestFindServesReferenceAndReadOnlyFoldersAndValidateSkipsReadOnly(t *testing.T) {
+	root := tk.FakeVault(t)
+	tk.Write(t, filepath.Join(root, "04 Reference", "Example Toolchain Primer.md"), "---\ndoc_id: note-example-toolchain-primer\n"+
+		"title: Example Toolchain Primer\ndoc_type: architecture_note\nsystem: example\nenvironment: other\nstatus: active\n"+
+		"sensitivity: internal\n---\n\n# Example Toolchain Primer\n\nbody\n")
+	tk.Write(t, filepath.Join(root, "00 Inbox", "capture.md"),
+		"---\ndoc_id: inbox-20260101-120000\ncreated: 2026-01-01 12:00:00\n---\n\nA zanzibar capture.\n")
+	v := tk.Vault(root)
+	if r := findBy(v, "example toolchain primer", "relevance"); tk.Get(r, "hits.0.doc_id") != "note-example-toolchain-primer" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if r := findBy(v, "zanzibar capture", "text"); tk.Get(r, "hits.0.doc_id") != "inbox-20260101-120000" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if _, _, ok := core.CheckDoc(v, "00 Inbox/capture.md"); ok {
+		t.Fatal("validate checked a read-only folder")
+	}
+	if _, problems, ok := core.CheckDoc(v, "04 Reference/Example Toolchain Primer.md"); !ok || len(problems) != 0 {
+		t.Fatal(ok, problems)
+	}
+}
+
+func TestFindTextFallsBackToRelevanceOnZeroHits(t *testing.T) {
+	v := tk.Vault(tk.FakeVault(t))
+	r := findBy(v, "nginx proxy zzzunmatched", "text")
+	if tk.Get(r, "mode") != "text" || tk.Get(r, "fallback") != "relevance" ||
+		!slices.Contains(tk.IDs(tk.Hits(r, "hits")), "rb-add-nginx-proxy-host") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

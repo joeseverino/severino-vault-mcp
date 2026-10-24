@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
@@ -45,6 +46,12 @@ func Tokenize(text string) Set {
 	return s
 }
 
+// IsStopword reports whether a lowercase query word is filler.
+func IsStopword(w string) bool {
+	_, ok := queryStopwords[w]
+	return ok
+}
+
 // QueryTokens tokenizes a query and drops stopwords.
 func QueryTokens(query string) Set {
 	s := Tokenize(query)
@@ -78,7 +85,11 @@ func union(sets ...Set) Set {
 	return out
 }
 
-// Score ranks one doc for a query.
+// Searchable reports whether a doc's body may feed ranking, section menus or
+// text matches: restricted bodies never do.
+func Searchable(doc *vault.Doc) bool { return doc.Sensitivity != gate.Restricted }
+
+// Score ranks one doc for a query on its metadata plus a capped body signal.
 func Score(doc *vault.Doc, q Set) int {
 	if len(q) == 0 {
 		return 0
@@ -92,7 +103,10 @@ func Score(doc *vault.Doc, q Set) int {
 	s := 5*Intersect(q, tag) + 3*Intersect(q, sys) + 3*Intersect(q, title) + Intersect(q, id) + Intersect(q, env)
 
 	meta := union(tag, sys, title, id, env)
-	body := Tokenize(doc.Body)
+	body := Set{}
+	if Searchable(doc) {
+		body = Tokenize(doc.Body)
+	}
 	bodyOnly := 0
 	for k := range q {
 		_, inBody := body[k]
@@ -126,12 +140,16 @@ func ScoreSection(sec sections.Section, q Set) int {
 	return s
 }
 
-// BestSection is the highest-scoring section, falling back to the first.
+// BestSection is the highest-scoring section, falling back to the first; nil
+// for a doc without sections or with a restricted body.
 func BestSection(doc *vault.Doc, query string) (*sections.Section, int) {
-	if len(doc.Sections) == 0 {
+	return bestSection(doc, QueryTokens(query))
+}
+
+func bestSection(doc *vault.Doc, q Set) (*sections.Section, int) {
+	if len(doc.Sections) == 0 || !Searchable(doc) {
 		return nil, 0
 	}
-	q := QueryTokens(query)
 	best, bestScore := &doc.Sections[0], 0
 	for i := range doc.Sections {
 		if sc := ScoreSection(doc.Sections[i], q); sc > bestScore {
@@ -148,13 +166,16 @@ type Hit struct {
 }
 
 // Rank returns docs with a positive score, best first: score, then most
-// recently reviewed, then title, all descending.
+// recently reviewed, then title, all descending. A doc's score adds its best
+// section's, so a doc whose section answers the query outranks a hub whose
+// title and system merely name the same subject.
 func Rank(docs []*vault.Doc, query string, limit int) []Hit {
 	q := QueryTokens(query)
 	var hits []Hit
 	for _, d := range docs {
 		if sc := Score(d, q); sc > 0 {
-			hits = append(hits, Hit{d, sc})
+			_, secScore := bestSection(d, q)
+			hits = append(hits, Hit{d, sc + secScore})
 		}
 	}
 	slices.SortStableFunc(hits, func(a, b Hit) int {

@@ -90,7 +90,11 @@ owned by the jseverino.com repo's `site` CLI, not this server.
 
 Each vault's docs are markdown with YAML frontmatter under its indexed
 folders (labs default: `01 Projects`, `02 Infrastructure`, `03 Runbooks`,
-`07 Backlog`). Minimal labs doc:
+`04 Reference`, `07 Backlog`). Read-only folders (`read_only_dirs`, labs
+default `00 Inbox`, `05 Writeups`, `06 Pages`, applied only while
+`indexed_dirs` is the default) are served by `find` and `read_doc`; writes
+refuse them and `validate` skips them, since their notes carry their own
+frontmatter. Minimal labs doc:
 
 ```yaml
 ---
@@ -113,8 +117,10 @@ sensitivity: internal
 | `environment`, `status`, `tags` | Context, lifecycle and discovery. |
 | `sensitivity` | Body release behavior. |
 
-Reference docs with `type: reference` and no `doc_id` get a synthesized
-`ref-<stem>` ID, `doc_type: reference` and `sensitivity: public`.
+A doc without a `doc_id` isn't indexed until `set_frontmatter` registers it. A
+writeup or page
+(`<folder>/<slug>/index.md`) without one is `writeup-<slug>` or `page-<slug>`,
+the ids the HQ manifest uses. A doc without a `title` is named by its file.
 
 `doc_id` is a uniqueness boundary: duplicates are excluded from lookup and
 search, direct reads return every conflicting path, and `doctor` reports them.
@@ -125,7 +131,7 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 |---|---|
 | `vault://{vault}/quick-index` | The vault's navigation hub (`doc_id: report-playbook-mcp-index`). |
 | `vault://{vault}/doc/{doc_id}` | One doc body, subject to sensitivity. |
-| `find` | `by`: `relevance` (ranked sections plus Quick Index hints), `system`, `project`, `text` (ripgrep; restricted never searched). |
+| `find` | `by`: `relevance` (ranked sections plus Quick Index hints), `system`, `project`, `text` (several words match docs holding all of them, any order; one token or a regex goes to ripgrep; zero hits fall back to relevance; restricted never searched). |
 | `read_doc` | One doc or one section, by `doc_id` or alias, with sensitivity enforced. |
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
 | `update_link` | Replace one exact Markdown link. |

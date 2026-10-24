@@ -43,7 +43,7 @@ func Vault(l *vault.Loader, days, reviewAfterDays, recentLimit int) *jsonx.Obj {
 	}
 	var staleDocs []stale
 	for _, d := range idx.Docs {
-		if !d.HasLastReviewed {
+		if !d.HasLastReviewed || d.ReadOnlyDir != "" {
 			continue
 		}
 		if age, ok := ageDays(d.LastReviewed); ok && age > reviewAfterDays {

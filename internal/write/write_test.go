@@ -133,6 +133,36 @@ func TestPathGuardsRefuseEscapesAndUnindexedDirs(t *testing.T) {
 	}
 }
 
+func TestEveryWriterRefusesTheReadOnlyFolders(t *testing.T) {
+	root := tk.Dir(t)
+	writeup := filepath.Join(root, "05 Writeups", "example-article", "index.md")
+	tk.Write(t, writeup, "---\ntitle: Example Article\npublished: true\n---\n\n# Example Article\n\n## Body\n\n"+
+		"See [site](https://old.example).\n")
+	inbox := filepath.Join(root, "00 Inbox", "capture.md")
+	tk.Write(t, inbox, "---\ndoc_id: inbox-20260101-120000\ncreated: 2026-01-01 12:00:00\n---\n\nA capture.\n")
+	before := tk.Read(t, writeup) + tk.Read(t, inbox)
+	l := tk.Loader(root)
+	refused := func(name string, r *jsonx.Obj) {
+		t.Helper()
+		e := r.Str("error")
+		if r.Bool("ok") || !strings.Contains(e, "read-only") || !strings.Contains(e, "'05 Writeups'") || !strings.Contains(e, "'00 Inbox'") {
+			t.Fatalf("%s: %s", name, jsonx.Compact(r))
+		}
+	}
+	refused("set_frontmatter", write.SetFrontmatter(l, "05 Writeups/example-article/index.md", write.Set{Status: new("active")}, schema.Labs))
+	refused("touch_reviewed", write.TouchReviewed(l, "00 Inbox/capture.md"))
+	refused("create", write.CreateDoc(l, "00 Inbox/new.md", "body\n",
+		write.NewDoc{DocID: "note-new", Title: "New", DocType: "architecture_note", System: "example"}, schema.Labs))
+	refused("edit_section", write.EditSection(l, "05 Writeups/example-article/index.md", "Body", "new\n", false, schema.Labs))
+	refused("update_link", write.UpdateLink(l, "writeup-example-article", "site", "https://old.example", "https://new.example"))
+	if r := write.BackfillAliases(l); !r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if tk.Read(t, writeup)+tk.Read(t, inbox) != before {
+		t.Fatal("a read-only file changed")
+	}
+}
+
 func TestBackfillAliasesSetsTitleAliasIdempotently(t *testing.T) {
 	root := tk.Dir(t)
 	proj := filepath.Join(root, "01 Projects", "sitedrift")
