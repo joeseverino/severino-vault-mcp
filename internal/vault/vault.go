@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -94,6 +95,35 @@ func hasSkipPart(p string) bool {
 	return false
 }
 
+func unlisted(name string) bool { return strings.HasPrefix(name, "_") }
+
+// IsDocPath reports whether rel, a clean vault-relative path, is one of the
+// files MarkdownFiles lists: a .md file under an indexed dir ("." meaning
+// directly in the root), outside the skipped and hidden trees.
+func IsDocPath(rel string, indexedDirs []string) bool {
+	rel = filepath.ToSlash(rel)
+	if !strings.HasSuffix(rel, ".md") || unlisted(path.Base(rel)) || hasSkipPart(rel) {
+		return false
+	}
+	for part := range strings.SplitSeq(rel, "/") {
+		if strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	for _, sub := range indexedDirs {
+		if sub == "." {
+			if !strings.Contains(rel, "/") {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(rel, filepath.ToSlash(filepath.Clean(sub))+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // MarkdownFiles is every vault-doc file under the indexed dirs. "." indexes
 // the vault root itself, non-recursively.
 func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
@@ -103,7 +133,7 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			matches, _ := filepath.Glob(filepath.Join(globEscape(vaultPath), "*.md"))
 			sortPaths(matches)
 			for _, p := range matches {
-				if !strings.HasPrefix(filepath.Base(p), "_") {
+				if !unlisted(filepath.Base(p)) {
 					out = append(out, p)
 				}
 			}
@@ -114,7 +144,7 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			continue
 		}
 		for _, p := range walkMD(root) {
-			if hasSkipPart(p) || strings.HasPrefix(filepath.Base(p), "_") {
+			if hasSkipPart(p) || unlisted(filepath.Base(p)) {
 				continue
 			}
 			out = append(out, p)

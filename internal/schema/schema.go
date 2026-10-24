@@ -30,13 +30,7 @@ type Field struct {
 
 // Validate checks one value against the rule.
 func (f Field) Validate(name string, value any) []string {
-	if value == nil || value == "" {
-		if f.Required {
-			return []string{"missing required field: " + name}
-		}
-		return nil
-	}
-	if l, ok := value.([]any); ok && len(l) == 0 {
+	if missing(value) {
 		if f.Required {
 			return []string{"missing required field: " + name}
 		}
@@ -71,9 +65,10 @@ func (f Field) Validate(name string, value any) []string {
 		}
 	}
 	text := pystr.Str(value)
-	if len(f.Choices) > 0 && !slices.Contains(f.Choices, text) {
-		sorted := slices.Sorted(slices.Values(f.Choices))
-		errs = append(errs, fmt.Sprintf("%s=%s must be one of: %s", name, pystr.ReprAny(value), strings.Join(sorted, ", ")))
+	if len(f.Choices) > 0 {
+		if e := NotIn(name, text, Sorted(f.Choices)); e != "" {
+			errs = append(errs, e)
+		}
 	}
 	if f.Pattern != "" {
 		if re, err := regexp.Compile(`\A(?:` + f.Pattern + `)\z`); err == nil && !re.MatchString(text) {
@@ -89,6 +84,15 @@ func (f Field) Validate(name string, value any) []string {
 		}
 	}
 	return errs
+}
+
+// missing reports an absent value: nil, "", or an empty list.
+func missing(value any) bool {
+	if value == nil || value == "" {
+		return true
+	}
+	l, ok := value.([]any)
+	return ok && len(l) == 0
 }
 
 // IsISODate matches Python's date.fromisoformat for YYYY-MM-DD.
@@ -168,6 +172,81 @@ func (p *Profile) HasPrefix(docID string) bool {
 		}
 	}
 	return false
+}
+
+// FieldError is the enum and doc_id-prefix rule for one frontmatter value, in
+// set_frontmatter's words; "" when the value is allowed or the field has no
+// such rule. task selects the task lifecycle for status.
+func (p *Profile) FieldError(field, value string, task bool) string {
+	var allowed []string
+	suffix := ""
+	switch field {
+	case "doc_id":
+		if p.HasPrefix(value) {
+			return ""
+		}
+		return fmt.Sprintf("doc_id %s must start with one of %s", pystr.Repr(value), pystr.ReprList(p.DocIDPrefixes))
+	case "doc_type":
+		allowed = p.DocTypes
+	case "environment":
+		allowed = p.Environments
+	case "sensitivity":
+		allowed = p.Sensitivities
+	case "status":
+		allowed = p.Statuses
+		if task {
+			allowed, suffix = p.TaskStatuses, " (task lifecycle)"
+		}
+	default:
+		return ""
+	}
+	if e := NotIn(field, value, Sorted(allowed)); e != "" {
+		return e + suffix
+	}
+	return ""
+}
+
+// NotIn is the one wording of an enum problem, "" when value is allowed.
+// allowed is listed in the order given.
+func NotIn(field, value string, allowed []string) string {
+	if slices.Contains(allowed, value) {
+		return ""
+	}
+	return fmt.Sprintf("%s %s not in %s", field, pystr.Repr(value), pystr.ReprList(allowed))
+}
+
+// dateFields are the frontmatter dates a profile reads, whatever the doc_type.
+var dateFields = []string{"last_reviewed", "created", "closed"}
+
+// Check validates a whole frontmatter block with the rules set_frontmatter
+// applies when it writes one: required fields, enums (tasks use the task
+// lifecycle and skip environment and sensitivity), the doc_id prefix, ISO
+// dates, and the per-doc-type field rules.
+func (p *Profile) Check(fm *jsonx.Obj) []string {
+	dt, _ := fm.Get("doc_type")
+	task := pystr.Str(orEmpty(dt)) == "task"
+	required, enums := p.RequiredFields, []string{"doc_type", "environment", "status", "sensitivity"}
+	if task {
+		required, enums = p.TaskRequiredFields, []string{"doc_type", "status"}
+	}
+	var errs []string
+	for _, name := range required {
+		if v, _ := fm.Get(name); missing(v) {
+			errs = append(errs, "missing required field: "+name)
+		}
+	}
+	for _, name := range append(enums, "doc_id") {
+		if v, _ := fm.Get(name); pystr.Truthy(v) {
+			if e := p.FieldError(name, pystr.Str(v), task); e != "" {
+				errs = append(errs, e)
+			}
+		}
+	}
+	for _, name := range dateFields {
+		v, _ := fm.Get(name)
+		errs = append(errs, Field{Kind: "date"}.Validate(name, v)...)
+	}
+	return append(errs, p.ValidateDocument(fm)...)
 }
 
 // Sorted returns a sorted copy.

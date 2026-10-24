@@ -94,6 +94,24 @@ func headingLines(lines []string) map[int]heading {
 	return out
 }
 
+// Heading is one ATX heading line outside fenced code.
+type Heading struct {
+	Line  int // 0-indexed line in the body
+	Level int
+	Text  string
+}
+
+// Headings lists a body's headings in order, split on "\n".
+func Headings(body string) []Heading {
+	h := headingLines(strings.Split(body, "\n"))
+	out := make([]Heading, 0, len(h))
+	for i, hd := range h {
+		out = append(out, Heading{Line: i, Level: hd.level, Text: hd.text})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Line < out[b].Line })
+	return out
+}
+
 func levelIndexes(h map[int]heading, level int) []int {
 	var idx []int
 	for i, hd := range h {

@@ -21,6 +21,7 @@ import (
 	vaultmcp "github.com/joeseverino/severino-vault-mcp"
 	"github.com/joeseverino/severino-vault-mcp/internal/brief"
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/daily"
 	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
 	"github.com/joeseverino/severino-vault-mcp/internal/education"
@@ -249,7 +250,11 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 			}
 			continue
 		}
-		if pi < len(positionals) {
+		switch {
+		case a.Multi && pi < len(positionals):
+			out[a.dest()] = slices.Clone(positionals[pi:])
+			pi = len(positionals)
+		case pi < len(positionals):
 			v := positionals[pi]
 			pi++
 			if len(a.Choices) > 0 && !slices.Contains(a.Choices, v) {
@@ -260,7 +265,7 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 				return nil, false, fmt.Sprintf("argument %s: invalid choice: %s (choose from %s)", a.Name, pystr.Repr(v), strings.Join(quoted, ", "))
 			}
 			out[a.dest()] = v
-		} else if !a.Optional {
+		case !a.Optional:
 			missing = append(missing, a.Name)
 		}
 	}
@@ -278,6 +283,9 @@ func argUsage(a Arg) string {
 	if a.positional() {
 		if a.Optional {
 			return "[" + a.Name + "]"
+		}
+		if a.Multi {
+			return a.Name + " [" + a.Name + " ...]"
 		}
 		if len(a.Choices) > 0 {
 			return "{" + strings.Join(a.Choices, ",") + "}"
@@ -389,6 +397,9 @@ func Describe() *jsonx.Obj {
 func describeArg(a Arg) *jsonx.Obj {
 	if a.positional() {
 		o := jsonx.New("name", a.Name, "positional", true, "required", !a.Optional, "help", a.Help)
+		if a.Multi {
+			o.Set("variadic", true)
+		}
 		if len(a.Choices) > 0 {
 			o.Set("choices", slices.Clone(a.Choices))
 		}
@@ -478,6 +489,22 @@ func runUpdateFrontmatter(c *Ctx, p Parsed) int {
 	}, schema.Labs), p.Bool("pretty"))
 }
 
+func runWriteDoc(c *Ctx, p Parsed) int {
+	content, err := io.ReadAll(c.Stdin)
+	if err != nil {
+		return c.emit(jsonx.New("ok", false, "error", "could not read stdin: "+err.Error()), p.Bool("pretty"))
+	}
+	return c.emit(core.WriteDoc(vaults.Labs(c.Env), core.WriteDocArgs{
+		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), Heading: p.Str("heading"), Body: pystr.Decode(content),
+		New: write.NewDoc{
+			DocID: p.Str("doc_id"), Title: p.Str("title"), DocType: p.Str("doc_type"), System: p.Str("system"),
+			Environment: p.Str("environment"), Status: p.Str("status"), Sensitivity: p.Str("sensitivity"),
+			LastReviewed: p.Str("last_reviewed"),
+			Tags:         p.List("tags"), RelatedProjects: p.List("related_projects"), RelatedAssets: p.List("related_assets"),
+		},
+	}), p.Bool("pretty"))
+}
+
 func runTaskReconcile(c *Ctx, p Parsed) int {
 	return c.emit(tasks.Reconcile(c.labs()), p.Bool("pretty"))
 }
@@ -500,6 +527,35 @@ func runTaskDelete(c *Ctx, p Parsed) int {
 }
 
 func runDescribe(c *Ctx, p Parsed) int { return c.emit(Describe(), p.Bool("pretty")) }
+
+// runValidate checks each path against the first local vault that holds it.
+// A hook runs it on every edited file, so a path no vault holds is not an error.
+func runValidate(c *Ctx, p Parsed) int {
+	local := vaults.Local(c.Env, io.Discard)
+	problems := []*jsonx.Obj{}
+	for _, path := range p.List("path") {
+		for _, v := range local {
+			rel, found, ok := core.CheckDoc(v, config.ExpandUser(path))
+			if !ok {
+				continue
+			}
+			for _, problem := range found {
+				problems = append(problems, jsonx.New("relative_path", rel, "problem", problem))
+			}
+			break
+		}
+	}
+	if p.Bool("json") {
+		return c.emit(jsonx.New("ok", len(problems) == 0, "problems", problems), false)
+	}
+	for _, o := range problems {
+		fmt.Fprintf(c.Stdout, "%s: %s\n", o.Str("relative_path"), o.Str("problem"))
+	}
+	if len(problems) > 0 {
+		return 1
+	}
+	return 0
+}
 
 func runSchema(c *Ctx, p Parsed) int {
 	if path := p.Str("check_doc"); path != "" {

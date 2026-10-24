@@ -343,11 +343,11 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 	if title == "" {
 		return fail("title is required")
 	}
-	if !slices.Contains(efforts, n.Effort) {
-		return fail(fmt.Sprintf("effort %s not in %s", pystr.Repr(n.Effort), pystr.ReprList(efforts)))
+	if e := schema.NotIn("effort", n.Effort, efforts); e != "" {
+		return fail(e)
 	}
-	if !slices.Contains(priorities, n.Priority) {
-		return fail(fmt.Sprintf("priority %s not in %s", pystr.Repr(n.Priority), pystr.ReprList(priorities)))
+	if e := schema.NotIn("priority", n.Priority, priorities); e != "" {
+		return fail(e)
 	}
 	slug := slugify(title)
 	if slug == "" {
@@ -516,8 +516,8 @@ func resolve(l *vault.Loader, docID string) (*vault.Doc, *jsonx.Obj) {
 // SetStatus moves a task; done stamps closed:, reopening clears it, and the
 // file moves into or out of done/.
 func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
-	if !schema.Labs.HasTaskStatus(status) {
-		return fail(fmt.Sprintf("status %s not in %s", pystr.Repr(status), pystr.ReprList(schema.Sorted(schema.Labs.TaskStatuses))))
+	if e := schema.Labs.FieldError("status", status, true); e != "" {
+		return fail(e)
 	}
 	d, err := resolve(l, docID)
 	if err != nil {

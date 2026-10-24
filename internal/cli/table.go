@@ -5,7 +5,7 @@ type Arg struct {
 	Name       string
 	Help       string
 	TakesValue bool     // flags only
-	Multi      bool     // flag taking zero or more values (argparse nargs="*")
+	Multi      bool     // flag: zero or more values (nargs="*"); positional: one or more, the rest of the line (nargs="+")
 	Optional   bool     // positionals only: may be omitted (nargs="?")
 	Choices    []string // positionals only
 	Metavar    string
@@ -133,6 +133,28 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runUpdateFrontmatter},
+		{Name: "write-doc", Effect: "vault_write",
+			Summary: "Create a registered doc, or replace or append to one section of its body, with the markdown body on stdin " +
+				"(no frontmatter). The MCP write_doc tool: create validates the new frontmatter with the rules validate checks; " +
+				"section modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
+			Args: []Arg{
+				{Name: "--mode", Help: "create (default), replace_section or append_section.", TakesValue: true, Default: "create"},
+				{Name: "--relative-path", Help: "Vault-relative path; required to create.", TakesValue: true},
+				{Name: "--doc-id", Help: "The new doc's id on create; the doc to edit otherwise.", TakesValue: true},
+				{Name: "--heading", Help: "Exact heading text of the section to edit (section modes).", TakesValue: true},
+				{Name: "--title", TakesValue: true},
+				{Name: "--doc-type", TakesValue: true},
+				{Name: "--system", TakesValue: true},
+				{Name: "--environment", TakesValue: true},
+				{Name: "--status", TakesValue: true},
+				{Name: "--sensitivity", TakesValue: true},
+				{Name: "--last-reviewed", Help: "ISO date (default today).", TakesValue: true},
+				{Name: "--tags", TakesValue: true, Multi: true},
+				{Name: "--related-projects", TakesValue: true, Multi: true},
+				{Name: "--related-assets", TakesValue: true, Multi: true},
+				pretty(prettyHelp),
+			},
+			Run: runWriteDoc},
 		{Name: "task-reconcile", Effect: "read",
 			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status — the idempotent tidy sweep for statuses " +
 				"edited by hand (a Base/Properties edit) that didn't move through task-move.",
@@ -210,6 +232,15 @@ func init() {
 				"read by jseverino.com and resume-engine.",
 			Args: []Arg{{Name: "dataset", Help: "Dataset to emit.", Choices: []string{"education"}}, pretty(prettyHelp)},
 			Run:  runExport},
+		{Name: "validate", Effect: "read",
+			Summary: "Check vault docs' frontmatter with the rules set_frontmatter writes by, without the MCP server: one " +
+				"`<relative_path>: <problem>` line per problem, exit 1 on any. Paths outside the labs and edu vaults' indexed dirs, " +
+				"or not markdown, are ignored. Run by the vault-guard hook on every edited path.",
+			Args: []Arg{
+				{Name: "path", Multi: true, Help: "Doc path, absolute or relative to a vault root."},
+				{Name: "--json", Help: `Print {"ok": ..., "problems": [{"relative_path", "problem"}]} instead of lines.`},
+			},
+			Run: runValidate},
 		{Name: "describe", Effect: "read",
 			Summary: "Emit this repo's command surface as structured JSON: every subcommand, its arguments, and help, generated from " +
 				"the command table itself so it can't drift from --help. AI reads it; a TUI renders a command picker.",
