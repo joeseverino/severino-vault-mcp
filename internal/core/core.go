@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -326,7 +327,7 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 			}
 		}
 	default:
-		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.By), strings.Join(FindModes, ", ")),
+		return failNext(fmt.Sprintf("unknown mode %q; one of %s", a.By, strings.Join(FindModes, ", ")),
 			Call("find", "query", q, "by", FindModes[0]))
 	}
 	out := jsonx.New("vault", v.Name, "mode", a.By)
@@ -376,7 +377,7 @@ func lookupDoc(v *Vault, identifier string) (*vault.Doc, *jsonx.Obj) {
 func notFound(v *Vault, identifier string) *jsonx.Obj {
 	if dups, ok := v.Loader.Index(false).DuplicateDocIDs[identifier]; ok {
 		return steer(jsonx.New("doc_id", identifier, "found", false, "ambiguous", true,
-			"error", "duplicate doc_id "+pystr.Repr(identifier), "paths", slices.Clone(dups)),
+			"error", "duplicate doc_id "+strconv.Quote(identifier), "paths", slices.Clone(dups)),
 			Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+identifier)+
 				" and tell the user; neither doc can be read until one file's doc_id changes")
 	}
@@ -451,7 +452,7 @@ func narrow(base *jsonx.Obj, d *vault.Doc, refs []string) *jsonx.Obj {
 func reprs(ss []string) []string {
 	out := make([]string, 0, len(ss))
 	for _, s := range ss {
-		out = append(out, pystr.Repr(s))
+		out = append(out, strconv.Quote(s))
 	}
 	return out
 }
@@ -576,7 +577,7 @@ func SetFrontmatter(v *Vault, relativePath string, c write.Changes) *jsonx.Obj {
 		return f
 	}
 	if v.Profile == nil {
-		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
 	return guide(write.SetFrontmatter(v.Loader, relativePath, c, v.Profile), v.setSteps(relativePath, c.Str("doc_id")))
 }
@@ -605,7 +606,7 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return f
 	}
 	if v.Profile == nil {
-		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
 	heading := ""
 	if a.Heading != nil {
@@ -618,7 +619,7 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 			if name == "" {
 				name = "Doc Title"
 			}
-			return failNext("mode 'create' requires relative_path", v.writable(name+".md"))
+			return failNext(`mode "create" requires relative_path`, v.writable(name+".md"))
 		}
 		if a.Heading != nil {
 			return failNext("heading only applies to the section modes",
@@ -628,7 +629,7 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		return guide(write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New.Set("doc_id", a.DocID), v.Profile), v.createSteps(a.RelativePath, a.DocID))
 	case "replace_section", "append_section", "delete_section":
 	default:
-		return failNext(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")),
+		return failNext(fmt.Sprintf("unknown mode %q; one of %s", a.Mode, strings.Join(WriteDocModes, ", ")),
 			Call("write_doc", "mode", WriteDocModes[0])+" or another listed mode")
 	}
 	target := a.DocID
@@ -636,16 +637,16 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 		target = a.RelativePath
 	}
 	if !a.New.Empty() {
-		return failNext("frontmatter fields only apply to mode 'create'; change them with set_frontmatter",
+		return failNext(`frontmatter fields only apply to mode "create"; change them with set_frontmatter`,
 			Call("set_frontmatter", "relative_path", pathOf(v, a.DocID, a.RelativePath))+" with the frontmatter fields",
 			Call("write_doc", "mode", a.Mode, "doc_id", target)+" with only heading and body")
 	}
 	if a.Heading == nil {
-		return failNext(fmt.Sprintf("mode %s requires heading (\"\" for the text before the first heading)", pystr.Repr(a.Mode)),
+		return failNext(fmt.Sprintf("mode %q requires heading (\"\" for the text before the first heading)", a.Mode),
 			Call("read_doc", "doc_id", target, "fields", []string{"outline"})+" to list its headings")
 	}
 	if a.Mode == "delete_section" && a.Body != "" {
-		return failNext("mode 'delete_section' takes no body",
+		return failNext(`mode "delete_section" takes no body`,
 			Call("write_doc", "mode", "delete_section", "doc_id", target, "heading", heading)+" without body")
 	}
 	d, err, steps := registeredDoc(v, a.DocID, a.RelativePath)
@@ -712,13 +713,13 @@ func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []
 		return nil, "pass doc_id or relative_path, not both", []string{Call("write_doc", "doc_id", docID) + " without relative_path"}
 	case docID != "":
 		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-			return nil, fmt.Sprintf("duplicate doc_id %s at %s; resolve the duplicate first", pystr.Repr(docID), pystr.ReprList(dups)),
+			return nil, fmt.Sprintf("duplicate doc_id %q at %s; resolve the duplicate first", docID, pystr.Quoted(dups)),
 				[]string{Call("queue", "action", "add", "project", vault.BacklogProject, "kind", "follow-up", "text", "Resolve duplicate doc_id "+docID) + " and tell the user"}
 		}
 		if d, ok := idx.ByDocID[docID]; ok {
 			return d, "", nil
 		}
-		return nil, "unknown doc_id " + pystr.Repr(docID) + "; call `find` to get one",
+		return nil, "unknown doc_id " + strconv.Quote(docID) + "; call `find` to get one",
 			[]string{Call("find", "query", docID) + " to get a doc_id, then retry with it"}
 	case relativePath != "":
 		clean := filepath.Clean(strings.TrimLeft(relativePath, "/"))
@@ -727,7 +728,7 @@ func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string, []
 				return d, "", nil
 			}
 		}
-		msg := "no registered doc at " + relativePath + "; create it with mode 'create', or register it with set_frontmatter"
+		msg := "no registered doc at " + relativePath + `; create it with mode "create", or register it with set_frontmatter`
 		if v.outsideWritable(relativePath) {
 			return nil, msg, []string{v.writable(relativePath)}
 		}

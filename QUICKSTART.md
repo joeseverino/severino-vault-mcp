@@ -16,6 +16,23 @@ macOS toolchain:
 brew install go ripgrep
 ```
 
+## Install The Binary
+
+```bash
+go install -trimpath github.com/joeseverino/severino-vault-mcp/cmd/severino-vault-mcp@latest
+```
+
+Or download the archive for your platform (darwin or linux, amd64 or arm64)
+from the [latest release](https://github.com/joeseverino/severino-vault-mcp/releases/latest),
+check it against `SHA256SUMS`, and put `severino-vault-mcp` on your `PATH`. Each
+archive carries a build provenance attestation:
+
+```bash
+gh attestation verify severino-vault-mcp_<tag>_<os>_<arch>.tar.gz --repo joeseverino/severino-vault-mcp
+```
+
+The steps below use a clone, for the sample vault and the tests.
+
 ## 1. Clone And Test
 
 ```bash
@@ -178,9 +195,9 @@ Known docs can be read through:
 vault://labs/doc/{doc_id}
 ```
 
-## 7. Optional: Install On PATH
+## 7. Optional: Install From The Clone
 
-For daily use:
+For daily use, install from the clone instead of the released binary:
 
 ```bash
 go install -trimpath ./cmd/severino-vault-mcp

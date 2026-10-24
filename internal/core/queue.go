@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/clock"
@@ -102,7 +103,7 @@ func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
 		return f
 	}
 	if v.Profile == nil {
-		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
 	s, err := openQueues(v)
 	if err != nil {
@@ -119,7 +120,7 @@ func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
 	case "close":
 		return s.close(a)
 	}
-	return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(QueueActions, ", ")),
+	return failNext(fmt.Sprintf("unknown action %q; one of %s", a.Action, strings.Join(QueueActions, ", ")),
 		qcall("action", "list", "all", true))
 }
 
@@ -195,7 +196,7 @@ func (s *queueStore) readProject(name, dir string) queueProject {
 		} else if len(errs) > 0 {
 			p.problem = dir + "/index.md: " + strings.Join(errs, "; ")
 		} else {
-			p.problem = fmt.Sprintf("%s/index.md sets queue_prefix %s, which cannot start an item id", dir, pystr.ReprAny(v))
+			p.problem = fmt.Sprintf("%s/index.md sets queue_prefix %s, which cannot start an item id", dir, jsonx.Compact(v))
 		}
 	}
 	r, _ := fm.Get("repos")
@@ -215,7 +216,7 @@ func projectNames(ps []queueProject) []string {
 // ambiguous refuses a call that two or more projects in hits answer: each
 // is what they all hold, and fix the one-line repair.
 func ambiguous(hits []queueProject, each, fix string) *jsonx.Obj {
-	return jsonx.Fail(fmt.Sprintf("projects %s each %s; %s", pystr.ReprList(projectNames(hits)), each, fix))
+	return jsonx.Fail(fmt.Sprintf("projects %s each %s; %s", pystr.Quoted(projectNames(hits)), each, fix))
 }
 
 func (s *queueStore) backlog() queueProject { return s.projects[len(s.projects)-1] }
@@ -271,10 +272,10 @@ func (s *queueStore) locate(id string) (queueProject, queue.Item, *jsonx.Obj) {
 				return p, item, nil
 			}
 		}
-		return queueProject{}, item, failNext(fmt.Sprintf("no queue holds an item %s", pystr.Repr(id)),
+		return queueProject{}, item, failNext(fmt.Sprintf("no queue holds an item %q", id),
 			qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" to find the item's id")
 	}
-	return queueProject{}, item, ambiguous(hits, "hold an item "+pystr.Repr(id),
+	return queueProject{}, item, ambiguous(hits, "hold an item "+strconv.Quote(id),
 		"give one a distinct queue_prefix in its index.md and renumber the other by hand")
 }
 
@@ -331,12 +332,12 @@ func (s *queueStore) resolve(a QueueArgs) (p queueProject, fallback string, fail
 				return s.projects[i], "", nil
 			}
 		}
-		return p, "", failNext(fmt.Sprintf("no project %s; one of %s", pystr.Repr(a.Project), pystr.ReprList(projectNames(s.projects))), listAll)
+		return p, "", failNext(fmt.Sprintf("no project %q; one of %s", a.Project, pystr.Quoted(projectNames(s.projects))), listAll)
 	case a.Repo != "":
-		return s.byRepo(a, []string{a.Repo}, a.Repo, "repo "+pystr.Repr(a.Repo))
+		return s.byRepo(a, []string{a.Repo}, a.Repo, "repo "+strconv.Quote(a.Repo))
 	case a.Cwd != "":
 		names, _ := repoCandidates(a.Cwd)
-		return s.byRepo(a, names, repoName(a.Cwd), "cwd "+pystr.Repr(a.Cwd))
+		return s.byRepo(a, names, repoName(a.Cwd), "cwd "+strconv.Quote(a.Cwd))
 	}
 	return p, "", failNext("name the queue: give project, repo or cwd", qcall("action", a.Action, "cwd", "<the session's working directory>"))
 }
@@ -358,11 +359,11 @@ func (s *queueStore) byRepo(a QueueArgs, candidates []string, repo, what string)
 		case 1:
 			return hits[0], "", nil
 		}
-		return queueProject{}, "", ambiguous(hits, "list repo "+pystr.Repr(repo), "keep it in one index.md's repos")
+		return queueProject{}, "", ambiguous(hits, "list repo "+strconv.Quote(repo), "keep it in one index.md's repos")
 	}
 	unmapped := fmt.Sprintf("no project's index.md lists %s under repos", what)
 	mapIt := Call("set_frontmatter", "relative_path", path.Join(vault.ProjectsDir, "<project>", "index.md"), "add_repos", []string{repo}) +
-		" on the project that owns " + pystr.Repr(repo)
+		" on the project that owns " + strconv.Quote(repo)
 	if a.Action == "list" {
 		return s.backlog(), unmapped + "; these are the backlog's items, not this repo's. Map it: " + mapIt, nil
 	}
@@ -559,7 +560,7 @@ func (b *queueBody) writable(rel string) *jsonx.Obj {
 		if s := b.queueSection(at); !queue.ItemShaped(b.Lines[at]) || s != queueOpen && s != queueClosed {
 			continue
 		}
-		return failNext(fmt.Sprintf("%s: the item line %s does not parse; nothing was written", rel, pystr.Repr(b.Lines[at])),
+		return failNext(fmt.Sprintf("%s: the item line %q does not parse; nothing was written", rel, b.Lines[at]),
 			"fix or remove the line in the note, then retry")
 	}
 	return nil
@@ -667,7 +668,7 @@ func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) 
 			return "", nil, f
 		}
 		if id := b.duplicateID(); id != "" {
-			return "", nil, failNext(fmt.Sprintf("%s would carry id %s on more than one item line; an id never repeats, so nothing was written", p.rel(), pystr.Repr(id)),
+			return "", nil, failNext(fmt.Sprintf("%s would carry id %q on more than one item line; an id never repeats, so nothing was written", p.rel(), id),
 				"give one of those lines a new id by hand in the note, then retry; "+
 					qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" shows the ids in use")
 		}
@@ -774,49 +775,49 @@ func owner(s string) string {
 func checkInput(a QueueArgs) error {
 	if a.Owner != nil {
 		if o := owner(*a.Owner); o != "" && !queue.ValidOwner(o) {
-			return fmt.Errorf("owner %s must be %s", pystr.Repr(o), queue.OwnerRule)
+			return fmt.Errorf("owner %q must be %s", o, queue.OwnerRule)
 		}
 	}
 	for k, v := range a.Links {
 		if !slices.Contains(queue.LinkKeys, k) {
-			return fmt.Errorf("links: %s is not one of %s", pystr.Repr(k), strings.Join(queue.LinkKeys, ", "))
+			return fmt.Errorf("links: %q is not one of %s", k, strings.Join(queue.LinkKeys, ", "))
 		}
 		if v != "" && !queue.ValidToken(v) {
-			return fmt.Errorf("links.%s %s must be %s", k, pystr.Repr(v), queue.TokenRule)
+			return fmt.Errorf("links.%s %q must be %s", k, v, queue.TokenRule)
 		}
 	}
 	for _, ref := range a.BlockedBy {
 		if _, _, ok := queue.SplitID(ref); !ok {
-			return fmt.Errorf("blocked_by %s is not an item id such as example-3", pystr.Repr(ref))
+			return fmt.Errorf("blocked_by %q is not an item id such as example-3", ref)
 		}
 	}
 	if a.Body != nil && a.Action != "list" {
 		if v := pystr.Strip(*a.Body); v != "" && !queue.ValidToken(v) {
-			return fmt.Errorf("body %s must be %s", pystr.Repr(v), queue.TokenRule)
+			return fmt.Errorf("body %q must be %s", v, queue.TokenRule)
 		}
 	}
 	for _, r := range commaList(a.Repos) {
 		if !queue.ValidRepo(r) {
-			return fmt.Errorf("repos %s must each be a repository name, %s, without @", pystr.Repr(r), queue.TokenRule)
+			return fmt.Errorf("repos %q must each be a repository name, %s, without @", r, queue.TokenRule)
 		}
 	}
 	if a.Base != nil && a.Action != "list" {
 		if b := pystr.Strip(*a.Base); b != "" && !queue.ValidToken(b) {
-			return fmt.Errorf("base %s must be a branch name, %s", pystr.Repr(b), queue.TokenRule)
+			return fmt.Errorf("base %q must be a branch name, %s", b, queue.TokenRule)
 		}
 	}
 	if a.Transcript != nil && a.Action != "list" {
 		if t := pystr.Strip(*a.Transcript); t != "" && (!queue.ValidPath(t) || !strings.HasPrefix(t, "/")) {
-			return fmt.Errorf("transcript %s must be an absolute path, %s", pystr.Repr(t), queue.PathRule)
+			return fmt.Errorf("transcript %q must be an absolute path, %s", t, queue.PathRule)
 		}
 	}
 	for _, o := range commaList(a.Owns) {
 		if !queue.ValidPath(o) {
-			return fmt.Errorf("owns %s must each be %s", pystr.Repr(o), queue.PathRule)
+			return fmt.Errorf("owns %q must each be %s", o, queue.PathRule)
 		}
 	}
 	if o := originRepo(a.Origin); o != "" && !queue.ValidToken(o) {
-		return fmt.Errorf("origin %s must be a repository name, %s, or a working directory", pystr.Repr(o), queue.TokenRule)
+		return fmt.Errorf("origin %q must be a repository name, %s, or a working directory", o, queue.TokenRule)
 	}
 	if a.Text != nil && a.Action != "list" {
 		if err := queue.OneLine("text", pystr.Strip(*a.Text)); err != nil {
@@ -893,7 +894,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 		return failNext("add needs text: one line saying what the work is", retry("with text set"))
 	}
 	if a.Agent != "" && !queue.ValidToken(a.Agent) {
-		return failNext("agent "+pystr.Repr(a.Agent)+" must be "+queue.TokenRule, retry("with the agent id as one word"))
+		return failNext("agent "+strconv.Quote(a.Agent)+" must be "+queue.TokenRule, retry("with the agent id as one word"))
 	}
 	if err := checkInput(a); err != nil {
 		return failNext(err.Error(), retry("with what the error names fixed"))
@@ -975,7 +976,7 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 	}
 	if a.ID != "" {
 		if _, _, ok := queue.SplitID(a.ID); !ok {
-			return queueProject{}, "", failNext(fmt.Sprintf("id %s is not <prefix>-<number>, such as example-3", pystr.Repr(a.ID)), findIt)
+			return queueProject{}, "", failNext(fmt.Sprintf("id %q is not <prefix>-<number>, such as example-3", a.ID), findIt)
 		}
 		p, _, f := s.locate(a.ID)
 		return p, a.ID, f
@@ -1006,7 +1007,7 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 	case 1:
 		return open[0].p, open[0].id, nil
 	case 0:
-		msg := "no open item carries agent " + pystr.Repr(a.Agent)
+		msg := "no open item carries agent " + strconv.Quote(a.Agent)
 		if closedID != "" {
 			msg += "; " + closedID + " does, and it is done"
 		}
@@ -1016,7 +1017,7 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 	for _, h := range open {
 		ids = append(ids, h.id)
 	}
-	return queueProject{}, "", failNext(fmt.Sprintf("agent %s carries %s; give id instead", pystr.Repr(a.Agent), pystr.ReprList(ids)),
+	return queueProject{}, "", failNext(fmt.Sprintf("agent %q carries %s; give id instead", a.Agent, pystr.Quoted(ids)),
 		qcall("action", a.Action, "id", ids[0]))
 }
 
@@ -1033,12 +1034,12 @@ func (s *queueStore) edit(p queueProject, id string, a QueueArgs, fn func(it *qu
 		noOp = false
 		i := b.find(id)
 		if i < 0 {
-			return failNext(fmt.Sprintf("no item %s in %s", pystr.Repr(id), p.rel()),
+			return failNext(fmt.Sprintf("no item %q in %s", id, p.rel()),
 				qcall("action", "list", "project", p.name, "status", "all", "fields", []string{"id", "status", "text"})+" to see its ids")
 		}
 		it := b.items[i].it
 		if a.ID == "" && a.Agent != "" && it.Agent != a.Agent {
-			return failNext(fmt.Sprintf("%s no longer carries agent %s", id, pystr.Repr(a.Agent)), qcall("action", a.Action, "id", id))
+			return failNext(fmt.Sprintf("%s no longer carries agent %q", id, a.Agent), qcall("action", a.Action, "id", id))
 		}
 		before := queue.Format(it)
 		if f := fn(&it); f != nil {
@@ -1069,7 +1070,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 		return failNext(err.Error(), qcall("action", "set", "id", a.ID)+" with what the error names fixed")
 	}
 	if a.Status != "" && !slices.Contains(queue.Statuses, a.Status) {
-		return failNext(fmt.Sprintf("status %s is not one of %s", pystr.Repr(a.Status), strings.Join(queue.Statuses, ", ")),
+		return failNext(fmt.Sprintf("status %q is not one of %s", a.Status, strings.Join(queue.Statuses, ", ")),
 			qcall("action", "set", "id", a.ID, "status", "open"))
 	}
 	if queue.Done(a.Status) {
@@ -1083,10 +1084,10 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 		return failNext("claim needs owner: who takes the item", qcall("action", "set", "id", a.ID, "claim", true, "owner", "..."))
 	}
 	if a.ID != "" && a.Agent != "" && !queue.ValidToken(a.Agent) {
-		return failNext("agent "+pystr.Repr(a.Agent)+" must be "+queue.TokenRule, qcall("action", "set", "id", a.ID, "agent", "...")+" with the agent id as one word")
+		return failNext("agent "+strconv.Quote(a.Agent)+" must be "+queue.TokenRule, qcall("action", "set", "id", a.ID, "agent", "...")+" with the agent id as one word")
 	}
 	if a.Kind != "" && !slices.Contains(queue.Kinds, a.Kind) {
-		return failNext(fmt.Sprintf("kind %s is not one of %s", pystr.Repr(a.Kind), strings.Join(queue.Kinds, ", ")), qcall("action", "set", "id", a.ID, "kind", "delegated"))
+		return failNext(fmt.Sprintf("kind %q is not one of %s", a.Kind, strings.Join(queue.Kinds, ", ")), qcall("action", "set", "id", a.ID, "kind", "delegated"))
 	}
 	p, id, f := s.target(a)
 	if f != nil {
@@ -1121,7 +1122,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 				if it.Agent != "" {
 					by = "agent " + it.Agent
 				}
-				return failNext(fmt.Sprintf("%s is held by %s, not agent %s", id, by, pystr.Repr(a.Agent)),
+				return failNext(fmt.Sprintf("%s is held by %s, not agent %q", id, by, a.Agent),
 					qcall("action", "set", "id", id, "release", true)+" to release it from whoever holds it").Set("agent", it.Agent)
 			}
 			it.Agent, it.Owner, it.Status = "", "", "open"
@@ -1187,7 +1188,7 @@ func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 		status = "closed"
 	}
 	if !queue.Done(status) {
-		return failNext(fmt.Sprintf("close takes status closed or dropped, not %s", pystr.Repr(a.Status)),
+		return failNext(fmt.Sprintf("close takes status closed or dropped, not %q", a.Status),
 			qcall("action", "close", "id", a.ID, "status", "dropped", "resolution", "..."))
 	}
 	if a.Partial {
@@ -1283,7 +1284,7 @@ func land(it *queue.Item, status, resolution string, partial bool) *jsonx.Obj {
 	}
 	for _, l := range landings {
 		if !slices.ContainsFunc(it.Repos, func(r string) bool { return strings.EqualFold(l.Repo, r) }) {
-			return failNext(fmt.Sprintf("%s is not one of %s's repos %s", pystr.Repr(l.Repo), it.ID, strings.Join(it.Repos, ", ")),
+			return failNext(fmt.Sprintf("%q is not one of %s's repos %s", l.Repo, it.ID, strings.Join(it.Repos, ", ")),
 				qcall("action", "set", "id", it.ID, "repos", append(slices.Clone(it.Repos), l.Repo))+" if the work spans it too")
 		}
 	}
@@ -1332,7 +1333,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 		return failNext("limit: give a positive number, or 0 for no limit", qcall("action", "list", "all", true, "limit", queueLimit))
 	}
 	if a.Kind != "" && !slices.Contains(queue.Kinds, a.Kind) {
-		return failNext(fmt.Sprintf("kind %s is not one of %s", pystr.Repr(a.Kind), strings.Join(queue.Kinds, ", ")), qcall("action", "list", "all", true))
+		return failNext(fmt.Sprintf("kind %q is not one of %s", a.Kind, strings.Join(queue.Kinds, ", ")), qcall("action", "list", "all", true))
 	}
 	statuses := defaultStatuses
 	switch {
@@ -1342,7 +1343,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 		statuses = strings.Split(a.Status, ",")
 		for _, st := range statuses {
 			if !slices.Contains(queue.Statuses, st) {
-				return failNext(fmt.Sprintf("status %s is not one of %s, or all", pystr.Repr(st), strings.Join(queue.Statuses, ", ")),
+				return failNext(fmt.Sprintf("status %q is not one of %s, or all", st, strings.Join(queue.Statuses, ", ")),
 					qcall("action", "list", "all", true, "status", "open,returned"))
 			}
 		}

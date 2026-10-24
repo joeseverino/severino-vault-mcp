@@ -407,5 +407,5 @@ func IndexedPath(cfg config.Config, relativePath string) (*Vault, string, *jsonx
 		}
 	}
 	_ = v.Close()
-	return nil, "", jsonx.Fail("path is outside the indexed dirs: " + pystr.ReprList(cfg.IndexedDirs))
+	return nil, "", jsonx.Fail(fmt.Sprintf("path is outside the indexed dirs: %s", pystr.Quoted(cfg.IndexedDirs)))
 }

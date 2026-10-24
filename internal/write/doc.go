@@ -65,7 +65,7 @@ func createDoc(l *vault.Loader, relativePath, body string, c Changes, p *schema.
 		writable = []string{archive}
 	}
 	if !vault.IsDocPath(rel, writable) {
-		return jsonx.Fail("relative_path must be a .md file under the indexed dirs " + pystr.ReprList(l.Config.IndexedDirs) + ": " + relativePath)
+		return jsonx.Fail(fmt.Sprintf("relative_path must be a .md file under the indexed dirs %s: %s", pystr.Quoted(l.Config.IndexedDirs), relativePath))
 	}
 	exists := jsonx.Fail("file already exists: " + rel + "; edit its body with write_doc mode replace_section or append_section")
 	if _, err := v.Stat(rel); err == nil {
@@ -146,18 +146,18 @@ func cutSection(body, heading, rel string) (string, *jsonx.Obj) {
 		for i, h := range all {
 			texts[i] = h.Text
 		}
-		return "", jsonx.Fail(fmt.Sprintf("no heading %s in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
-			pystr.Repr(needle), rel, pystr.ReprList(texts)))
+		return "", jsonx.Fail(fmt.Sprintf("no heading %q in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
+			needle, rel, pystr.Quoted(texts)))
 	case 1:
 	default:
 		names := candidateNames(targets)
-		return "", jsonx.Fail(fmt.Sprintf("heading %s appears %d times in %s; pass one of its heading paths instead: %s",
-			pystr.Repr(needle), len(targets), rel, pystr.ReprList(names))).Set("candidates", jsonx.Strings(names))
+		return "", jsonx.Fail(fmt.Sprintf("heading %q appears %d times in %s; pass one of its heading paths instead: %s",
+			needle, len(targets), rel, pystr.Quoted(names))).Set("candidates", jsonx.Strings(names))
 	}
 	t := targets[0]
 	if t.Line < 0 || t.End != min(b.BlockEnd(t.Line), len(sections.Lines(parsed))) {
-		return "", jsonx.Fail(fmt.Sprintf("%s is one part of a long section, not a section; delete the section by its heading path %s",
-			pystr.Repr(needle), pystr.Repr(t.Path)))
+		return "", jsonx.Fail(fmt.Sprintf("%q is one part of a long section, not a section; delete the section by its heading path %q",
+			needle, t.Path))
 	}
 	end := t.End
 	if end >= len(sections.Lines(parsed)) {
@@ -170,7 +170,7 @@ func cutSection(body, heading, rel string) (string, *jsonx.Obj) {
 		}
 	}
 	if len(kept) == 0 {
-		return "", jsonx.Fail(fmt.Sprintf("%s is the only section of %s; deleting it would leave the doc without a heading", pystr.Repr(t.Path), rel))
+		return "", jsonx.Fail(fmt.Sprintf("%q is the only section of %s; deleting it would leave the doc without a heading", t.Path, rel))
 	}
 	rest := slices.Clone(b.Lines[:t.Start])
 	for len(rest) > 0 && pystr.Strip(rest[len(rest)-1]) == "" {
@@ -308,19 +308,19 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 		for i, h := range all {
 			texts[i] = h.Text
 		}
-		return "", jsonx.Fail(fmt.Sprintf("no heading %s in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
-			pystr.Repr(needle), rel, pystr.ReprList(texts)))
+		return "", jsonx.Fail(fmt.Sprintf("no heading %q in %s; pass a heading path or section slug from read_doc's outline, or one of %s exactly",
+			needle, rel, pystr.Quoted(texts)))
 	case 1:
 	default:
 		names := candidateNames(targets)
-		return "", jsonx.Fail(fmt.Sprintf("heading %s appears %d times in %s; pass one of its heading paths instead: %s",
-			pystr.Repr(needle), len(targets), rel, pystr.ReprList(names))).Set("candidates", jsonx.Strings(names))
+		return "", jsonx.Fail(fmt.Sprintf("heading %q appears %d times in %s; pass one of its heading paths instead: %s",
+			needle, len(targets), rel, pystr.Quoted(names))).Set("candidates", jsonx.Strings(names))
 	}
 	t := targets[0]
 	if t.Line >= 0 {
 		if echo, ok := firstHeading(content); ok && echo.Level == t.Level && echo.Text == t.Text {
-			return "", jsonx.Fail(fmt.Sprintf("body starts with the section's own heading %s; the heading line stays, so send the body without it",
-				pystr.Repr(strings.Repeat("#", t.Level)+" "+t.Text)))
+			return "", jsonx.Fail(fmt.Sprintf("body starts with the section's own heading %q; the heading line stays, so send the body without it",
+				strings.Repeat("#", t.Level)+" "+t.Text))
 		}
 	}
 	lines := b.Lines
@@ -334,8 +334,8 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 	}
 	if !appendMode {
 		if dropped := droppedSubsections(all, start, end, content); len(dropped) > 0 {
-			return "", jsonx.Fail(fmt.Sprintf("replacing %s would drop its subsections %s; send a body that keeps each of their heading lines, or replace one subsection by its heading path",
-				pystr.Repr(t.Path), pystr.ReprList(dropped))).Set("subsections", jsonx.Strings(dropped))
+			return "", jsonx.Fail(fmt.Sprintf("replacing %q would drop its subsections %s; send a body that keeps each of their heading lines, or replace one subsection by its heading path",
+				t.Path, pystr.Quoted(dropped))).Set("subsections", jsonx.Strings(dropped))
 		}
 	}
 	section := strings.Trim(content, "\n")

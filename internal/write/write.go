@@ -28,9 +28,9 @@ func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
 	if dir == "" {
 		return nil
 	}
-	return jsonx.Fail(fmt.Sprintf("%s is in %s, and %s are read-only: find and read_doc serve them, "+
+	return jsonx.Fail(fmt.Sprintf("%s is in %q, and %s are read-only: find and read_doc serve them, "+
 		"but their notes keep their own frontmatter (inbox captures, site content), so set_frontmatter and write_doc leave them alone",
-		relativePath, pystr.Repr(dir), pystr.ReprList(l.Config.ReadOnlyDirs)))
+		relativePath, dir, pystr.Quoted(l.Config.ReadOnlyDirs)))
 }
 
 // indexedPath is fsx.IndexedPath behind the read-only refusal, over the
@@ -48,7 +48,7 @@ func indexedPath(l *vault.Loader, relativePath string) (v *fsx.Vault, full, rel,
 	v, full, refused = fsx.IndexedPath(cfg, relativePath)
 	if refused != nil {
 		if strings.Contains(refused.Str("error"), "outside the indexed dirs") {
-			refused = jsonx.Fail("path is outside the indexed dirs: " + pystr.ReprList(l.Config.IndexedDirs))
+			refused = jsonx.Fail(fmt.Sprintf("path is outside the indexed dirs: %s", pystr.Quoted(l.Config.IndexedDirs)))
 		}
 		return nil, "", "", "", refused
 	}
@@ -166,8 +166,8 @@ func held(idx *vault.Index, f schema.Field, values []string, self string) string
 			if f.IsList() {
 				name += " entry"
 			}
-			return fmt.Sprintf("%s %s already exists at %s; a value belongs to one doc, so change it there first",
-				name, pystr.Repr(v), d.RelativePath)
+			return fmt.Sprintf("%s %q already exists at %s; a value belongs to one doc, so change it there first",
+				name, v, d.RelativePath)
 		}
 	}
 	return ""
@@ -242,7 +242,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 		default:
 			value := c.Values[name]
 			if f.Immutable && pystr.Truthy(cur) && pystr.Str(cur) != pystr.Str(value) {
-				return text, jsonx.Fail(fmt.Sprintf("%s is immutable (file has %s, got %s)", name, pystr.Repr(pystr.Str(cur)), pystr.Repr(pystr.Str(value))))
+				return text, jsonx.Fail(fmt.Sprintf("%s is immutable (file has %q, got %q)", name, pystr.Str(cur), pystr.Str(value)))
 			}
 			set(name, value)
 		}

@@ -99,7 +99,7 @@ func TestProjectKeysAreUniqueAcrossProjects(t *testing.T) {
 func TestProjectKeysRefuseOtherDocsWithANextStep(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
 	r := core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.With("queue_prefix", "ex"))
-	refused(t, r, "only applies to docs at '01 Projects/*/index.md'")
+	refused(t, r, "only applies to docs at \"01 Projects/*/index.md\"")
 	if _, ok := r.Get("next_steps"); !ok {
 		t.Fatalf("no next step: %s", jsonx.Compact(r))
 	}

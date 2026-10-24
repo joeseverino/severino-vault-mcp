@@ -93,7 +93,7 @@ func TestEveryWriterRefusesTheReadOnlyFolders(t *testing.T) {
 	refused := func(name string, r *jsonx.Obj) {
 		t.Helper()
 		e := r.Str("error")
-		if r.Bool("ok") || !strings.Contains(e, "read-only") || !strings.Contains(e, "'05 Writeups'") || !strings.Contains(e, "'00 Inbox'") {
+		if r.Bool("ok") || !strings.Contains(e, "read-only") || !strings.Contains(e, "\"05 Writeups\"") || !strings.Contains(e, "\"00 Inbox\"") {
 			t.Fatalf("%s: %s", name, jsonx.Compact(r))
 		}
 	}
@@ -184,9 +184,9 @@ func TestAnUpdateRefusesEveryProblemItIntroduces(t *testing.T) {
 		with write.Changes
 		want string
 	}{
-		{"kind on a runbook", runbook, write.With(schema.ReportKindField, "audit"), "kind only applies to doc_type ['report']"},
+		{"kind on a runbook", runbook, write.With(schema.ReportKindField, "audit"), "kind only applies to doc_type \"report\""},
 		{"a report without its kind", "03 Runbooks/Reports/Example.md", write.With("doc_type", schema.ReportDocType), "missing required field: kind"},
-		{"a report outside a Reports folder", runbook, write.With("doc_type", schema.ReportDocType, schema.ReportKindField, "audit"), "lives in a 'Reports' folder"},
+		{"a report outside a Reports folder", runbook, write.With("doc_type", schema.ReportDocType, schema.ReportKindField, "audit"), "lives in a \"Reports\" folder"},
 	} {
 		full := filepath.Join(root, c.rel)
 		if c.rel != runbook {

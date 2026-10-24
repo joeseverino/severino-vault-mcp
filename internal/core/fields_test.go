@@ -91,8 +91,8 @@ func TestFindFieldsRefusalsNameValidFieldsAndNeverEchoTheInput(t *testing.T) {
 		fields []string
 		want   string
 	}{
-		"unknown top":   {[]string{"title", "zzcanary"}, "fields[1]: unknown field under the top level; valid fields there are 'score', 'doc_id'"},
-		"unknown inner": {[]string{"snippets.zzcanary"}, "fields[0]: unknown field under snippets; valid fields there are 'line_number', 'kind', 'text'"},
+		"unknown top":   {[]string{"title", "zzcanary"}, "fields[1]: unknown field under the top level; valid fields there are \"score\", \"doc_id\""},
+		"unknown inner": {[]string{"snippets.zzcanary"}, "fields[0]: unknown field under snippets; valid fields there are \"line_number\", \"kind\", \"text\""},
 		"into a leaf":   {[]string{"tags.zzcanary"}, "fields[0]: tags is kept whole"},
 		"empty":         {[]string{}, "fields: give at least one field"},
 		"double dot":    {[]string{"snippets..zzcanary"}, "fields[0]: a path is field names joined by single dots"},

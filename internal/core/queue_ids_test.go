@@ -88,6 +88,6 @@ func TestANoteCarryingAnIDTwiceIsNotWritten(t *testing.T) {
 	add(t, v, "Example Tracker", "next", "First")
 	path := filepath.Join(root, trackerQueue)
 	tk.Write(t, path, strings.Replace(tk.Read(t, path), "\n\n## Closed", "\n- [ ] Second #queue/next  [id:: ex-1]\n\n## Closed", 1))
-	refusedWith(t, core.Queue(v, core.QueueArgs{Action: "add", Project: "Example Tracker", Kind: "next", Text: new("Third")}), "'ex-1' on more than one item line")
-	refusedWith(t, core.Queue(v, core.QueueArgs{Action: "set", ID: "ex-1", Owner: new("worker")}), "'ex-1' on more than one item line")
+	refusedWith(t, core.Queue(v, core.QueueArgs{Action: "add", Project: "Example Tracker", Kind: "next", Text: new("Third")}), `\"ex-1\" on more than one item line`)
+	refusedWith(t, core.Queue(v, core.QueueArgs{Action: "set", ID: "ex-1", Owner: new("worker")}), `\"ex-1\" on more than one item line`)
 }

@@ -1,20 +1,14 @@
 // Package jsonx is the module's one JSON home: an insertion-ordered object for
-// dynamic payloads, and an encoder whose output matches Python's json.dumps
-// byte for byte (key order, ensure_ascii escapes, separators), so committed
-// contracts and CLI output stay identical across the port.
+// dynamic payloads, encoded and decoded through encoding/json.
 package jsonx
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
 	"reflect"
 	"slices"
-	"strconv"
-	"strings"
-	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
@@ -88,7 +82,7 @@ func (o *Obj) Int(k string) int {
 	return n
 }
 
-// Text is the value at k as Python's str() writes it when the value is
+// Text is the value at k as pystr.Str writes it when the value is
 // truthy, else "". A nil o has no fields.
 func (o *Obj) Text(k string) string {
 	if o == nil {
@@ -149,7 +143,7 @@ func (o *Obj) Len() int {
 	return len(o.keys)
 }
 
-// Merge sets every key of other in other's order (Python's {**a, **b}).
+// Merge sets every key of other in other's order; a key o already has keeps its place.
 func (o *Obj) Merge(other *Obj) *Obj {
 	if other == nil {
 		return o
@@ -173,7 +167,25 @@ func (o *Obj) Clone() *Obj {
 
 // MarshalJSON emits the object in insertion order.
 func (o *Obj) MarshalJSON() ([]byte, error) {
-	return Encode(o, Options{})
+	if o == nil {
+		return []byte("null"), nil
+	}
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, k := range o.keys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		if err := put(&buf, k); err != nil {
+			return nil, err
+		}
+		buf.WriteByte(':')
+		if err := put(&buf, o.vals[k]); err != nil {
+			return nil, err
+		}
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
 }
 
 // UnmarshalJSON decodes a JSON object, keeping key order.
@@ -190,22 +202,53 @@ func (o *Obj) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Options select the json.dumps flavor.
-type Options struct {
-	Indent      int  // 0 = compact with (",", ":") separators
-	SortKeys    bool // sort object keys
-	EnsureASCII bool // escape non-ASCII as \uXXXX
+// put appends v as JSON, through encoding/json with HTML escaping off. A nil
+// slice is an empty array: a list field is always a list to the reader.
+func put(buf *bytes.Buffer, v any) error {
+	if items, ok := v.([]any); ok {
+		buf.WriteByte('[')
+		for i, item := range items {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			if err := put(buf, item); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte(']')
+		return nil
+	}
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		buf.WriteString("[]")
+		return nil
+	}
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	buf.Truncate(buf.Len() - 1) // Encode ends each value with a newline
+	return nil
 }
 
-// Compact is Python's json.dumps(obj, separators=(",", ":")).
-func Compact(v any) string { return mustEncode(v, Options{EnsureASCII: true}) }
+func marshal(v any) []byte {
+	var buf bytes.Buffer
+	if err := put(&buf, v); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
 
-// Pretty is Python's json.dumps(obj, indent=2).
-func Pretty(v any) string { return mustEncode(v, Options{Indent: 2, EnsureASCII: true}) }
+// Compact is v as JSON with no whitespace.
+func Compact(v any) string { return string(marshal(v)) }
 
-// Canonical is Python's json.dumps(obj, indent=2, sort_keys=True).
-func Canonical(v any) string {
-	return mustEncode(v, Options{Indent: 2, SortKeys: true, EnsureASCII: true})
+// Pretty is v as JSON indented by two spaces.
+func Pretty(v any) string {
+	var out bytes.Buffer
+	if err := json.Indent(&out, marshal(v), "", "  "); err != nil {
+		panic(err)
+	}
+	return out.String()
 }
 
 // Dumps is the CLI output contract: compact, or indented under --pretty.
@@ -216,241 +259,22 @@ func Dumps(v any, pretty bool) string {
 	return Compact(v)
 }
 
-func mustEncode(v any, opts Options) string {
-	b, err := Encode(v, opts)
-	if err != nil {
+// Sorted is v with every object's keys sorted: its objects become maps,
+// which encoding/json writes in key order.
+func Sorted(v any) any {
+	dec := json.NewDecoder(bytes.NewReader(marshal(v)))
+	dec.UseNumber()
+	var plain any
+	if err := dec.Decode(&plain); err != nil {
 		panic(err)
 	}
-	return string(b)
-}
-
-// Encode serializes v.
-func Encode(v any, opts Options) ([]byte, error) {
-	var sb strings.Builder
-	if err := encode(&sb, v, opts, 0); err != nil {
-		return nil, err
-	}
-	return []byte(sb.String()), nil
-}
-
-func encode(sb *strings.Builder, v any, opts Options, depth int) error {
-	switch x := v.(type) {
-	case nil:
-		sb.WriteString("null")
-	case bool:
-		if x {
-			sb.WriteString("true")
-		} else {
-			sb.WriteString("false")
-		}
-	case string:
-		writeString(sb, x, opts.EnsureASCII)
-	case int:
-		sb.WriteString(strconv.Itoa(x))
-	case int64:
-		sb.WriteString(strconv.FormatInt(x, 10))
-	case int32:
-		sb.WriteString(strconv.FormatInt(int64(x), 10))
-	case uint64:
-		sb.WriteString(strconv.FormatUint(x, 10))
-	case float64:
-		writeFloat(sb, x)
-	case json.Number:
-		sb.WriteString(x.String())
-	case json.RawMessage:
-		decoded, err := Decode(x)
-		if err != nil {
-			return err
-		}
-		return encode(sb, decoded, opts, depth)
-	case *Obj:
-		if x == nil {
-			sb.WriteString("null")
-			return nil
-		}
-		keys := x.Keys()
-		if opts.SortKeys {
-			slices.Sort(keys)
-		}
-		return writeObject(sb, keys, func(k string) any { return x.vals[k] }, opts, depth)
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		return writeObject(sb, keys, func(k string) any { return x[k] }, opts, depth)
-	case map[string]string:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		return writeObject(sb, keys, func(k string) any { return x[k] }, opts, depth)
-	case map[string]int:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		return writeObject(sb, keys, func(k string) any { return x[k] }, opts, depth)
-	case []any:
-		return writeArray(sb, len(x), func(i int) any { return x[i] }, opts, depth)
-	case []string:
-		return writeArray(sb, len(x), func(i int) any { return x[i] }, opts, depth)
-	case []*Obj:
-		return writeArray(sb, len(x), func(i int) any { return x[i] }, opts, depth)
-	default:
-		rv := reflect.ValueOf(v)
-		switch rv.Kind() {
-		case reflect.Slice, reflect.Array:
-			if rv.Kind() == reflect.Slice && rv.IsNil() {
-				sb.WriteString("[]")
-				return nil
-			}
-			return writeArray(sb, rv.Len(), func(i int) any { return rv.Index(i).Interface() }, opts, depth)
-		case reflect.Pointer:
-			if rv.IsNil() {
-				sb.WriteString("null")
-				return nil
-			}
-		default:
-		}
-		// Anything else goes through encoding/json and back, so its key
-		// order follows its own MarshalJSON or struct field order.
-		raw, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		decoded, err := Decode(raw)
-		if err != nil {
-			return err
-		}
-		return encode(sb, decoded, opts, depth)
-	}
-	return nil
-}
-
-func writeObject(sb *strings.Builder, keys []string, get func(string) any, opts Options, depth int) error {
-	if len(keys) == 0 {
-		sb.WriteString("{}")
-		return nil
-	}
-	sb.WriteByte('{')
-	for i, k := range keys {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		newline(sb, opts, depth+1)
-		writeString(sb, k, opts.EnsureASCII)
-		if opts.Indent > 0 {
-			sb.WriteString(": ")
-		} else {
-			sb.WriteByte(':')
-		}
-		if err := encode(sb, get(k), opts, depth+1); err != nil {
-			return err
-		}
-	}
-	newline(sb, opts, depth)
-	sb.WriteByte('}')
-	return nil
-}
-
-func writeArray(sb *strings.Builder, n int, get func(int) any, opts Options, depth int) error {
-	if n == 0 {
-		sb.WriteString("[]")
-		return nil
-	}
-	sb.WriteByte('[')
-	for i := range n {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		newline(sb, opts, depth+1)
-		if err := encode(sb, get(i), opts, depth+1); err != nil {
-			return err
-		}
-	}
-	newline(sb, opts, depth)
-	sb.WriteByte(']')
-	return nil
-}
-
-func newline(sb *strings.Builder, opts Options, depth int) {
-	if opts.Indent <= 0 {
-		return
-	}
-	sb.WriteByte('\n')
-	sb.WriteString(strings.Repeat(" ", opts.Indent*depth))
-}
-
-func writeFloat(sb *strings.Builder, f float64) {
-	switch {
-	case math.IsNaN(f):
-		sb.WriteString("NaN")
-	case math.IsInf(f, 1):
-		sb.WriteString("Infinity")
-	case math.IsInf(f, -1):
-		sb.WriteString("-Infinity")
-	case f == math.Trunc(f) && math.Abs(f) < 1e16:
-		sb.WriteString(strconv.FormatFloat(f, 'f', 1, 64))
-	default:
-		sb.WriteString(strconv.FormatFloat(f, 'g', -1, 64))
-	}
-}
-
-const hexDigits = "0123456789abcdef"
-
-func writeString(sb *strings.Builder, s string, ensureASCII bool) {
-	sb.WriteByte('"')
-	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
-		i += size
-		switch r {
-		case '"':
-			sb.WriteString(`\"`)
-		case '\\':
-			sb.WriteString(`\\`)
-		case '\n':
-			sb.WriteString(`\n`)
-		case '\r':
-			sb.WriteString(`\r`)
-		case '\t':
-			sb.WriteString(`\t`)
-		case '\b':
-			sb.WriteString(`\b`)
-		case '\f':
-			sb.WriteString(`\f`)
-		default:
-			switch {
-			case r < 0x20:
-				writeU(sb, r)
-			case r < 0x80 || !ensureASCII:
-				sb.WriteRune(r)
-			case r > 0xFFFF:
-				hi, lo := utf16.EncodeRune(r)
-				writeU(sb, hi)
-				writeU(sb, lo)
-			default:
-				writeU(sb, r)
-			}
-		}
-	}
-	sb.WriteByte('"')
-}
-
-func writeU(sb *strings.Builder, r rune) {
-	sb.WriteString(`\u`)
-	for shift := 12; shift >= 0; shift -= 4 {
-		sb.WriteByte(hexDigits[(r>>shift)&0xF])
-	}
+	return plain
 }
 
 // Decode parses JSON into nil, bool, json.Number, string, []any and *Obj,
 // keeping object key order.
 func Decode(data []byte) (any, error) {
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	v, err := decodeValue(dec)
 	if err != nil {

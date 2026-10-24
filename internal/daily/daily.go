@@ -86,7 +86,7 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 	if noteDate != "" {
 		t, err := clock.ParseDate(noteDate)
 		if err != nil {
-			return jsonx.Fail(fmt.Sprintf("invalid date %s (want YYYY-MM-DD)", pystr.Repr(noteDate)))
+			return jsonx.Fail(fmt.Sprintf("invalid date %q (want YYYY-MM-DD)", noteDate))
 		}
 		day = t
 	}

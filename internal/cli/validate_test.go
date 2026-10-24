@@ -27,7 +27,7 @@ tags: []`
 func TestValidateReportsAnEnumProblemInSetFrontmattersWords(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.Doc(t, filepath.Join(root, proposedRel), proposedFront, "# Review\n")
-	want := proposedRel + ": status 'proposed' not in ['active', 'archived', 'deprecated', 'draft']\n"
+	want := proposedRel + ": status \"proposed\" not in \"active\", \"archived\", \"deprecated\", \"draft\"\n"
 	for _, path := range []string{proposedRel, filepath.Join(root, proposedRel)} {
 		code, out, _ := run(t, root, "", "validate", path)
 		if code != 1 || out != want {
@@ -48,7 +48,7 @@ func TestWriteDocCreatesADocValidatePasses(t *testing.T) {
 	args := []string{"write-doc", "--relative-path", rel, "--doc-id", "rb-rotate-example-token",
 		"--title", "Rotate Example Token", "--doc-type", "runbook", "--system", "homelab"}
 	code, out, _ := run(t, root, "## Steps\n\n1. Run `x`.\n", append(args, "--status", "proposed")...)
-	if code != 1 || !strings.Contains(out, `status 'proposed' not in ['active', 'archived', 'deprecated', 'draft']`) {
+	if code != 1 || !strings.Contains(out, `status \"proposed\" not in \"active\", \"archived\", \"deprecated\", \"draft\"`) {
 		t.Fatal(code, out)
 	}
 	if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
@@ -96,8 +96,8 @@ func TestValidateChecksRequiredFieldsDatesAndTheBlock(t *testing.T) {
 		// unknown doc_type, held to every doc rule.
 		"03 Runbooks/Task.md: missing required field: system\n" +
 		"03 Runbooks/Task.md: missing required field: sensitivity\n" +
-		"03 Runbooks/Task.md: doc_type 'task' not in ['architecture_note', 'decision_record', 'deployment_guide', 'public_article_draft', 'queue', 'recovery_procedure', 'report', 'runbook', 'troubleshooting_guide']\n" +
-		"03 Runbooks/Task.md: environment 'nowhere' not in ['adguard', 'cloudflare', 'homelab', 'local_mac', 'other', 'tailscale', 'unifi', 'vps', 'wordpress']\n"
+		"03 Runbooks/Task.md: doc_type \"task\" not in \"architecture_note\", \"decision_record\", \"deployment_guide\", \"public_article_draft\", \"queue\", \"recovery_procedure\", \"report\", \"runbook\", \"troubleshooting_guide\"\n" +
+		"03 Runbooks/Task.md: environment \"nowhere\" not in \"adguard\", \"cloudflare\", \"homelab\", \"local_mac\", \"other\", \"tailscale\", \"unifi\", \"vps\", \"wordpress\"\n"
 	if code != 1 || out != want {
 		t.Fatalf("%d\n%s", code, out)
 	}
@@ -127,7 +127,7 @@ func TestValidateUsesTheEduProfileForEduDocs(t *testing.T) {
 	var out, errb bytes.Buffer
 	env := tk.Env(root, "SVMC_EDU_CONFIG", cfg, "SVMC_VAULT_PATH", filepath.Join(root, "labs"))
 	code := Main([]string{"validate", "GT/index.md"}, &Ctx{Env: env, Stdout: &out, Stderr: &errb})
-	if code != 1 || !strings.HasPrefix(out.String(), "GT/index.md: status 'deprecated' not in ['active', 'archived', 'completed'") {
+	if code != 1 || !strings.HasPrefix(out.String(), "GT/index.md: status \"deprecated\" not in \"active\", \"archived\", \"completed\"") {
 		t.Fatal(code, out.String())
 	}
 }

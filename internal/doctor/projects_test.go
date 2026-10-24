@@ -42,7 +42,7 @@ func TestARelatedProjectsEntryNamesAProjectFolder(t *testing.T) {
 	for _, f := range findings(root) {
 		msgs = append(msgs, f.Message)
 	}
-	if len(msgs) != 2 || !strings.Contains(msgs[0], "'Example-Site' names no project folder (closest: example-site,") {
+	if len(msgs) != 2 || !strings.Contains(msgs[0], "\"Example-Site\" names no project folder (closest: example-site,") {
 		t.Fatalf("doctor reports each invalid entry, case-sensitively: %v", msgs)
 	}
 	if _, problems, ok := core.CheckDoc(tk.Vault(root), runbook); !ok || len(problems) != 2 {
@@ -60,7 +60,7 @@ func TestNoWriteLeavesARelatedProjectsEntryThatNamesNoFolder(t *testing.T) {
 		t.Fatal(r.Str("error"))
 	}
 	r := write.SetFrontmatter(l, runbook, write.With("related_projects", []string{"example-gone", "example-sit"}), schema.Labs)
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "'example-sit' names no project folder (closest: example-site,") ||
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "\"example-sit\" names no project folder (closest: example-site,") ||
 		strings.Contains(r.Str("error"), "example-gone") {
 		t.Fatalf("set_frontmatter: %v", r)
 	}
@@ -71,7 +71,7 @@ func TestNoWriteLeavesARelatedProjectsEntryThatNamesNoFolder(t *testing.T) {
 	created := write.CreateDoc(l, "03 Runbooks/Another.md", "# Another\n", write.With("doc_id", "rb-another", "title", "Another",
 		"doc_type", "runbook", "system", "Example Site", "environment", "other", "status", "active",
 		"sensitivity", "internal", "last_reviewed", "2026-10-01", "related_projects", []string{"nope"}), schema.Labs)
-	if created.Bool("ok") || !strings.Contains(created.Str("error"), "'nope' names no project folder") {
+	if created.Bool("ok") || !strings.Contains(created.Str("error"), "\"nope\" names no project folder") {
 		t.Fatalf("write_doc create: %v", created)
 	}
 }

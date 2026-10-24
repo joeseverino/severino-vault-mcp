@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
@@ -73,11 +74,11 @@ func LogEntries(v *Vault, docID string, a LogArgs) *jsonx.Obj {
 				list("action", "close", "match", a.Match, "resolution", "fixed: ..."))
 		}
 	default:
-		return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(LogActions, ", ")), list())
+		return failNext(fmt.Sprintf("unknown action %q; one of %s", a.Action, strings.Join(LogActions, ", ")), list())
 	}
 	d, _ := lookupDoc(v, docID)
 	if d == nil {
-		return failNext("unknown doc_id "+pystr.Repr(docID), Call("find", "query", docID)+" to get the log note's doc_id")
+		return failNext("unknown doc_id "+strconv.Quote(docID), Call("find", "query", docID)+" to get the log note's doc_id")
 	}
 	if d.Sensitivity == gate.Restricted {
 		return failNext(d.DocID+" is restricted; log_entries does not read or write restricted notes",
@@ -135,7 +136,7 @@ func (v *Vault) splitLog(d *vault.Doc) (head int, body string, found bool, failu
 // through the validated atomic write section edits use.
 func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 	if v.Profile == nil {
-		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
 	list := func(args ...any) string { return Call("log_entries", append([]any{"doc_id", d.DocID}, args...)...) }
 	resolution := pystr.Strip(a.Resolution)
@@ -156,7 +157,7 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 		switch len(hits) {
 		case 1:
 		case 0:
-			msg := "no open entry contains " + pystr.Repr(a.Match)
+			msg := "no open entry contains " + strconv.Quote(a.Match)
 			if closedHits > 0 {
 				msg += fmt.Sprintf("; %d closed entries do", closedHits)
 			}
@@ -169,7 +170,7 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 				}
 				candidates = append(candidates, jsonx.New("line", e.Line, "text", e.Text))
 			}
-			return "", failNext(fmt.Sprintf("%d open entries contain %s; give match text only one of them has", len(hits), pystr.Repr(a.Match)),
+			return "", failNext(fmt.Sprintf("%d open entries contain %q; give match text only one of them has", len(hits), a.Match),
 				list("action", "close", "match", candidates[0].Str("text"), "resolution", resolution)+
 					" with the text of the entry you mean").Set("candidates", candidates)
 		}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -177,11 +178,11 @@ func TestToolCallsRouteAndValidate(t *testing.T) {
 	if isErr || tk.Get(r, "hits.0.doc_id") != "rb-add-nginx-proxy-host" {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if r, isErr := call(t, s, "find", map[string]any{"query": "x", "vault": "example"}); !isErr || !strings.Contains(r.Str("error"), "unknown vault 'example'") {
+	if r, isErr := call(t, s, "find", map[string]any{"query": "x", "vault": "example"}); !isErr || !strings.Contains(r.Str("error"), "unknown vault \"example\"") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	for _, by := range []string{"fuzzy", "system", "project"} {
-		if r, isErr := call(t, s, "find", map[string]any{"query": "x", "by": by}); !isErr || !strings.Contains(r.Str("error"), "by: input should be 'relevance' or 'text'") {
+		if r, isErr := call(t, s, "find", map[string]any{"query": "x", "by": by}); !isErr || !strings.Contains(r.Str("error"), "by: input should be \"relevance\" or \"text\"") {
 			t.Fatal(jsonx.Compact(r))
 		}
 	}
@@ -260,7 +261,7 @@ func TestProviderToolsProfileAndInstructionsAreReexported(t *testing.T) {
 	// The provider's profile governs writes in its vault.
 	bad, _ := call(t, s, "set_frontmatter", map[string]any{"relative_path": "Renewals/untagged.md", "vault": "example",
 		"doc_id": "rb-x", "title": "X", "doc_type": "runbook", "system": "x"})
-	if bad.Bool("ok") || !strings.Contains(bad.Str("error"), "doc_type 'runbook' not in") {
+	if bad.Bool("ok") || !strings.Contains(bad.Str("error"), "doc_type \"runbook\" not in") {
 		t.Fatal(jsonx.Compact(bad))
 	}
 }
@@ -282,12 +283,12 @@ func TestEveryToolRejectsUnknownArguments(t *testing.T) {
 	}
 	for name, tool := range all {
 		r, isErr := call(t, s, name, map[string]any{"not_an_argument": 1})
-		if !isErr || !strings.Contains(r.Str("error"), "unknown arguments ['not_an_argument']") {
+		if !isErr || !strings.Contains(r.Str("error"), "unknown arguments \"not_an_argument\"") {
 			t.Errorf("%s accepted an unknown argument: %s", name, jsonx.Compact(r))
 		}
 		props, _ := tool.InputSchema.(map[string]any)["properties"].(map[string]any)
 		for prop := range props {
-			if !strings.Contains(r.Str("error"), "'"+prop+"'") {
+			if !strings.Contains(r.Str("error"), strconv.Quote(prop)) {
 				t.Errorf("%s: error doesn't list %s: %s", name, prop, r.Str("error"))
 			}
 		}
@@ -299,7 +300,7 @@ func TestSetFrontmatterRefusesAFieldsObject(t *testing.T) {
 	before := tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md"))
 	r, isErr := call(t, connect(t, reg), "set_frontmatter", map[string]any{
 		"relative_path": "03 Runbooks/Add Nginx Proxy Host.md", "fields": map[string]any{"status": "draft"}})
-	if !isErr || !strings.Contains(r.Str("error"), "unknown arguments ['fields']; valid arguments are [") {
+	if !isErr || !strings.Contains(r.Str("error"), "unknown arguments \"fields\"; valid arguments are \"") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md")) != before {

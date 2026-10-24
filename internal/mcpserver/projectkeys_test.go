@@ -32,7 +32,7 @@ func TestSetFrontmatterMapsAProjectToItsQueue(t *testing.T) {
 	}
 	other := "03 Runbooks/Add Nginx Proxy Host.md"
 	r, _ = call(t, s, "set_frontmatter", map[string]any{"relative_path": other, "queue_prefix": "zz"})
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "only applies to docs at '01 Projects/*/index.md'") {
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "only applies to docs at \"01 Projects/*/index.md\"") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

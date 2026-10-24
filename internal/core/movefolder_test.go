@@ -243,7 +243,7 @@ func TestArchivingAProjectFolderNeedsArchivedDocsAndKeepsItsLinks(t *testing.T) 
 	to := "99 Archive/Projects/Gizmo Retired"
 	before := tree(t, root)
 	refused := core.MoveFolder(v, core.FolderArgs{From: retired, To: to})
-	if refused.Bool("ok") || !strings.Contains(refused.Str("error"), retired+"/index.md has status 'active'") {
+	if refused.Bool("ok") || !strings.Contains(refused.Str("error"), retired+"/index.md has status \"active\"") {
 		t.Fatal(jsonx.Compact(refused))
 	}
 	if steps := nextSteps(refused); len(steps) == 0 || !strings.Contains(steps[0], "archive=true") {
@@ -318,7 +318,7 @@ func TestMoveFolderRefusalsLeaveTheVaultAlone(t *testing.T) {
 func TestAnInvalidRelatedProjectsEntryIsRefusedWithTheClosestFolders(t *testing.T) {
 	_, v := projectVault(t)
 	r := core.SetFrontmatter(v, "03 Runbooks/Widget Runbook.md", write.With("related_projects", []string{"widgetry", "Widgetry"}))
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "'widgetry' names no project folder (closest: Widgetry,") {
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "\"widgetry\" names no project folder (closest: Widgetry,") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	steps, _ := r.Get("next_steps")

@@ -178,7 +178,7 @@ func (h *handlers) vault(p *params) *core.Vault {
 	}
 	v := h.reg.Lookup(name)
 	if v == nil {
-		p.fail(argError{msg: fmt.Sprintf("unknown vault %s; one of %s", pystr.Repr(name), pystr.ReprList(h.reg.Names())), arg: "vault"})
+		p.fail(argError{msg: fmt.Sprintf("unknown vault %q; one of %s", name, pystr.Quoted(h.reg.Names())), arg: "vault"})
 	}
 	return v
 }
@@ -212,7 +212,7 @@ func (h *handlers) addResources(s *mcp.Server) {
 	read := func(uri, docID string, vaultName string) (*mcp.ReadResourceResult, error) {
 		v := h.reg.Lookup(vaultName)
 		if v == nil {
-			return nil, fmt.Errorf("unknown vault %s; one of %s", pystr.Repr(vaultName), pystr.ReprList(h.reg.Names()))
+			return nil, fmt.Errorf("unknown vault %q; one of %s", vaultName, pystr.Quoted(h.reg.Names()))
 		}
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "text/markdown", Text: core.RenderDoc(v, docID)}}}, nil
 	}

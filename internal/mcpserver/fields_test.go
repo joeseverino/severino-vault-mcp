@@ -111,7 +111,7 @@ func TestEveryDeclaredFieldIsSettableThroughTheServer(t *testing.T) {
 func TestAnotherVaultsFieldIsRefused(t *testing.T) {
 	reg, _ := labsAndEdu(t)
 	r, _ := call(t, connect(t, reg), "set_frontmatter", map[string]any{"relative_path": "03 Runbooks/Add Nginx Proxy Host.md", "course": "CS6035"})
-	if r.Bool("ok") || !strings.HasPrefix(r.Str("error"), "'course' is not a field of the labs profile") {
+	if r.Bool("ok") || !strings.HasPrefix(r.Str("error"), "\"course\" is not a field of the labs profile") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }

@@ -81,20 +81,30 @@ binary serves MCP on stdio.
 Requires Go 1.27. `ripgrep` is needed for `find(by="text")`; `fd` is used to
 walk the vault when it is on `PATH`, otherwise a built-in walk does.
 
+Install the binary:
+
+```bash
+go install github.com/joeseverino/severino-vault-mcp/cmd/severino-vault-mcp@latest
+```
+
+Or download the archive for your platform (darwin or linux, amd64 or arm64)
+from the [latest release](https://github.com/joeseverino/severino-vault-mcp/releases/latest),
+check it against `SHA256SUMS`, and put `severino-vault-mcp` on your `PATH`. To
+work on the code, clone the repo and run `go install ./cmd/severino-vault-mcp`.
+
 For Claude Code, register the binary as a server:
 
 ```bash
-go install ./cmd/severino-vault-mcp
 claude mcp add severino-vault-mcp severino-vault-mcp
 ```
 
 Or install the repo as a Claude Code plugin, which declares the same server
 (`.mcp.json`, the binary on `PATH`) and adds the `vault` skill. The repo is its
-own marketplace:
+own marketplace, so with the binary installed, add it and install the plugin:
 
 ```bash
-go install ./cmd/severino-vault-mcp
-/plugin install severino-vault-mcp --marketplace joeseverino/severino-vault-mcp
+claude plugin marketplace add joeseverino/severino-vault-mcp
+claude plugin install severino-vault-mcp@severino-vault-mcp
 ```
 
 A server you already registered with the same command wins over the plugin's

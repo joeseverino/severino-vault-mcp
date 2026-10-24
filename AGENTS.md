@@ -28,7 +28,8 @@ TOML parser; nothing else.
   `jsonx.Obj`, `jsonx.Strings`, `vault.CoerceList`, `fsx.IsDir` and `fsx.IsFile`:
   `TestOneCoercion`; `vault.ProjectFolders` lists the projects folder:
   `TestOneProjectLister`; `config.Under` tests a path inside a folder:
-  `TestOneUnderCheck`).
+  `TestOneUnderCheck`; `pystr.Quoted` writes a list into a message, and no
+  fmt call formats a slice: `TestListsReachTextThroughQuoted`).
 
 ## Shape
 
@@ -51,11 +52,11 @@ cordon.checks.json       the gate's commands; .golangci.yml its lint rules
 docs/                    architecture, safety model, tool contract, testing and CI, releases
 ```
 
-- HQ, the site and the golden files read this output byte for byte: `jsonx`
-  keeps key order and `ensure_ascii`, `pystr` formats the lists in error
-  messages, and the frontmatter parser is a constrained YAML subset (numbers
-  and dates stay strings). Don't swap in a YAML library or `encoding/json` for
-  these.
+- HQ, the site, resume-engine and the queue hooks parse this output as JSON;
+  the golden files pin its bytes. `jsonx.Obj` keeps insertion order on top of
+  `encoding/json`, so a payload's key order is the order it was built in. The
+  frontmatter parser is a constrained YAML subset (numbers and dates stay
+  strings); don't swap in a YAML library for it.
 - Every service returns one `*jsonx.Obj`; failures are `{"ok": false, "error": "..."}`,
   built only by `jsonx.Fail`/`jsonx.Failure` (`archtest.TestOneFailureEnvelope`).
   CLI subcommands exit 0/1 on `ok`, 2 on argument errors.

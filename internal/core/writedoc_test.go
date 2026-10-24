@@ -72,14 +72,14 @@ func TestWriteDocCreateRefusesWithoutWriting(t *testing.T) {
 	root := tk.FakeVault(t)
 	v := tk.Vault(root)
 	cases := map[string]func(*core.WriteDocArgs){
-		"status 'proposed' not in ['active', 'archived', 'deprecated', 'draft']": func(a *core.WriteDocArgs) { a.New = a.New.Set("status", "proposed") },
-		"body starts with a `---` block":                                         func(a *core.WriteDocArgs) { a.Body = "---\ndoc_id: rb-x\n---\n\nText.\n" },
-		"creating a doc needs system":                                            func(a *core.WriteDocArgs) { a.New = a.New.Set("system", "") },
-		"doc_id 'runbook-x' must start with":                                     func(a *core.WriteDocArgs) { a.DocID = "runbook-x" },
-		"doc_id 'rb-add-nginx-proxy-host' already exists":                        func(a *core.WriteDocArgs) { a.DocID = "rb-add-nginx-proxy-host" },
-		"under the indexed dirs":                                                 func(a *core.WriteDocArgs) { a.RelativePath = "Elsewhere/Rotate.md" },
-		"path escapes vault root":                                                func(a *core.WriteDocArgs) { a.RelativePath = "../Rotate.md" },
-		"heading only applies":                                                   func(a *core.WriteDocArgs) { a.Heading = new("Steps") },
+		"status \"proposed\" not in \"active\", \"archived\", \"deprecated\", \"draft\"": func(a *core.WriteDocArgs) { a.New = a.New.Set("status", "proposed") },
+		"body starts with a `---` block":                    func(a *core.WriteDocArgs) { a.Body = "---\ndoc_id: rb-x\n---\n\nText.\n" },
+		"creating a doc needs system":                       func(a *core.WriteDocArgs) { a.New = a.New.Set("system", "") },
+		"doc_id \"runbook-x\" must start with":              func(a *core.WriteDocArgs) { a.DocID = "runbook-x" },
+		"doc_id \"rb-add-nginx-proxy-host\" already exists": func(a *core.WriteDocArgs) { a.DocID = "rb-add-nginx-proxy-host" },
+		"under the indexed dirs":                            func(a *core.WriteDocArgs) { a.RelativePath = "Elsewhere/Rotate.md" },
+		"path escapes vault root":                           func(a *core.WriteDocArgs) { a.RelativePath = "../Rotate.md" },
+		"heading only applies":                              func(a *core.WriteDocArgs) { a.Heading = new("Steps") },
 	}
 	for want, mutate := range cases {
 		a := rotateArgs()
@@ -177,15 +177,15 @@ func TestWriteDocSectionRefusals(t *testing.T) {
 	before, pkiBefore := tk.Read(t, path), tk.Read(t, pki)
 	v := tk.Vault(root)
 	for want, a := range map[string]core.WriteDocArgs{
-		"no heading 'Goal' in 03 Runbooks/Backup Ops.md; pass a heading path or section slug from read_doc's outline, or one of ['Routine operations', 'Troubleshooting', 'Troubleshooting'] exactly": sectionArgs("replace_section", "Goal", "x"),
-		"heading 'Troubleshooting' appears 2 times":                         sectionArgs("replace_section", "Troubleshooting", "x"),
-		"mode 'append_section' requires heading":                            {Mode: "append_section", Body: "x", DocID: "rb-backup-ops"},
-		"body is empty":                                                     sectionArgs("append_section", "Routine operations", "\n"),
-		"frontmatter fields only apply to mode 'create'":                    {Mode: "replace_section", Heading: new("Routine operations"), Body: "x", DocID: "rb-backup-ops", New: write.With("status", "draft")},
-		"unknown doc_id 'rb-nope'":                                          {Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-nope"},
-		"no registered doc at 01 Projects/untagged.md":                      {Mode: "replace_section", Heading: new("Untagged"), Body: "x", RelativePath: "01 Projects/untagged.md"},
-		"unknown mode 'rewrite'":                                            {Mode: "rewrite", Body: "x"},
-		"infra-local-pki is restricted; rerun with include_restricted=True": {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", DocID: "infra-local-pki"},
+		"no heading \"Goal\" in 03 Runbooks/Backup Ops.md; pass a heading path or section slug from read_doc's outline, or one of \"Routine operations\", \"Troubleshooting\", \"Troubleshooting\" exactly": sectionArgs("replace_section", "Goal", "x"),
+		"heading \"Troubleshooting\" appears 2 times": sectionArgs("replace_section", "Troubleshooting", "x"),
+		"mode \"append_section\" requires heading":    {Mode: "append_section", Body: "x", DocID: "rb-backup-ops"},
+		"body is empty": sectionArgs("append_section", "Routine operations", "\n"),
+		"frontmatter fields only apply to mode \"create\"":                                              {Mode: "replace_section", Heading: new("Routine operations"), Body: "x", DocID: "rb-backup-ops", New: write.With("status", "draft")},
+		"unknown doc_id \"rb-nope\"":                                                                    {Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-nope"},
+		"no registered doc at 01 Projects/untagged.md":                                                  {Mode: "replace_section", Heading: new("Untagged"), Body: "x", RelativePath: "01 Projects/untagged.md"},
+		"unknown mode \"rewrite\"":                                                                      {Mode: "rewrite", Body: "x"},
+		"infra-local-pki is restricted; rerun with include_restricted=True":                             {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", DocID: "infra-local-pki"},
 		"infra-local-pki is restricted and the unlock was refused: Restricted unlock is not configured": {Mode: "replace_section", Heading: new("Local PKI"), Body: "x", IncludeRestricted: true, DocID: "infra-local-pki"},
 	} {
 		r := core.WriteDoc(v, a)
@@ -204,7 +204,7 @@ func TestWriteDocSectionRefusesFrontmatterThatNoLongerValidates(t *testing.T) {
 	tk.Write(t, path, strings.Replace(tk.Read(t, path), "status: active", "status: proposed", 1))
 	before := tk.Read(t, path)
 	r := core.WriteDoc(tk.Vault(root), core.WriteDocArgs{Mode: "replace_section", Heading: new("Goal"), Body: "x", DocID: "rb-add-nginx-proxy-host"})
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "status 'proposed' not in") || !strings.Contains(r.Str("error"), "set_frontmatter") {
+	if r.Bool("ok") || !strings.Contains(r.Str("error"), "status \"proposed\" not in") || !strings.Contains(r.Str("error"), "set_frontmatter") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if tk.Read(t, path) != before {
@@ -280,7 +280,7 @@ func TestReplaceSectionRefusesToDropSubsections(t *testing.T) {
 			before := tk.Read(t, path)
 			v := tk.Vault(root)
 			r := core.WriteDoc(v, sectionOps("replace_section", "Stages", "new lead\n\n### Contract\n\nkept text"))
-			if r.Bool("ok") || !strings.Contains(r.Str("error"), "would drop its subsections ['Stages > Other']") {
+			if r.Bool("ok") || !strings.Contains(r.Str("error"), "would drop its subsections \"Stages > Other\"") {
 				t.Fatal(jsonx.Compact(r))
 			}
 			steps := jsonx.Compact(r)
@@ -368,7 +368,7 @@ func TestADuplicatedHeadingIsTargetedByItsHeadingPath(t *testing.T) {
 			v := tk.Vault(root)
 			r := core.WriteDoc(v, sectionOps("replace_section", "Target shape", "x"))
 			if r.Bool("ok") || !strings.Contains(r.Str("error"), "appears 2 times") ||
-				!strings.Contains(r.Str("error"), "['One > Target shape', 'Two, owned by CI > Target shape']") {
+				!strings.Contains(r.Str("error"), "\"One > Target shape\", \"Two, owned by CI > Target shape\"") {
 				t.Fatal(jsonx.Compact(r))
 			}
 			if steps := jsonx.Compact(r); !strings.Contains(steps, `heading=\"Two, owned by CI > Target shape\"`) || !strings.Contains(steps, `heading=\"One > Target shape\"`) {
@@ -415,7 +415,7 @@ func TestDeleteSectionRefusals(t *testing.T) {
 	wrapped := "## Stages\n\n" + line + "A\n" + line + "B\n" + line + "C\n\n## After\n\nkept\n"
 	for name, tc := range map[string]struct{ body, ref, bodyArg, msg string }{
 		"the preamble":         {"Lead.\n\n## A\n\nx\n\n## B\n\ny\n", "", "", "not a section"},
-		"a missing heading":    {"## A\n\nx\n\n## B\n\ny\n", "Nope", "", "no heading 'Nope'"},
+		"a missing heading":    {"## A\n\nx\n\n## B\n\ny\n", "Nope", "", "no heading \"Nope\""},
 		"the only section":     {"## A\n\nx\n\n### Sub\n\ny\n", "A", "", "only section"},
 		"a part slug":          {wrapped, "stages-part-2", "", "one part"},
 		"a body":               {"## A\n\nx\n\n## B\n\ny\n", "A", "text", "takes no body"},

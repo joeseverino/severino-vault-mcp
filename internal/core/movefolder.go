@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -39,7 +40,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 		return f
 	}
 	if v.Profile == nil {
-		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
+		return failNext("vault "+strconv.Quote(v.Name)+" has no schema profile", noProfile)
 	}
 	from, to, msg, steps := folderTarget(v, a)
 	if msg != "" {
@@ -140,16 +141,16 @@ func folderTarget(v *Vault, a FolderArgs) (from, to, msg string, steps []string)
 	case !v.isDir(from):
 		return "", "", "no folder at " + from, []string{Call("find", "query", path.Base(from)) + " to find where it lives"}
 	case v.Config.ReadOnlyDir(from+"/") != "":
-		return "", "", fmt.Sprintf("%s is in %s, a read-only folder: its notes keep their own place", from, pystr.Repr(v.Config.ReadOnlyDir(from+"/"))),
+		return "", "", fmt.Sprintf("%s is in %q, a read-only folder: its notes keep their own place", from, v.Config.ReadOnlyDir(from+"/")),
 			[]string{Call("queue", "action", "add", "project", "...", "kind", "next", "text", "...") + " to track an inbox capture as work"}
 	case home(from) == "":
-		return "", "", fmt.Sprintf("from must be a folder inside one of %s, not one of them: %s", pystr.ReprList(homes), from),
+		return "", "", fmt.Sprintf("from must be a folder inside one of %s, not one of them: %s", pystr.Quoted(homes), from),
 			[]string{Call("move_doc", "doc_id", "...", "to", "...") + " to move one doc"}
 	case v.Config.ReadOnlyDir(to+"/") != "":
-		return "", "", fmt.Sprintf("%s is in %s, and %s are read-only", to, pystr.Repr(v.Config.ReadOnlyDir(to+"/")), pystr.ReprList(v.Config.ReadOnlyDirs)),
+		return "", "", fmt.Sprintf("%s is in %q, and %s are read-only", to, v.Config.ReadOnlyDir(to+"/"), pystr.Quoted(v.Config.ReadOnlyDirs)),
 			[]string{retry(path.Join(homes[0], path.Base(from)))}
 	case home(to) == "":
-		return "", "", fmt.Sprintf("to must be a folder inside one of %s: %s", pystr.ReprList(homes), to), []string{retry(path.Join(homes[0], path.Base(from)))}
+		return "", "", fmt.Sprintf("to must be a folder inside one of %s: %s", pystr.Quoted(homes), to), []string{retry(path.Join(homes[0], path.Base(from)))}
 	case to == from:
 		return "", "", from + " is already there", []string{retry(exampleTo)}
 	case config.Under(to, from):

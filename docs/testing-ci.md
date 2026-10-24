@@ -29,7 +29,7 @@ go test ./internal/vault -run '^$' -bench IndexBuild
 ### `ci.yml`: the cordon gate
 
 Runs on pushes to `main` and pull requests. It calls cordon's reusable gate
-(`cordon-gate.yml@v2`), which runs the commands in `cordon.checks.json` with cordon's repo invariants.
+(`cordon-gate.yml`, pinned to a SHA), which runs the commands in `cordon.checks.json` with cordon's repo invariants.
 `mise run check` runs the same engine locally. `go.mod` pins the Go
 toolchain, so the runner fetches it if its own Go is older.
 
@@ -47,11 +47,14 @@ tab.
 ### `release.yml`
 
 release-please through cordon's reusable release workflow (`release-type: go`,
-versioned by tag).
+versioned by tag). When it cuts a release, the `build` job compiles the
+darwin and linux (amd64, arm64) binaries with `-trimpath`, and `publish`
+uploads the archives with `SHA256SUMS` and a build provenance attestation.
 
-### Dependabot
+### Renovate
 
-`.github/dependabot.yml` covers `gomod` weekly and GitHub Actions monthly.
+`renovate.json` covers `gomod`, GitHub Actions, `mise.toml` tools and the
+`cordon-spec` pin in `scripts/check.sh`, each release held 7 days.
 `govulncheck` catches CVEs against the current pins.
 
 ## What the Tests Cover

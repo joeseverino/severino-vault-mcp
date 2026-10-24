@@ -96,10 +96,10 @@ dispatch:
 	if idx < 0 {
 		var names []string
 		for _, cmd := range commands {
-			names = append(names, pystr.Repr(cmd.Name))
+			names = append(names, cmd.Name)
 		}
-		return usageError(c, toolName, mainUsage(), fmt.Sprintf("argument command: invalid choice: %s (choose from %s)",
-			pystr.Repr(name), strings.Join(names, ", ")))
+		return usageError(c, toolName, mainUsage(), fmt.Sprintf("argument command: invalid choice: %q (choose from %s)",
+			name, pystr.Quoted(names)))
 	}
 	cmd := commands[idx]
 	parsed, help, err := parse(cmd, args[i+1:])
@@ -214,7 +214,7 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 			if arg.Int {
 				n, err := strconv.Atoi(strings.TrimSpace(value))
 				if err != nil {
-					return nil, false, fmt.Sprintf("argument %s: invalid int value: %s", arg.Name, pystr.Repr(value))
+					return nil, false, fmt.Sprintf("argument %s: invalid int value: %q", arg.Name, value)
 				}
 				out[arg.dest()] = n
 			} else {
@@ -222,7 +222,7 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 			}
 		default:
 			if marker == "=" {
-				return nil, false, fmt.Sprintf("argument %s: ignored explicit argument %s", arg.Name, pystr.Repr(value))
+				return nil, false, fmt.Sprintf("argument %s: ignored explicit argument %q", arg.Name, value)
 			}
 			out[arg.dest()] = true
 		}
@@ -255,11 +255,7 @@ func parse(cmd Command, args []string) (Parsed, bool, string) {
 			v := positionals[pi]
 			pi++
 			if len(a.Choices) > 0 && !slices.Contains(a.Choices, v) {
-				var quoted []string
-				for _, ch := range a.Choices {
-					quoted = append(quoted, pystr.Repr(ch))
-				}
-				return nil, false, fmt.Sprintf("argument %s: invalid choice: %s (choose from %s)", a.Name, pystr.Repr(v), strings.Join(quoted, ", "))
+				return nil, false, fmt.Sprintf("argument %s: invalid choice: %q (choose from %s)", a.Name, v, pystr.Quoted(a.Choices))
 			}
 			out[a.dest()] = v
 		case !a.Optional:
@@ -616,9 +612,9 @@ func runSchema(c *Ctx, p Parsed) int {
 	case p.Bool("schema_fingerprint"):
 		fmt.Fprintln(c.Stdout, schema.Labs.Fingerprint())
 	case p.Bool("contract"):
-		fmt.Fprintln(c.Stdout, jsonx.Canonical(schema.Labs.ContractDict()))
+		fmt.Fprintln(c.Stdout, jsonx.Pretty(jsonx.Sorted(schema.Labs.ContractDict())))
 	default:
-		fmt.Fprintln(c.Stdout, jsonx.Canonical(schema.Labs.AsDict()))
+		fmt.Fprintln(c.Stdout, jsonx.Pretty(jsonx.Sorted(schema.Labs.AsDict())))
 	}
 	return 0
 }

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "minimumReleaseAge": "7 days",
+  "enabledManagers": ["gomod", "github-actions", "mise", "custom.regex"],
+  "packageRules": [
+    {
+      "description": "codeql-action init, analyze and upload-sarif must move together.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["github/codeql-action"],
+      "groupName": "codeql-action"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The cordon-spec version scripts/check.sh runs.",
+      "managerFilePatterns": ["/^scripts/check\\.sh$/"],
+      "matchStrings": ["cordon-spec@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "cordon-spec"
+    }
+  ]
+}

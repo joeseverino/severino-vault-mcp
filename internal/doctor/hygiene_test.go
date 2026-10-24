@@ -43,7 +43,7 @@ func TestDoctorFlagsDanglingPathLinksInLiveDocs(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Errorf("want no warnings, got %v", warnings)
 	}
-	if len(errs) != 2 || !has(errs, "'[[03 Runbooks/Gone Note]]'") || !has(errs, "'[[04 Reference/missing.png]]'") {
+	if len(errs) != 2 || !has(errs, "\"[[03 Runbooks/Gone Note]]\"") || !has(errs, "\"[[04 Reference/missing.png]]\"") {
 		t.Errorf("want the two dangling path links as errors, got %v", errs)
 	}
 	if fs := got["99 Archive/Old/Drift.md"]; len(fs) != 0 {

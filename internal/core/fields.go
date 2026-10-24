@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
 
 // View is how much of a result the caller asks for. Fields is an AIP-161
@@ -90,11 +91,11 @@ func parseFields(fields []string, shape []Field) (mask, error) {
 }
 
 func names(shape []Field) string {
-	quoted := make([]string, 0, len(shape))
+	names := make([]string, 0, len(shape))
 	for _, f := range shape {
-		quoted = append(quoted, "'"+f.Name+"'")
+		names = append(names, f.Name)
 	}
-	return strings.Join(quoted, ", ")
+	return pystr.Quoted(names)
 }
 
 func (m mask) merge(segments []string) {
@@ -195,6 +196,5 @@ func keepOnly(o *jsonx.Obj, keep ...string) *jsonx.Obj {
 // Text is a result as an MCP client reads it: compact JSON, since indentation
 // is whitespace the model pays for and never reads.
 func Text(o *jsonx.Obj) string {
-	b, _ := jsonx.Encode(o, jsonx.Options{})
-	return string(b)
+	return jsonx.Compact(o)
 }

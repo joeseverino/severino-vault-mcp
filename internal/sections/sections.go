@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
@@ -45,7 +46,7 @@ type block struct {
 }
 
 func estimateTokens(text string) int {
-	n := pystr.Len(text) / 4
+	n := utf8.RuneCountInString(text) / 4
 	if n < 1 {
 		return 1
 	}
@@ -349,7 +350,7 @@ func Summary(sec Section) string {
 	if m := sentence.FindStringSubmatch(text); m != nil {
 		result = m[1]
 	}
-	if pystr.Len(result) > limit {
+	if utf8.RuneCountInString(result) > limit {
 		result = pystr.RStrip(pystr.Prefix(result, limit-1)) + "…"
 	}
 	return result

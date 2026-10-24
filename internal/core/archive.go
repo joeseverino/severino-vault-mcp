@@ -1,10 +1,10 @@
 package core
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
@@ -25,9 +25,9 @@ func unarchived(p *schema.Profile, docs []*vault.Doc, archive bool) []string {
 	for _, d := range docs {
 		switch {
 		case openTask(p, d):
-			out = append(out, d.RelativePath+" is a task with status "+pystr.Repr(d.Status)+"; close it (done or wontfix) first")
+			out = append(out, d.RelativePath+" is a task with status "+strconv.Quote(d.Status)+"; close it (done or wontfix) first")
 		case !p.IsTask(d.Frontmatter) && d.Status != archivedStatus && !archive:
-			out = append(out, d.RelativePath+" has status "+pystr.Repr(d.Status)+", not "+pystr.Repr(archivedStatus))
+			out = append(out, d.RelativePath+" has status "+strconv.Quote(d.Status)+", not "+strconv.Quote(archivedStatus))
 		}
 	}
 	return out

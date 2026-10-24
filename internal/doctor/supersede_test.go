@@ -81,7 +81,7 @@ func TestASupersededByNamingNoDocIsAnError(t *testing.T) {
 			errs = append(errs, f.RelativePath+": "+f.Message)
 		}
 	}
-	if len(errs) != 1 || errs[0] != newReport+": superseded_by 'report-gone' names no doc in the vault" {
+	if len(errs) != 1 || errs[0] != newReport+": superseded_by \"report-gone\" names no doc in the vault" {
 		t.Fatalf("%+v", got)
 	}
 }

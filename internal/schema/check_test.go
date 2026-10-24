@@ -34,7 +34,7 @@ func TestCheckHoldsEachDeclaredFieldToItsRuleAndScope(t *testing.T) {
 		rel  string
 		want string
 	}{
-		{doc("project_path", "~/x"), at, "project_path only applies to docs at '01 Projects/*/index.md'"},
+		{doc("project_path", "~/x"), at, "project_path only applies to docs at \"01 Projects/*/index.md\""},
 		{doc("project_path", "Code/x"), index, "project_path must be an absolute path"},
 		{doc("repos", []any{"owner/example"}), index, "bare repository directory name"},
 		{doc("repos", "example"), index, "repos must be a list"},
@@ -69,12 +69,12 @@ func TestAReportCarriesAKindAndLivesInAReportsFolder(t *testing.T) {
 		want string
 	}{
 		{doc(ReportDocType), "Reports/X.md", "missing required field: kind"},
-		{doc(ReportDocType, ReportKindField, "musing"), "Reports/X.md", "kind 'musing' not in"},
-		{doc("decision_record", ReportKindField, "audit"), at, "kind only applies to doc_type ['report'], not 'decision_record'"},
-		{report, "01 Projects/Example/X.md", "a doc_type 'report' doc lives in a 'Reports' folder"},
-		{report, "01 Projects/Example/Reports.md", "a doc_type 'report' doc lives in a 'Reports' folder"},
-		{doc("decision_record"), "01 Projects/Example/Reports/X.md", "a 'Reports' folder holds only doc_type 'report' docs, not 'decision_record'"},
-		{doc("decision_record"), "Reports/Old/X.md", "holds only doc_type 'report' docs"},
+		{doc(ReportDocType, ReportKindField, "musing"), "Reports/X.md", "kind \"musing\" not in"},
+		{doc("decision_record", ReportKindField, "audit"), at, "kind only applies to doc_type \"report\", not \"decision_record\""},
+		{report, "01 Projects/Example/X.md", "a doc_type \"report\" doc lives in a \"Reports\" folder"},
+		{report, "01 Projects/Example/Reports.md", "a doc_type \"report\" doc lives in a \"Reports\" folder"},
+		{doc("decision_record"), "01 Projects/Example/Reports/X.md", "a \"Reports\" folder holds only doc_type \"report\" docs, not \"decision_record\""},
+		{doc("decision_record"), "Reports/Old/X.md", "holds only doc_type \"report\" docs"},
 	} {
 		if e := Labs.Check(c.fm, c.rel); !has(e, c.want) {
 			t.Errorf("%s: want %q, got %v", c.rel, c.want, e)
@@ -116,7 +116,7 @@ func TestCheckRequiresTheFullFieldSetAndRejectsTaskStatusOnADoc(t *testing.T) {
 		t.Fatal("missing fields accepted")
 	}
 	if !has(Labs.Check(jsonx.New("doc_id", "rb-x", "title", "x", "doc_type", "runbook", "system", "s", "environment", "homelab",
-		"sensitivity", "internal", "status", "parked"), at), "status 'parked' not in") {
+		"sensitivity", "internal", "status", "parked"), at), "status \"parked\" not in") {
 		t.Fatal("task status accepted on a runbook")
 	}
 }
@@ -132,7 +132,7 @@ func TestCheckHonorsACustomProfile(t *testing.T) {
 	if e := research.Check(fm, at); len(e) != 0 {
 		t.Fatal(e)
 	}
-	if e := Labs.Check(fm, at); !has(e, "doc_type 'paper' not in") || !has(e, "doc_id 'paper-x' must start with one of") {
+	if e := Labs.Check(fm, at); !has(e, "doc_type \"paper\" not in") || !has(e, "doc_id \"paper-x\" must start with one of") {
 		t.Fatal(e)
 	}
 }
