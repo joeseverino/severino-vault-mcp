@@ -9,16 +9,16 @@ sensitivity: internal
 last_reviewed: 2026-05-11
 related_projects: []
 related_assets: []
-tags: [backup, restic]
+tags: [backup, borg]
 ---
 
 # Backup Architecture
 
 ## What is backed up
 
-Docker volumes, the Postgres dumps and the vault repo. Nightly snapshots go
-to the NAS; a weekly copy goes offsite, encrypted.
+Container volumes, the Postgres dumps and the shared drive. Borg writes a
+nightly archive to the NAS; a weekly copy goes offsite, encrypted.
 
 ## Retention
 
-Seven daily, four weekly and six monthly snapshots.
+Borg prunes to seven daily, four weekly and twelve monthly archives.

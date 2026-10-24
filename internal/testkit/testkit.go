@@ -76,36 +76,53 @@ func Vault(root string, extra ...string) *core.Vault {
 	return core.NewVault("labs", config.Load("", Env(root, extra...)), schema.Labs)
 }
 
-// Get walks a dotted path through Objs and lists ("hits.0.doc_id").
+// Get walks a dotted path through Objs and lists ("hits.0.doc_id"); a
+// missing step is nil.
 func Get(o *jsonx.Obj, path string) any {
+	v, _ := walk(o, path)
+	return v
+}
+
+// Has reports whether the dotted path is present, holding null or not:
+// jsonx.Obj.Has takes one key, so a dotted path there is never present.
+func Has(o *jsonx.Obj, path string) bool {
+	_, ok := walk(o, path)
+	return ok
+}
+
+func walk(o *jsonx.Obj, path string) (any, bool) {
 	var cur any = o
 	for part := range strings.SplitSeq(path, ".") {
 		switch x := cur.(type) {
 		case *jsonx.Obj:
-			cur, _ = x.Get(part)
+			v, ok := x.Get(part)
+			if !ok {
+				return nil, false
+			}
+			cur = v
 		case []*jsonx.Obj:
 			i := atoi(part)
 			if i < 0 || i >= len(x) {
-				return nil
+				return nil, false
 			}
 			cur = x[i]
 		case []any:
 			i := atoi(part)
 			if i < 0 || i >= len(x) {
-				return nil
+				return nil, false
 			}
 			cur = x[i]
 		case []string:
 			i := atoi(part)
 			if i < 0 || i >= len(x) {
-				return nil
+				return nil, false
 			}
 			cur = x[i]
 		default:
-			return nil
+			return nil, false
 		}
 	}
-	return cur
+	return cur, true
 }
 
 func atoi(s string) int {
@@ -299,6 +316,8 @@ func Carrier(t testing.TB, root, dir string, p *schema.Profile, f schema.Field) 
 func Sample(f schema.Field) any {
 	var v any = "example"
 	switch {
+	case f.Name == schema.ProjectsField:
+		v = "Example" // the project folder the field tests create
 	case f.Example != "":
 		v = f.Example
 	case len(f.Choices) > 0:

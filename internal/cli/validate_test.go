@@ -12,12 +12,12 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
 
-const proposedRel = "01 Projects/severino-hq/Agent Efficiency Review — 2026-10-19.md"
+const proposedRel = "01 Projects/example-wiki/Onboarding Review.md"
 
-const proposedFront = `doc_id: report-agent-efficiency-review
-title: Agent Efficiency Review
+const proposedFront = `doc_id: report-onboarding-review
+title: Onboarding Review
 doc_type: architecture_note
-system: Severino HQ
+system: Example Wiki
 environment: other
 status: proposed
 sensitivity: internal

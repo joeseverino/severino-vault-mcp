@@ -814,16 +814,20 @@ func (h *handlers) registerCore(s *mcp.Server) {
 			"description", "add, set, close: typed links, each one word; on set, \"\" removes one. list: only items whose links equal these, e.g. {\"branch\": \"pass/x\"}."),
 		"blocked_by", strList("add, set: item ids (or aliases) that must close before this one is ready."),
 		"repos", strList("add, set: the repos one worker's item spans."),
-		"status", optStr("set: open, returned or parked. close: closed (default) or dropped. list: comma-separated statuses or all; default open,returned."),
+		"base", optStr("add, set: the branch the item's work lands on (\"\" removes it on set)."),
+		"transcript", optStr("add, set: the absolute path of the worker transcript holding the item's brief and report (\"\" removes it on set)."),
+		"owns", strList("add, set: the paths the item's worker owns ([] clears them on set)."),
+		"status", optStr("set: open or returned. close: closed (default) or dropped. list: comma-separated statuses or all; default open,returned."),
 		"ready", boolean("list: only open next and follow-up items whose blocked_by are all closed or dropped."),
 		"contains", optStr("list: only items whose text contains this (case-insensitive)."),
 		"limit", integer(queueLimit, "list: most items to return; 0 for all; `count` is all that matched."),
-		"claim", boolean("set: take the item for owner only if nobody holds it."),
+		"claim", boolean("set: take the item for owner (and agent) only if no other owner or agent holds it and it is not done; it becomes open."),
+		"release", boolean("set: hand the item back to the queue: no agent or owner, kind next (from delegated), status open. With id, agent names the holder it must have."),
 		"resolution", optStr("close: one line: repo@sha (comma-separated for repos), a PR, a doc id, or why it was dropped."),
 		"partial", boolean("close: record these repo@sha landings, closing once every repo has one."),
 		"drop_aliases", boolean("reformat: also remove every item's alias."),
 		"fields", strList("list: item fields to return. Default: id, kind, status, owner, text (and project, origin "+
-			"on include_origin); also links (or links.pr), blocked_by, body, alias, agent, repos, resolution."),
+			"on include_origin); also links (or links.pr), blocked_by, body, alias, agent, repos, base, owns, transcript, created, resolution."),
 	), nil), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -869,10 +873,13 @@ func queueArgs(a args) (core.QueueArgs, error) {
 	if q.Body, err = a.opt("body"); err != nil {
 		return q, err
 	}
+	if q.Base, err = a.opt("base"); err != nil {
+		return q, err
+	}
 	for _, f := range []struct {
 		name string
 		dst  *bool
-	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}, {"drop_aliases", &q.DropAliases}} {
+	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"release", &q.Release}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}, {"drop_aliases", &q.DropAliases}} {
 		if *f.dst, err = a.boolean(f.name); err != nil {
 			return q, err
 		}
@@ -884,6 +891,12 @@ func queueArgs(a args) (core.QueueArgs, error) {
 		return q, err
 	}
 	if q.Repos, q.HasRepos, err = a.list("repos"); err != nil {
+		return q, err
+	}
+	if q.Transcript, err = a.opt("transcript"); err != nil {
+		return q, err
+	}
+	if q.Owns, q.HasOwns, err = a.list("owns"); err != nil {
 		return q, err
 	}
 	if q.Fields, _, err = a.list("fields"); err != nil {
@@ -1045,8 +1058,10 @@ one. with_folder moves the doc's folder, evidence files included, into to.
 The archive (99 Archive) takes only archived docs: status archived, or a
 closed task; archive=true sets status: archived first. find leaves archived
 docs out unless include_archived=true.
-wikilinks lists the notes whose [[links]] named the old location, with a
-count each; fix them with write_doc. Other notes are never rewritten.`
+Every [[path/link]], ![[embed]] and [text](path) in the vault that named the
+doc by path names its new path, alias and #heading kept; links by file name
+alone need nothing. links lists each rewritten note with a count. Restricted
+notes are not read: they are listed in skipped_restricted.`
 
 const descMoveFolder = `Move or rename a folder with everything in it (notes, Reports/, assets), then point every link at the new path.
 
@@ -1076,8 +1091,11 @@ Restricted notes are refused; notes in read-only folders can be listed, not clos
 const descQueue = `Track work in a project's queue: one Obsidian task per item in
 01 Projects/<project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md).
 Kinds: next, delegated (a worker holds it), decision (the user must
-answer), follow-up. Status: open, returned (delegated only), parked, closed,
-dropped; a box ticked in Obsidian reads as closed.
+answer), follow-up. Status: open, returned (delegated only), closed,
+dropped; a box ticked in Obsidian reads as closed. Each item carries the
+date it was filed (created); a worker's item may carry base (the branch
+it lands on), owns (the paths its worker owns) and transcript (the
+absolute path of the worker transcript holding its brief and report).
 
 Name the queue by project, repo or cwd (through the projects' index.md
 repos). A write from a repo no project lists is refused with the call that
@@ -1085,11 +1103,15 @@ maps it (the backlog takes writes only as project=backlog); a list there
 reads the backlog under a warning.
 list (default): open and returned items; all=true every queue;
     include_origin adds the workers this repo sent to other queues.
-add: kind and text; returns the new id. alias keeps an old id the item
+add: kind and text; returns the new id (an agent's open item with the
+    same text answers instead, as no_op). alias keeps an old id the item
     answers to wherever an id does; body names its detail doc.
-set: id (or agent) and what changes; claim=true with owner takes an
-    unowned item atomically. With an id, agent, kind=delegated (from next
-    or follow-up) and links.branch ride in the same locked edit.
+set: id (or agent, when it holds one item) and what changes; claim=true
+    with owner takes an item no other owner or agent holds, atomically.
+    With an id, agent, kind=delegated (from next or follow-up) and
+    links.branch ride in the same locked edit. release=true hands an item
+    back as unowned next work. A change to an item another agent holds
+    goes through with a warning naming it.
 close: id (or agent) and resolution; status=dropped for work not done. An
     item with repos closes once each has a repo@sha; partial=true adds some.
 reformat: rewrite the named queue (or all=true) in the current line

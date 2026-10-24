@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -40,7 +41,7 @@ const (
 	queueLevel     = 2 // Open and Closed are ## sections
 	queueOpen      = "Open"
 	queueClosed    = "Closed"
-	backlogProject = "backlog"
+	backlogProject = vault.BacklogProject
 	queueLimit     = 50
 )
 
@@ -66,12 +67,16 @@ type QueueArgs struct {
 	HasBlockedBy       bool
 	Repos              []string // entries may themselves be comma lists
 	HasRepos           bool
+	Base               *string
+	Transcript         *string
+	Owns               []string // entries may themselves be comma lists
+	HasOwns            bool
 	Partial            bool
 	Status             string
 	Ready              bool
 	Contains           string
 	Limit              int
-	Claim              bool
+	Claim, Release     bool
 	Resolution         string
 	DropAliases        bool
 	View
@@ -79,11 +84,13 @@ type QueueArgs struct {
 
 // QueueItemFields are the fields a queue item carries. owner is null when
 // nobody holds the item; links holds the typed links given; blocked_by,
-// body, alias, agent, origin, repos and resolution appear only when set.
+// body, alias, agent, origin, repos, base, owns, created and resolution
+// appear only when set.
 var QueueItemFields = append(typed("id", tStr, "project", tStr, "kind", tStr, "status", tStr, "owner", tOptStr, "text", tStr),
 	Field{Name: "links", Type: "object", Inner: typed("pr", tStr, "branch", tStr, "commit", tStr, "slug", tStr)},
 	Field{Name: "blocked_by", Type: tList}, Field{Name: "body", Type: tStr}, Field{Name: "alias", Type: tStr},
-	Field{Name: "agent", Type: tStr}, Field{Name: "origin", Type: tStr}, Field{Name: "repos", Type: tList}, Field{Name: "resolution", Type: tStr})
+	Field{Name: "agent", Type: tStr}, Field{Name: "origin", Type: tStr}, Field{Name: "repos", Type: tList},
+	Field{Name: "base", Type: tStr}, Field{Name: "owns", Type: tList}, Field{Name: "transcript", Type: tStr}, Field{Name: "created", Type: tStr}, Field{Name: "resolution", Type: tStr})
 
 var (
 	leanQueueItem = mustMask(QueueItemFields, "id", "kind", "status", "owner", "text")
@@ -829,6 +836,18 @@ func itemObj(it queue.Item, project string) *jsonx.Obj {
 	if len(it.Repos) > 0 {
 		o.Set("repos", slices.Clone(it.Repos))
 	}
+	if it.Base != "" {
+		o.Set("base", it.Base)
+	}
+	if len(it.Owns) > 0 {
+		o.Set("owns", slices.Clone(it.Owns))
+	}
+	if it.Transcript != "" {
+		o.Set("transcript", it.Transcript)
+	}
+	if it.Created != "" {
+		o.Set("created", it.Created)
+	}
 	if it.Resolution != "" {
 		o.Set("resolution", it.Resolution)
 	}
@@ -885,9 +904,24 @@ func checkInput(a QueueArgs) error {
 			}
 		}
 	}
-	for _, r := range repoList(a.Repos) {
+	for _, r := range commaList(a.Repos) {
 		if !queue.ValidRepo(r) {
 			return fmt.Errorf("repos %s must each be a repository name, %s, without @", pystr.Repr(r), queue.TokenRule)
+		}
+	}
+	if a.Base != nil && a.Action != "list" {
+		if b := pystr.Strip(*a.Base); b != "" && !queue.ValidToken(b) {
+			return fmt.Errorf("base %s must be a branch name, %s", pystr.Repr(b), queue.TokenRule)
+		}
+	}
+	if a.Transcript != nil && a.Action != "list" {
+		if t := pystr.Strip(*a.Transcript); t != "" && (!queue.ValidPath(t) || !strings.HasPrefix(t, "/")) {
+			return fmt.Errorf("transcript %s must be an absolute path, %s", pystr.Repr(t), queue.PathRule)
+		}
+	}
+	for _, o := range commaList(a.Owns) {
+		if !queue.ValidPath(o) {
+			return fmt.Errorf("owns %s must each be %s", pystr.Repr(o), queue.PathRule)
 		}
 	}
 	if o := originRepo(a.Origin); o != "" && !queue.ValidToken(o) {
@@ -922,8 +956,9 @@ func applyLinks(it *queue.Item, links map[string]string) {
 	}
 }
 
-// repoList flattens a repos argument, whose entries may be comma lists.
-func repoList(given []string) []string {
+// commaList flattens a list argument (repos, owns), whose entries may be
+// comma lists.
+func commaList(given []string) []string {
 	var out []string
 	for _, g := range given {
 		for _, r := range queue.SplitList(g) {
@@ -1093,18 +1128,28 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 		}
 	}
 	var item queue.Item
+	existing := false
 	floor := s.topNumber(p)
 	if f := s.change(p, func(b *queueBody) *jsonx.Obj {
+		existing = false
 		top := max(floor, queue.Top(b.String(), p.prefix))
+		// A relaunched worker files its goal again; the item it already
+		// holds for that goal answers instead of a second one.
 		for _, x := range b.items {
-			if a.Agent != "" && x.it.Agent == a.Agent && !queue.Done(x.it.Status) {
-				return failNext(fmt.Sprintf("agent %s already has %s", pystr.Repr(a.Agent), x.it.ID),
-					qcall("action", "set", "agent", a.Agent)+" to change that item instead")
+			if a.Agent != "" && x.it.Agent == a.Agent && !queue.Done(x.it.Status) && x.it.Text == pystr.Strip(*a.Text) {
+				item, existing = x.it, true
+				return nil
 			}
 		}
 		item = queue.Item{ID: fmt.Sprintf("%s-%d", p.prefix, top+1), Kind: a.Kind, Status: "open",
 			Text: pystr.Strip(*a.Text), BlockedBy: blockedBy, Agent: a.Agent, Origin: originRepo(a.Origin),
-			Repos: repoList(a.Repos)}
+			Repos: commaList(a.Repos), Owns: commaList(a.Owns), Created: clock.TodayISO()}
+		if a.Base != nil {
+			item.Base = pystr.Strip(*a.Base)
+		}
+		if a.Transcript != nil {
+			item.Transcript = pystr.Strip(*a.Transcript)
+		}
 		if a.Owner != nil {
 			item.Owner = owner(*a.Owner)
 		}
@@ -1121,6 +1166,9 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 	out := jsonx.New("ok", true, "id", item.ID, "project", p.name, "doc_id", p.docID(), "relative_path", p.rel(), "item", itemObj(item, p.name))
 	if created {
 		out.Set("created_queue", true)
+	}
+	if existing {
+		out.Set("no_op", true)
 	}
 	return out
 }
@@ -1198,14 +1246,6 @@ func (s *queueStore) edit(p queueProject, id string, a QueueArgs, fn func(it *qu
 		if a.ID == "" && a.Agent != "" && it.Agent != a.Agent {
 			return failNext(fmt.Sprintf("%s no longer carries agent %s", id, pystr.Repr(a.Agent)), qcall("action", a.Action, "id", id))
 		}
-		if a.Action == "set" && a.ID != "" && a.Agent != "" {
-			for _, x := range b.items {
-				if x.it.ID != it.ID && x.it.Agent == a.Agent && !queue.Done(x.it.Status) {
-					return failNext(fmt.Sprintf("agent %s already has %s", pystr.Repr(a.Agent), x.it.ID),
-						qcall("action", "set", "agent", a.Agent)+" to change that item instead")
-				}
-			}
-		}
 		before := queue.Format(it)
 		if f := fn(&it); f != nil {
 			return f
@@ -1241,6 +1281,10 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	if queue.Done(a.Status) {
 		return failNext("an item closes with its resolution", qcall("action", "close", "id", a.ID, "status", a.Status, "resolution", "..."))
 	}
+	if a.Release && (a.Claim || a.Owner != nil || a.Status != "" || a.Kind != "") {
+		return failNext("release hands the item back on its own; give no claim, owner, status or kind with it",
+			qcall("action", "set", "id", a.ID, "release", true))
+	}
 	if a.Claim && (a.Owner == nil || owner(*a.Owner) == "") {
 		return failNext("claim needs owner: who takes the item", qcall("action", "set", "id", a.ID, "claim", true, "owner", "..."))
 	}
@@ -1261,10 +1305,39 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	if err := s.checkRefs(a, id); err != nil {
 		return failNext(err.Error(), qcall("action", "set", "id", id)+" with what the error names fixed")
 	}
-	return s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
-		if a.Claim && it.Owner != "" && it.Owner != owner(*a.Owner) {
-			return failNext(fmt.Sprintf("%s is owned by %s", id, it.Owner),
-				qcall("action", "list", "project", p.name, "ready", true, "owner", queue.Unowned)+" to pick unowned work").Set("owner", it.Owner)
+	held := ""
+	return warnHeld(s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
+		held = holder(*it, a.Agent)
+		if a.Claim {
+			pick := qcall("action", "list", "project", p.name, "ready", true, "owner", queue.Unowned) + " to pick unowned work"
+			switch {
+			case queue.Done(it.Status):
+				return failNext(fmt.Sprintf("%s is %s; a done item is not claimed", id, it.Status),
+					qcall("action", "set", "id", id, "status", "open")+" to reopen it first, if the work is not done", pick)
+			case it.Agent != "" && it.Agent != a.Agent:
+				return failNext(fmt.Sprintf("%s is held by agent %s", id, it.Agent), pick).Set("agent", it.Agent)
+			case it.Owner != "" && it.Owner != owner(*a.Owner):
+				return failNext(fmt.Sprintf("%s is owned by %s", id, it.Owner), pick).Set("owner", it.Owner)
+			}
+			it.Status = "open"
+		}
+		if a.Release {
+			switch {
+			case queue.Done(it.Status):
+				return failNext(fmt.Sprintf("%s is %s; only a held item is released", id, it.Status),
+					qcall("action", "list", "project", p.name, "status", "all", "fields", []string{"id", "status", "agent"}))
+			case a.ID != "" && a.Agent != "" && it.Agent != a.Agent:
+				by := "nobody"
+				if it.Agent != "" {
+					by = "agent " + it.Agent
+				}
+				return failNext(fmt.Sprintf("%s is held by %s, not agent %s", id, by, pystr.Repr(a.Agent)),
+					qcall("action", "set", "id", id, "release", true)+" to release it from whoever holds it").Set("agent", it.Agent)
+			}
+			it.Agent, it.Owner, it.Status = "", "", "open"
+			if it.Kind == "delegated" {
+				it.Kind = "next"
+			}
 		}
 		if a.Kind != "" && a.Kind != it.Kind {
 			if a.Kind != "delegated" || (it.Kind != "next" && it.Kind != "follow-up") {
@@ -1273,7 +1346,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			}
 			it.Kind = a.Kind
 		}
-		if a.ID != "" && a.Agent != "" {
+		if a.ID != "" && a.Agent != "" && !a.Release {
 			it.Agent = a.Agent
 		}
 		if a.Owner != nil {
@@ -1288,7 +1361,16 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			it.BlockedBy = blockedBy
 		}
 		if a.HasRepos {
-			it.Repos = repoList(a.Repos)
+			it.Repos = commaList(a.Repos)
+		}
+		if a.Base != nil {
+			it.Base = pystr.Strip(*a.Base)
+		}
+		if a.Transcript != nil {
+			it.Transcript = pystr.Strip(*a.Transcript)
+		}
+		if a.HasOwns {
+			it.Owns = commaList(a.Owns)
 		}
 		if a.Status != "" {
 			if a.Status == "returned" && it.Kind != "delegated" {
@@ -1301,7 +1383,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			it.Status = a.Status
 		}
 		return nil
-	})
+	}), &held)
 }
 
 func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
@@ -1335,7 +1417,9 @@ func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 	if f != nil {
 		return f
 	}
-	return s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
+	held := ""
+	return warnHeld(s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
+		held = holder(*it, a.Agent)
 		if len(it.Repos) > 0 && !queue.Done(it.Status) {
 			applyLinks(it, a.Links)
 			return land(it, status, resolution, a.Partial)
@@ -1355,7 +1439,25 @@ func (s *queueStore) close(a QueueArgs) *jsonx.Obj {
 		applyLinks(it, a.Links)
 		it.Status, it.Resolution = status, resolution
 		return nil
-	})
+	}), &held)
+}
+
+// holder is the agent holding it (open or returned, with an agent) when
+// caller is not that agent, or "".
+func holder(it queue.Item, caller string) string {
+	if it.Agent == "" || it.Agent == caller || it.Status != "open" && it.Status != "returned" {
+		return ""
+	}
+	return it.Agent
+}
+
+// warnHeld adds a warning to a change made to an item another agent held:
+// the change stands, and the caller learns whose work it touched.
+func warnHeld(out *jsonx.Obj, held *string) *jsonx.Obj {
+	if *held != "" && out.Bool("ok") && !out.Bool("no_op") {
+		out.Set("warning", fmt.Sprintf("%s was held by agent %s", out.Str("id"), *held))
+	}
+	return out
 }
 
 // land adds resolution's entries to a multi-repo item's resolution. The item

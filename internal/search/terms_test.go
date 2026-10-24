@@ -11,7 +11,7 @@ import (
 func TestTermsMatchTheTokenRegexp(t *testing.T) {
 	re := regexp.MustCompile(`[A-Za-z0-9]+`)
 	for _, text := range []string{
-		"", "   ", "Deploy HQ", "rb-add-dns_rewrite v2.3", "trailing word", "x",
+		"", "   ", "Deploy Wiki", "rb-add-dns_rewrite v2.3", "trailing word", "x",
 		"café naïve über", "## Steps\n\n1. Run `mise run check`.\n", "ÅB9 —é— 10.0.0.1",
 	} {
 		var want []string

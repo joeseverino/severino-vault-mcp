@@ -16,8 +16,9 @@ tags: [oidc, sso]
 
 ## Steps
 
-1. In the identity provider admin, create a client named after the app.
-2. Set the redirect URI to `https://<app>.lab.example.com/oauth/callback`.
+1. In the identity provider's admin page, create a client named after the app.
+2. Set the redirect URI to `https://<app>.office.example.com/auth/callback`,
+   with no trailing slash.
 3. Copy the client ID and client secret into the app's environment as
    `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`.
 4. Match the client ID in the app's settings to the one the provider shows;
@@ -25,4 +26,4 @@ tags: [oidc, sso]
 
 ## Groups
 
-Allow the `lab-users` group, and `lab-admins` for admin pages.
+Allow the `shop-staff` group, and `shop-admins` for admin pages.

@@ -25,7 +25,7 @@ import (
 
 // Folder layout.
 const (
-	ProjectsDir = "01 Projects"
+	ProjectsDir = vault.ProjectsDir
 	BacklogDir  = "07 Backlog"
 	Cross       = "cross"
 )
@@ -48,7 +48,9 @@ func filedDir(currentDir, status string) string {
 	return base
 }
 
-func projectOf(relativePath string) string {
+// ProjectOf is the project folder under ProjectsDir that holds the note at
+// relativePath, or Cross for a note outside every project.
+func ProjectOf(relativePath string) string {
 	parts := strings.Split(relativePath, "/")
 	if len(parts) >= 2 && parts[0] == ProjectsDir {
 		return parts[1]
@@ -90,7 +92,7 @@ func taskRecord(d *vault.Doc, staleDays int) record {
 		created:  fm.Text("created"),
 		closed:   fm.Text("closed"),
 		docID:    d.DocID,
-		project:  projectOf(d.RelativePath),
+		project:  ProjectOf(d.RelativePath),
 		related:  slices.Clone(d.RelatedProjects),
 		stale:    live[status] && age > staleDays,
 		slug:     strings.TrimPrefix(d.DocID, "task-"),
@@ -261,7 +263,7 @@ func Projects(l *vault.Loader) *jsonx.Obj {
 		if !live[status] {
 			continue
 		}
-		if p := projectOf(d.RelativePath); p != Cross {
+		if p := ProjectOf(d.RelativePath); p != Cross {
 			open[p]++
 		}
 	}

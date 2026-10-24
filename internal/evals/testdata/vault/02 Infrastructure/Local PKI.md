@@ -14,6 +14,7 @@ tags: [pki, ca, certificates]
 
 # Local PKI
 
-The internal CA signs certificates for lab.example.com names. The CA private
-key lives offline on encrypted media and is mounted only for a signing
-session. The intermediate signs leaf certificates and is rotated yearly.
+The internal CA signs certificates for office.example.com names. The root key
+lives on an encrypted USB drive in the office safe and comes out only for a
+signing session. The intermediate signs every leaf certificate and is
+replaced each January.

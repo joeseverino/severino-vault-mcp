@@ -16,8 +16,8 @@ tags: [sso, oidc, identity]
 
 ## Overview
 
-The identity provider issues OIDC tokens for every web app in the lab and
-holds passkeys only; there are no passwords.
+The identity provider signs staff in to every web app at the shop with OIDC
+and accepts only security keys; there are no passwords to phish.
 
 ## Clients
 
@@ -26,4 +26,4 @@ OIDC Client for the procedure.
 
 ## Groups
 
-Group claims gate admin pages: `lab-admins` and `lab-users`.
+Group claims gate admin pages: `shop-admins` and `shop-staff`.

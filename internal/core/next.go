@@ -8,6 +8,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
@@ -152,6 +153,8 @@ func (v *Vault) setSteps(rel, docID string) func(string) []string {
 			return []string{Call("read_doc", "doc_id", docID) + " to see the doc holding that id, then pick another doc_id"}
 		case strings.Contains(msg, "already exists at"):
 			return []string{Call("set_frontmatter", "relative_path", rel) + " with another value, or remove it from the doc the error names first"}
+		case strings.Contains(msg, schema.ProjectsField+" ") && strings.Contains(msg, "names no project folder"):
+			return []string{Call("set_frontmatter", "relative_path", rel) + " with " + schema.ProjectsField + " naming a folder the error lists, or `backlog`"}
 		case strings.Contains(msg, "immutable"):
 			return []string{Call("set_frontmatter", "relative_path", rel) + " without that field"}
 		case scopeRefusal.MatchString(msg):
@@ -178,6 +181,8 @@ func (v *Vault) createSteps(rel, docID string) func(string) []string {
 			}
 		case strings.Contains(msg, "already exists at"):
 			return []string{Call("read_doc", "doc_id", docID) + " to see the doc holding that id, then pick another doc_id"}
+		case strings.Contains(msg, "names no project folder"):
+			return []string{Call("write_doc", "mode", "create", "relative_path", rel) + " with " + schema.ProjectsField + " naming a folder the error lists, or `backlog`"}
 		}
 		return []string{Call("write_doc", "mode", "create", "relative_path", rel) + " again with what the error names fixed"}
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
 
@@ -74,9 +75,12 @@ func TestMoveDocRenamesANonUniqueNameThenMovesItsFolder(t *testing.T) {
 	if r.Str("from") != auditRel || r.Str("to") != renamed || r.Str("doc_id") != auditID {
 		t.Fatal(jsonx.Compact(r))
 	}
-	// Both links in the runbook named the old file; the restricted note is
-	// not read, only listed.
-	if got := jsonx.Compact(tk.Get(r, "wikilinks")); got != `[{"relative_path":"03 Runbooks/Harden Example Site.md","count":2}]` {
+	// The runbook's path link follows the file, its name-only link stays; the
+	// restricted note is not read, only listed.
+	if got := jsonx.Compact(tk.Get(r, "links")); got != `[{"relative_path":"03 Runbooks/Harden Example Site.md","count":1}]` {
+		t.Fatal(got)
+	}
+	if got := tk.Read(t, filepath.Join(root, "03 Runbooks", "Harden Example Site.md")); !strings.Contains(got, "[[00 Reporting/Security Audit — 2026-09-07/Security Audit — 2026-09-07|the audit]] and [[Audit]].") {
 		t.Fatal(got)
 	}
 	if got := tk.Get(r, "skipped_restricted"); !slices.Equal(got.([]string), []string{"03 Runbooks/Secret Notes.md"}) {
@@ -112,7 +116,7 @@ func TestMoveDocKeepsTheFileNameWhenToIsAFolder(t *testing.T) {
 	if r.Str("to") != "Security/Harden Example Site.md" {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if got := jsonx.Compact(tk.Get(r, "wikilinks")); got != "[]" {
+	if got := jsonx.Compact(tk.Get(r, "links")); got != "[]" {
 		t.Fatalf("a move that keeps a unique name breaks no link: %s", got)
 	}
 	if _, err := os.Stat(filepath.Join(root, "Security", "Harden Example Site.md")); err != nil {
@@ -210,4 +214,35 @@ func tree(t *testing.T, root string) []string {
 		t.Fatal(err)
 	}
 	return out
+}
+
+func TestMoveDocRewritesPathLinksAndLeavesNameOnlyOnes(t *testing.T) {
+	root := tk.Dir(t)
+	doc := func(rel, id, title, body string) {
+		tk.Doc(t, filepath.Join(root, rel), `doc_id: `+id+`
+title: `+title+`
+doc_type: runbook
+system: Example Site
+environment: other
+status: active
+sensitivity: internal`, body)
+	}
+	doc("03 Runbooks/Dev Log.md", "rb-dev-log", "Dev Log", "# Dev Log\n")
+	doc("03 Runbooks/Linker.md", "rb-linker", "Linker", "Path [[03 Runbooks/Dev Log]], aliased [[03 Runbooks/Dev Log#Plan|log]], "+
+		"embed ![[03 Runbooks/Dev Log.md]], name [[Dev Log]], code `[[03 Runbooks/Dev Log]]`.\n")
+	v := tk.Vault(root, "SVMC_INDEXED_DIRS", "03 Runbooks:Security")
+
+	r := mustOK(t, core.MoveDoc(v, core.MoveArgs{DocID: "rb-dev-log", To: "Security/"}))
+	if got := jsonx.Compact(tk.Get(r, "links")); got != `[{"relative_path":"03 Runbooks/Linker.md","count":3}]` {
+		t.Fatal(got)
+	}
+	want := "Path [[Security/Dev Log]], aliased [[Security/Dev Log#Plan|log]], embed ![[Security/Dev Log.md]], name [[Dev Log]], code `[[03 Runbooks/Dev Log]]`."
+	if got := tk.Read(t, filepath.Join(root, "03 Runbooks", "Linker.md")); !strings.Contains(got, want) {
+		t.Fatal(got)
+	}
+	files := links.NewFiles(links.VaultFiles(root))
+	body := tk.Read(t, filepath.Join(root, "03 Runbooks", "Linker.md"))
+	if bad := links.Dangling(body, "03 Runbooks/Linker.md", files); len(bad) != 0 {
+		t.Fatalf("dangling after the move: %v", bad)
+	}
 }

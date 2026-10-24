@@ -1,12 +1,14 @@
 package core_test
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/queue"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
 
@@ -58,10 +60,11 @@ func TestANoteInANewerQueueFormatIsNotWritten(t *testing.T) {
 	id := add(t, v, "Example Tracker", "next", "Known")
 	path := filepath.Join(root, trackerQueue)
 	note := tk.Read(t, path)
-	if !strings.Contains(note, "\nqueue_format: 1\n") {
+	current := fmt.Sprintf("\nqueue_format: %d\n", queue.Version)
+	if !strings.Contains(note, current) {
 		t.Fatalf("a created queue carries no queue_format:\n%s", note)
 	}
-	tk.Write(t, path, strings.Replace(note, "\nqueue_format: 1\n", "\nqueue_format: 2\n", 1))
+	tk.Write(t, path, strings.Replace(note, current, fmt.Sprintf("\nqueue_format: %d\n", queue.Version+1), 1))
 	before := tk.Read(t, path)
 	for _, a := range []core.QueueArgs{
 		{Action: "add", Project: "Example Tracker", Kind: "next", Text: new("Another")},
@@ -69,7 +72,7 @@ func TestANoteInANewerQueueFormatIsNotWritten(t *testing.T) {
 		{Action: "close", ID: id, Resolution: "example-tracker@abc1234"},
 		{Action: "reformat", All: true},
 	} {
-		refusedWith(t, core.Queue(v, a), "queue_format is 2", "upgrade the binary")
+		refusedWith(t, core.Queue(v, a), fmt.Sprintf("queue_format is %d and this binary knows format %d", queue.Version+1, queue.Version), "upgrade the binary")
 	}
 	if tk.Read(t, path) != before {
 		t.Fatal("a refused write changed the note")
@@ -82,7 +85,7 @@ func TestAWriteStampsTheQueueFormat(t *testing.T) {
 	path := filepath.Join(root, trackerQueue)
 	tk.Doc(t, path, oldQueueFront, "# Example Tracker Queue\n\n## Open\n\n- [ ] Known #queue/next  [id:: ex-1]\n\n## Closed\n")
 	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: "ex-1", Owner: new("worker")}))
-	if note := tk.Read(t, path); !strings.Contains(note, "\nqueue_format: 1\n") {
+	if note := tk.Read(t, path); !strings.Contains(note, fmt.Sprintf("\nqueue_format: %d\n", queue.Version)) {
 		t.Fatal(note)
 	}
 }

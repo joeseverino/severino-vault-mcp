@@ -40,6 +40,17 @@ func (s source) line(n ast.Node) int { return s.fset.Position(n.Pos()).Line }
 // directories and testdata.
 func sources(t *testing.T) []source {
 	t.Helper()
+	return parseTree(t, false)
+}
+
+// testSources parses every Go test file the same way.
+func testSources(t *testing.T) []source {
+	t.Helper()
+	return parseTree(t, true)
+}
+
+func parseTree(t *testing.T, tests bool) []source {
+	t.Helper()
 	repo, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +68,7 @@ func sources(t *testing.T) []source {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") != tests {
 			return nil
 		}
 		fset := token.NewFileSet()

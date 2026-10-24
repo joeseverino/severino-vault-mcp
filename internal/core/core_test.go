@@ -175,7 +175,18 @@ status: active
 sensitivity: internal
 last_reviewed: 2026-01-01
 `, "## Steps\n\nBack up NPM before enabling https.\n")
-	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.With().List("related_projects", write.ListOp{Add: []string{"client-edge-dns"}}))
+	tk.Doc(t, filepath.Join(root, "01 Projects", "client-edge-dns", "index.md"), `doc_id: project-client-edge-dns
+title: Client Edge DNS
+doc_type: architecture_note
+system: Client Edge DNS
+environment: other
+status: active
+sensitivity: internal
+last_reviewed: 2026-01-01
+`, "# Client Edge DNS\n")
+	if r := core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.With().List("related_projects", write.ListOp{Add: []string{"client-edge-dns"}})); !r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
 	// One query takes the all-words path, the other the ripgrep path.
 	for _, q := range []string{"npm https", "NPM"} {
 		if got := tk.IDs(tk.Hits(findBy(v, q, "text"), "hits")); !slices.Contains(got, "rb-npm-backup") || !slices.Contains(got, target) {
@@ -474,7 +485,7 @@ sensitivity: internal
 last_reviewed: 2026-05-01
 tags: [index, mcp, navigation]
 `, "# Example Operations Vault Quick Index\n\n| Intent | Command | Doc |\n|---|---|---|\n"+
-		"| Check AdGuard Home container status | `ssh homelab-server 'cd /opt/apps/adguard && docker compose ps'` | [[AdGuard Home Setup]] |\n")
+		"| Check AdGuard Home container status | `ssh docker.internal.example 'cd /opt/apps/adguard && docker compose ps'` | [[AdGuard Home Setup]] |\n")
 	r := find(tk.Vault(root), "how do i check the status of the adguard home container?")
 	if tk.Get(r, "hits.0.doc_id") != "infra-adguard-home" || tk.Get(r, "recommended.target_doc_id") != "infra-adguard-home" || !strings.Contains(tk.Get(r, "recommended.command").(string), "docker compose ps") {
 		t.Fatal(jsonx.Compact(r))

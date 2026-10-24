@@ -66,8 +66,8 @@ they started with.
   file with the shell. A file name another note already has is refused, since
   Obsidian links by unique name: rename first, in the same folder, to a name
   that says which doc it is (`Audit.md` becomes `Example Audit — 2026-09-07.md`).
-  `with_folder=true` moves a report's folder with its evidence files. Fix the
-  links the result's `wikilinks` lists with `write_doc`.
+  `with_folder=true` moves a report's folder with its evidence files. Path
+  links to the doc are rewritten; `links` lists the notes changed.
 - `move_folder(from, to)` moves or renames a whole folder (a project, a
   report series) with everything in it, and rewrites every path link into it
   across the vault (`[[01 Projects/x/index|…]]`, embeds, `[text](<path>)`);
@@ -107,17 +107,21 @@ holds (`delegated`, with its `agent` id), what the user must answer
 queue note; name it with `cwd` (your working directory), `repo` or `project`.
 
 - `queue(action="add", cwd=..., kind=..., text=...)` returns the item's id;
-  never invent one. A question you put to the user is an explicit
+  never invent one. Every item records its `created` date; a worker's item
+  may carry `base` (the branch it lands on) and `owns` (its paths). A question you put to the user is an explicit
   `kind="decision"` add, closed with their answer as the resolution.
 - `queue(action="list", cwd=...)` shows open and returned items;
   `ready=true` the unblocked next work, `kind="decision"` the open questions,
   `all=true` every project's queue, `links={"branch": ...}` the items on
   exactly that branch, in whichever queue holds them.
 - `queue(action="set", id=..., claim=true, owner=...)` takes an item only if
-  nobody holds it; add `agent=...`, `kind="delegated"` and `links={"branch":...}`
-  to take a queued item over for a worker in the same call (one locked edit,
-  so a lost claim changes nothing); `status="returned"` marks a delegated item handed back;
-  `links={...}` records a pr, branch, commit or slug.
+  no other owner or agent holds it and it is not done; add `agent=...`,
+  `kind="delegated"` and `links={"branch":...}` to take a queued item over
+  for a worker in the same call (one locked edit, so a lost claim changes
+  nothing). An agent may hold several items. `release=true` hands one back
+  to the queue as unowned next work; `status="returned"` marks a delegated
+  item handed back; `links={...}` records a pr, branch, commit or slug. A
+  `warning` in the result means another agent held the item you changed.
 - `queue(action="close", id=..., resolution="repo@sha")` closes it
   (`status="dropped"` with the reason as the resolution for work not done).
 - A repo no project maps is refused on `add`; make the `set_frontmatter`

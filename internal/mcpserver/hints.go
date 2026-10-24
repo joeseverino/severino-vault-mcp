@@ -104,9 +104,9 @@ var outputSchemas = map[string]json.RawMessage{
 	"move_doc": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "doc_id", ty("string"), "from", ty("string"), "to", ty("string"),
 		"folder", jsonx.New("type", "object", "properties", jsonx.New("from", ty("string"), "to", ty("string"))),
-		"wikilinks", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
+		"links", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
 			jsonx.New("relative_path", ty("string"), "count", ty("integer")))),
-		"skipped_restricted", textList(), "next_steps", textList(),
+		"skipped_restricted", textList(), "failed", textList(), "next_steps", textList(),
 	)),
 	"move_folder": outSchema(jsonx.New(
 		"ok", ty("boolean"), "error", ty("string"), "from", ty("string"), "to", ty("string"),

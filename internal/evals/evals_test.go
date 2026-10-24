@@ -27,7 +27,7 @@ var floors = struct {
 	hit1, hit3, mrr, zeroMax float64
 	findP90Max, readP90Max   int
 	sectP90Max               int
-}{hit1: 0.80, hit3: 0.89, mrr: 0.85, zeroMax: 0.05, findP90Max: 650, readP90Max: 620, sectP90Max: 150}
+}{hit1: 0.80, hit3: 0.91, mrr: 0.86, zeroMax: 0.05, findP90Max: 650, readP90Max: 700, sectP90Max: 150}
 
 func TestEvalFloors(t *testing.T) {
 	cases, root := fixture(t)
@@ -153,7 +153,7 @@ func TestGrepBaselineSeesRestrictedBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, _ := g.Find("encrypted media signing session", "text", Filter{}, Limit)
+	f, _ := g.Find("encrypted office safe signing session", "text", Filter{}, Limit)
 	if len(f.IDs) == 0 || f.IDs[0] != "infra-local-pki" {
 		t.Fatalf("%v", f.IDs)
 	}

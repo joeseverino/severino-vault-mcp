@@ -723,7 +723,8 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	if fm == nil {
 		return rel, []string{"missing YAML frontmatter"}, true
 	}
-	return rel, append(v.Profile.Check(fm, rel), v.Profile.RefProblems(fm, v.Loader.Index(false).Has)...), true
+	idx := v.Loader.Index(false)
+	return rel, slices.Concat(v.Profile.Check(fm, rel), v.Profile.RefProblems(fm, idx.Has), v.Profile.ProjectProblems(fm, idx.Projects)), true
 }
 
 // BoardArgs are task_board's options beyond the filter. Limit caps the tasks

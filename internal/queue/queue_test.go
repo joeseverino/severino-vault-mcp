@@ -2,6 +2,7 @@ package queue
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 			Links:     map[string]string{"branch": "pass/queue", "commit": "abc1234,def5678", "pr": "https://example.com/pull/7", "slug": "store"},
 			BlockedBy: []string{"hq-1", "other-project-4"}, Body: "note-hq-2", Alias: "task-old-slug", Agent: "a1b2c3"},
 		{ID: "example-site-12", Kind: "decision", Status: "closed", Owner: "main", Text: "Ship it?", Resolution: "yes [after review] (Friday) · noted \\"},
-		{ID: "b-3", Kind: "follow-up", Status: "parked", Text: `Text with · dots, → arrows, {braces}, [brackets], (parens), a \ backslash and a trailing \`},
+		{ID: "b-3", Kind: "follow-up", Status: "open", Text: `Text with · dots, → arrows, {braces}, [brackets], (parens), a \ backslash and a trailing \`},
 		{ID: "b-4", Kind: "next", Status: "open", Text: "ends in a field [kind:: decision]"},
 		{ID: "b-5", Kind: "next", Status: "dropped", Text: "x (pr:: 1)", Resolution: "superseded by b-6", Links: map[string]string{"pr": "9"}},
 		{ID: "b-6", Kind: "next", Status: "open", Text: "looks done ✅ 2026-10-22"},
@@ -29,6 +30,11 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		{ID: "b-15", Kind: "next", Status: "open", Text: "ends like a body ([[Other|notes]])", BodyLink: "projects/Example"},
 		{ID: "b-16", Kind: "next", Status: "open", Text: "#queue/next at the start, a #plain tag at the end #later"},
 		{ID: "b-17", Kind: "follow-up", Status: "open", Owner: "work_er-2", Text: "Owner with _ and -", Body: "project-x"},
+		{ID: "b-18", Kind: "delegated", Status: "open", Owner: "worker", Agent: "a1", Text: "Worker's piece", Created: "2026-10-22",
+			Base: "feat/store", Owns: []string{"internal/queue", "docs/Work Queue (draft).md"}, BlockedBy: []string{"b-17"},
+			Extra: []string{"[due:: 2026-11-01]"}},
+		{ID: "b-19", Kind: "next", Status: "closed", Text: "Filed and ticked", Created: "2026-10-01", Resolution: "done",
+			Extra: []string{"[completion:: 2026-10-22]"}},
 	}
 	for _, it := range items {
 		if err := it.Validate(); err != nil {
@@ -103,7 +109,7 @@ func TestAResolutionWithTheOldEscapingStillReads(t *testing.T) {
 }
 
 func TestEveryStatusIsATasksCheckbox(t *testing.T) {
-	want := map[string]string{"open": "- [ ] ", "returned": "- [/] ", "parked": "- [>] ", "closed": "- [x] ", "dropped": "- [-] "}
+	want := map[string]string{"open": "- [ ] ", "returned": "- [/] ", "closed": "- [x] ", "dropped": "- [-] "}
 	for _, st := range Statuses {
 		it := Item{ID: "hq-1", Kind: "delegated", Status: st, Text: "t"}
 		if !strings.HasPrefix(Format(it), want[st]) {
@@ -112,6 +118,59 @@ func TestEveryStatusIsATasksCheckbox(t *testing.T) {
 		if got, ok := Parse(Format(it)); !ok || got.Status != st {
 			t.Errorf("%s reads back as %+v", st, got)
 		}
+	}
+}
+
+// The parked status is gone: its [>] mark reads as open, so an older note
+// never fails, and the line is written back with the open mark.
+func TestARetiredParkedLineReadsAsOpen(t *testing.T) {
+	line := "- [>] Someday #queue/next  [id:: hq-3]"
+	it, ok := Parse(line)
+	if !ok || it.Status != "open" || slices.Contains(Statuses, "parked") {
+		t.Fatalf("%+v %v", it, ok)
+	}
+	if got := Format(it); got != "- [ ] Someday #queue/next  [id:: hq-3]" {
+		t.Fatal(got)
+	}
+}
+
+// The created date is Tasks' own field, after dependsOn where Tasks reads
+// it; the emoji form a person may type reads as the same field.
+func TestATranscriptPathRoundTrips(t *testing.T) {
+	it := Item{ID: "hq-4", Kind: "delegated", Status: "open", Text: "Built", Transcript: "/Users/example/.claude/projects/p/agent-a1.jsonl"}
+	line := Format(it)
+	if !strings.Contains(line, "[transcript:: /Users/example/.claude/projects/p/agent-a1.jsonl]") {
+		t.Fatal(line)
+	}
+	if got, ok := Parse(line); !ok || !reflect.DeepEqual(got, it) {
+		t.Fatalf("%+v %v", got, ok)
+	}
+}
+
+func TestTheCreatedDateIsTasksOwnField(t *testing.T) {
+	it := Item{ID: "hq-4", Kind: "next", Status: "open", Text: "Filed", BlockedBy: []string{"hq-1"}, Created: "2026-10-22",
+		Base: "main", Owns: []string{"a.go", "b/c.go"}}
+	if got := Format(it); got != "- [ ] Filed #queue/next  [base:: main]  [owns:: a.go,b/c.go]  [id:: hq-4]  [dependsOn:: hq-1]  [created:: 2026-10-22]" {
+		t.Fatal(got)
+	}
+	typed, ok := Parse("- [ ] Filed #queue/next  [base:: main]  [owns:: a.go, b/c.go]  [id:: hq-4]  [dependsOn:: hq-1]  ➕ 2026-10-22")
+	if !ok || !reflect.DeepEqual(typed, it) {
+		t.Fatalf("%+v %v", typed, ok)
+	}
+	for _, bad := range []Item{
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Created: "22 Oct"},
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Owns: []string{"a,b"}},
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Owns: []string{"a]"}},
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Base: "two words"},
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Transcript: "relative/t.jsonl"},
+		{ID: "hq-5", Kind: "next", Status: "open", Text: "x", Extra: []string{"➕ 2026-10-22"}},
+	} {
+		if bad.Validate() == nil {
+			t.Errorf("%+v validated", bad)
+		}
+	}
+	if _, ok := Parse("- [ ] Twice #queue/next  [id:: hq-6]  [created:: 2026-10-22]  ➕ 2026-10-21"); ok {
+		t.Error("a line with two created dates parsed")
 	}
 }
 
@@ -326,7 +385,7 @@ func TestTopCountsEveryIDFieldInTheText(t *testing.T) {
 }
 
 func TestOnlyAKnownQueueFormatIsWritable(t *testing.T) {
-	for v, ok := range map[string]bool{"": true, "1": true, "2": false, "0": false, "one": false} {
+	for v, ok := range map[string]bool{"": true, "1": true, "2": true, "3": true, "4": false, "0": false, "one": false} {
 		if err := CheckVersion(v); (err == nil) != ok {
 			t.Errorf("%q: %v", v, err)
 		}

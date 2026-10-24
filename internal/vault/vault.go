@@ -270,7 +270,47 @@ type Index struct {
 	Aliases         map[string]string
 	InvalidAliases  map[string]string
 	DuplicateDocIDs map[string][]string
+	Projects        []string // names a related_projects entry may hold, sorted; nil when the vault has no projects folder
 	loadedAt        time.Time
+}
+
+// Folder layout a related_projects entry names: a live project is a folder
+// under ProjectsDir holding an index.md, an archived one a folder under the
+// archive's ArchivedProjects, and BacklogProject stands for the
+// cross-cutting backlog.
+const (
+	ProjectsDir      = "01 Projects"
+	ArchivedProjects = "Projects"
+	BacklogProject   = "backlog"
+)
+
+// projectNames are the names a related_projects entry may hold, sorted; nil
+// for a vault with no projects folder, which has no projects to name.
+func (l *Loader) projectNames() []string {
+	if !fsx.IsDir(filepath.Join(l.Config.VaultPath, ProjectsDir)) {
+		return nil
+	}
+	names := []string{BacklogProject}
+	list := func(dir string, needIndex bool) {
+		entries, _ := os.ReadDir(filepath.Join(l.Config.VaultPath, dir))
+		for _, e := range entries {
+			full := filepath.Join(l.Config.VaultPath, dir, e.Name())
+			if fsx.IsDir(full) && (!needIndex || fileExists(filepath.Join(full, "index.md"))) {
+				names = append(names, e.Name())
+			}
+		}
+	}
+	list(ProjectsDir, true)
+	if l.Config.ArchiveDir != "" {
+		list(path.Join(l.Config.ArchiveDir, ArchivedProjects), false)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // Has reports whether some indexed doc carries docID, one doc or several.
@@ -367,6 +407,7 @@ func (l *Loader) build() *Index {
 		}
 	}
 	idx.Aliases, idx.InvalidAliases = l.loadAliases(idx)
+	idx.Projects = l.projectNames()
 	return idx
 }
 

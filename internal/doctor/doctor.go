@@ -54,14 +54,16 @@ func relative(p, root string) string {
 // are schema.Profile.Check and RefProblems; doctor adds the whole-vault ones
 // (unreadable files, a missing block, duplicate doc_ids, a path wikilink to
 // no file) and warns on a superseded report the vault can't follow to a
-// live successor and on a mention of structure the profile lists as retired
-// in a living part of a doc (living).
+// live successor, on a mention of structure the profile lists as retired
+// in a living part of a doc (living), and on code a living doc names that
+// its project's checkout does not have (references).
 // The archive and the read-only folders are not indexed dirs, so only live
 // docs are checked.
 func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	r := &Report{VaultPath: cfg.VaultPath}
 	idx := vault.NewLoader(cfg).Index(false)
 	files := links.NewFiles(links.VaultFiles(cfg.VaultPath))
+	refs := newReferences(cfg.VaultPath)
 	seen := map[string]string{}
 	for _, path := range vault.MarkdownFiles(cfg.VaultPath, cfg.IndexedDirs) {
 		r.CheckedFiles++
@@ -73,6 +75,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 		}
 		fm := note.FM
 		r.body(rel, note.Text[note.Offset:], fm, p, files)
+		refs.check(r, rel, note.Text[note.Offset:], fm)
 		if fm == nil || fm.Len() == 0 {
 			proposal := ""
 			if propose {
@@ -90,7 +93,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 				seen[id] = rel
 			}
 		}
-		for _, msg := range append(p.Check(fm, rel), p.RefProblems(fm, idx.Has)...) {
+		for _, msg := range slices.Concat(p.Check(fm, rel), p.RefProblems(fm, idx.Has), p.ProjectProblems(fm, idx.Projects)) {
 			r.add(Finding{rel, "error", msg, ""})
 		}
 		for _, msg := range supersession(fm, idx) {

@@ -61,7 +61,7 @@ Shared, each taking `vault`:
 | `log_entries` | Work an append-only log note: one top-level bullet per entry, closed once its line carries " → " and a resolution. |
 | `move_doc` | Move or rename a registered doc; its doc_id and frontmatter stay as they are. |
 | `move_folder` | Move or rename a folder with everything in it (notes, Reports/, assets), then point every link at the new path. |
-| `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), parked, closed, dropped; a box ticked in Obsidian reads as closed. |
+| `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), closed, dropped; a box ticked in Obsidian reads as closed. Each item carries the date it was filed (created); a worker's item may carry base (the branch it lands on), owns (the paths its worker owns) and transcript (the absolute path of the worker transcript holding its brief and report). |
 | `read_doc` | Read a vault doc's markdown body, gated by its sensitivity. |
 | `set_frontmatter` | Create or update a doc's frontmatter, validated against the vault's schema. |
 | `task_board` | A vault's task board: open work, counts, recently shipped, and the projects tasks can go in. |

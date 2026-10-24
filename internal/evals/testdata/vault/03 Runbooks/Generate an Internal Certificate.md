@@ -17,13 +17,14 @@ tags: [pki, certificates]
 ## Steps
 
 ```sh
-cd ~/Code/cert-tool
-mise run issue NAME=<name>.lab.example.com
+cd ~/src/office-ca
+mise run issue NAME=<name>.office.example.com
 ```
 
-The last step asks for the CA key passphrase, so it needs a person at the
-keyboard. The certificate and key land in `out/<name>/`.
+The last step asks for the CA key passphrase, so someone has to be at the
+keyboard. The certificate and key are written to `out/<name>/`.
 
 ## Install
 
-Upload both to the proxy host's certificate in Nginx Proxy Manager.
+Copy both to the office server's Traefik certificate directory and reload
+Traefik.

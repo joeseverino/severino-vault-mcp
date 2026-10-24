@@ -642,6 +642,52 @@ func (p *Profile) RefProblems(fm *jsonx.Obj, known func(docID string) bool) []st
 	return errs
 }
 
+// ProjectsField is the frontmatter field whose entries name project folders.
+const ProjectsField = "related_projects"
+
+// NoProject is the one wording of a related_projects entry that names no
+// project folder, with the folder names closest to it.
+func NoProject(entry string, closest []string) string {
+	return fmt.Sprintf("%s %s names no project folder (closest: %s)", ProjectsField, pystr.Repr(entry), strings.Join(closest, ", "))
+}
+
+// closestProjects are the n names of projects nearest entry by edit
+// distance, ignoring case, then alphabetically.
+func closestProjects(entry string, projects []string, n int) []string {
+	lower := strings.ToLower(entry)
+	out := slices.Clone(projects)
+	slices.SortStableFunc(out, func(a, b string) int {
+		return pystr.EditDistance(lower, strings.ToLower(a)) - pystr.EditDistance(lower, strings.ToLower(b))
+	})
+	return out[:min(n, len(out))]
+}
+
+// ProjectProblems checks every related_projects entry fm carries against the
+// project folder names projects, case-sensitively. Check is the per-file
+// half; validate, doctor and every write add this one, which needs the
+// vault's folders. No projects (a vault without a projects folder) checks
+// nothing.
+func (p *Profile) ProjectProblems(fm *jsonx.Obj, projects []string) []string {
+	if len(projects) == 0 {
+		return nil
+	}
+	v, _ := fm.Get(ProjectsField)
+	if missing(v) {
+		return nil
+	}
+	items, isList := v.([]any)
+	if !isList {
+		items = []any{v}
+	}
+	var errs []string
+	for _, item := range items {
+		if entry := pystr.Str(item); !slices.Contains(projects, entry) {
+			errs = append(errs, NoProject(entry, closestProjects(entry, projects, 3)))
+		}
+	}
+	return errs
+}
+
 // NoDoc is the one wording of a doc reference that names no doc.
 func NoDoc(name, docID string) string {
 	return fmt.Sprintf("%s %s names no doc in the vault", name, pystr.Repr(docID))

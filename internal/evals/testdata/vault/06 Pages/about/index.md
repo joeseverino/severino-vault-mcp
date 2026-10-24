@@ -5,4 +5,5 @@ published: true
 
 # About
 
-A one-person lab: an ops app, a tailnet and a vault of runbooks.
+A six-person print shop's IT: a job tracker, an office VPN and a binder of
+runbooks.

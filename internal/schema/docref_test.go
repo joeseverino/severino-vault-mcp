@@ -2,6 +2,7 @@ package schema
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -42,5 +43,21 @@ func TestFromContractKeepsADocReference(t *testing.T) {
 	}
 	if f, ok := back.Field("superseded_by"); !ok || !f.DocRef {
 		t.Fatalf("%+v", f)
+	}
+}
+
+func TestProjectProblemsNameTheClosestFolders(t *testing.T) {
+	projects := []string{"backlog", "example-site", "example-wiki", "tools"}
+	fm := func(v any) *jsonx.Obj { return jsonx.New("related_projects", v) }
+	if got := Labs.ProjectProblems(fm([]any{"example-wiki", "backlog"}), projects); len(got) != 0 {
+		t.Fatalf("valid entries: %v", got)
+	}
+	got := Labs.ProjectProblems(fm([]any{"Example-Wiki", "tool"}), projects)
+	if len(got) != 2 || !strings.Contains(got[0], "'Example-Wiki' names no project folder (closest: example-wiki,") ||
+		!strings.Contains(got[1], "(closest: tools,") {
+		t.Fatalf("invalid entries: %v", got)
+	}
+	if got := Labs.ProjectProblems(fm([]any{"anything"}), nil); len(got) != 0 {
+		t.Fatalf("a vault without projects: %v", got)
 	}
 }

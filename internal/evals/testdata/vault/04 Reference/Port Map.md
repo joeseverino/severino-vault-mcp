@@ -16,7 +16,7 @@ tags: [ports, reference]
 
 | Service | Port |
 |---|---|
-| Beacon | 8000 |
-| AdGuard Home | 3000 |
-| Nginx Proxy Manager admin | 81 |
-| Pushbox | 2586 |
+| Quire | 8000 |
+| Pi-hole admin | 8080 |
+| Traefik dashboard | 8081 |
+| Label service | 5280 |
