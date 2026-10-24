@@ -119,7 +119,7 @@ func IsDocPath(rel string, indexedDirs []string) bool {
 			}
 			continue
 		}
-		if strings.HasPrefix(rel, filepath.ToSlash(filepath.Clean(sub))+"/") {
+		if config.Under(rel, filepath.ToSlash(filepath.Clean(sub))) {
 			return true
 		}
 	}
@@ -284,6 +284,25 @@ const (
 	BacklogProject   = "backlog"
 )
 
+// ProjectFolders are the names of the folders under vaultPath's ProjectsDir,
+// sorted; nil when it has none. A dot folder is left out, as Obsidian hides
+// it.
+func ProjectFolders(vaultPath string) []string {
+	return subfolders(filepath.Join(vaultPath, ProjectsDir))
+}
+
+// subfolders are the names of dir's folders that are not dot folders, sorted.
+func subfolders(dir string) []string {
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") && fsx.IsDir(filepath.Join(dir, e.Name())) {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
 // projectNames are the names a related_projects entry may hold, sorted; nil
 // for a vault with no projects folder, which has no projects to name.
 func (l *Loader) projectNames() []string {
@@ -291,26 +310,16 @@ func (l *Loader) projectNames() []string {
 		return nil
 	}
 	names := []string{BacklogProject}
-	list := func(dir string, needIndex bool) {
-		entries, _ := os.ReadDir(filepath.Join(l.Config.VaultPath, dir))
-		for _, e := range entries {
-			full := filepath.Join(l.Config.VaultPath, dir, e.Name())
-			if fsx.IsDir(full) && (!needIndex || fileExists(filepath.Join(full, "index.md"))) {
-				names = append(names, e.Name())
-			}
+	for _, name := range ProjectFolders(l.Config.VaultPath) {
+		if fsx.IsFile(filepath.Join(l.Config.VaultPath, ProjectsDir, name, "index.md")) {
+			names = append(names, name)
 		}
 	}
-	list(ProjectsDir, true)
 	if l.Config.ArchiveDir != "" {
-		list(path.Join(l.Config.ArchiveDir, ArchivedProjects), false)
+		names = append(names, subfolders(filepath.Join(l.Config.VaultPath, l.Config.ArchiveDir, ArchivedProjects))...)
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
-}
-
-func fileExists(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.Mode().IsRegular()
 }
 
 // Has reports whether some indexed doc carries docID, one doc or several.

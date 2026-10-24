@@ -1,6 +1,6 @@
 ---
 doc_id: note-nginx-proxy-manager-primer
-title: Nginx Proxy Manager — primer
+title: Nginx Proxy Manager primer
 doc_type: architecture_note
 system: Nginx Proxy Manager
 environment: other
@@ -15,7 +15,7 @@ tags:
   - tls
 ---
 
-# Nginx Proxy Manager — primer
+# Nginx Proxy Manager primer
 
 ## What it is
 

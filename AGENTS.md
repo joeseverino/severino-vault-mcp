@@ -25,12 +25,16 @@ TOML parser; nothing else.
   `sections.Body` splits a body and finds and edits its sections:
   `TestOneBodySplitter`; `fsx.Vault.ReadNote`/`frontmatter.ReadFile` read and
   split a note: `TestOneNoteReader`; field and value coercions live on
-  `jsonx.Obj`, `jsonx.Strings`, `vault.CoerceList` and `fsx.IsDir`: `TestOneCoercion`).
+  `jsonx.Obj`, `jsonx.Strings`, `vault.CoerceList`, `fsx.IsDir` and `fsx.IsFile`:
+  `TestOneCoercion`; `vault.ProjectFolders` lists the projects folder:
+  `TestOneProjectLister`; `config.Under` tests a path inside a folder:
+  `TestOneUnderCheck`).
 
 ## Shape
 
 ```
 cmd/severino-vault-mcp   main: cli.Main
+sources.go               embeds the Go sources --fingerprint hashes
 internal/cli             command table -> parsing, --help, describe; one runner per subcommand
 internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
@@ -39,7 +43,12 @@ internal/core            the 10 shared tools, transport-free (the MCP adapter an
 internal/{vault,sections,links,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
-internal/archtest         source guards (tests only): one home per fact
+internal/evals           the retrieval eval behind scripts/evals.sh
+internal/testkit         throwaway vaults for tests; internal/fuzzseed: sample-vault fuzz seeds
+internal/archtest        source guards (tests only): one home per fact
+examples/sample-vault    the demo vault CI validates and replays
+cordon.checks.json       the gate's commands; .golangci.yml its lint rules
+docs/                    architecture, safety model, tool contract, testing and CI, releases
 ```
 
 - HQ, the site and the golden files read this output byte for byte: `jsonx`
@@ -114,9 +123,10 @@ internal/archtest         source guards (tests only): one home per fact
 ## Verify
 
 ```bash
-scripts/check.sh            # the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, repo invariants
-mise run golden             # the public surfaces against tests/golden
-scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
+mise run check                  # the CI gate: cordon.checks.json's commands and cordon's repo invariants
+mise run check --only go-test   # one check, by the id its failure report names
+mise run golden                 # re-emit tests/golden and diff
+mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
 ```
 
 - Run the eval before changing ranking, `find` output or tool descriptions,

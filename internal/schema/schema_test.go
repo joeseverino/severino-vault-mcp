@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "99898f4fca26162b165fbd07393cfe82c14a1c724eab08b82f5ae2f665896f17"
+const labsFingerprint = "c0410347a02bb11990d46dbb56bd0cd8699aac4f03fb35715b3675af03798cc7"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -86,18 +86,12 @@ func TestDocumentSchemaValidatesComposableFieldRules(t *testing.T) {
 }
 
 // A work queue note is its own doc_type, its doc_id carries queue-, and it
-// is held to its own required set: queue_format, and no environment or
-// sensitivity.
+// is held to its own required set, with no environment or sensitivity.
 func TestAQueueNoteCarriesTheQueuePrefix(t *testing.T) {
 	block := func(id string) *jsonx.Obj {
-		return jsonx.New("doc_id", id, "title", "Q", "doc_type", "queue", "system", "x", "status", "active", QueueFormatField, "1")
+		return jsonx.New("doc_id", id, "title", "Q", "doc_type", "queue", "system", "x", "status", "active")
 	}
 	if errs := Labs.Check(block("queue-example"), "01 Projects/Example/Queue.md"); len(errs) != 0 {
-		t.Fatal(errs)
-	}
-	unformatted := block("queue-example")
-	unformatted.Delete(QueueFormatField)
-	if errs := Labs.Check(unformatted, "01 Projects/Example/Queue.md"); !slices.Equal(errs, []string{"missing required field: queue_format"}) {
 		t.Fatal(errs)
 	}
 	runbook := block("rb-example").Set("doc_type", "runbook")

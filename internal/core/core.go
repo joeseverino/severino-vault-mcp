@@ -297,7 +297,8 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 		if resp.Failed() {
 			resp = steer(resp, Call("find", "query", q, "by", "relevance")+" to match titles and sections instead")
 		} else {
-			// Rename in place, keeping the Python key order.
+			// hits_by_doc and doc_count become hits and match_count, set after
+			// the other keys, which keep their order.
 			renamed := jsonx.New()
 			for _, k := range resp.Keys() {
 				val, _ := resp.Get(k)

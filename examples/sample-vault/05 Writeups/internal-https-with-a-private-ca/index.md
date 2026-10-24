@@ -26,7 +26,7 @@ related_projects:
 > sample vault.
 
 Internal services deserve real TLS, not click-through certificate warnings. The
-trick is to run your own certificate authority — kept offline — and have it sign
+trick is to run your own certificate authority, kept offline, and have it sign
 short-lived certificates for `*.internal.example` hosts that only your tailnet
 can reach.
 
@@ -44,6 +44,6 @@ vault keeps the *how* one click away.
 ## Why this lives in the vault
 
 This page is markdown in `05 Writeups/<slug>/index.md`. The same file Obsidian
-renders is what the static site publishes — the vault is the CMS. Writeups carry
+renders is what the static site publishes: the vault is the CMS. Writeups carry
 a different frontmatter shape from operational docs (`published`, `technologies`,
 `featured`, …) because they feed a publishing pipeline, not the runbook index.

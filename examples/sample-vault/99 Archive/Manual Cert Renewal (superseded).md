@@ -24,4 +24,4 @@ they don't surface in day-to-day search but the trail isn't lost.
 
 1. Hand-build a CSR with `openssl`.
 2. Copy it to the CA host.
-3. Sign, copy back, install — every step manual and easy to get wrong.
+3. Sign, copy back, install: every step manual and easy to get wrong.

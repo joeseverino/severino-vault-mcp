@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
 
 const logRel = "02 Infrastructure/Example Log.md"
@@ -70,7 +70,7 @@ func TestLogEntriesListThenCloseOne(t *testing.T) {
 	}
 	text := tk.Read(t, filepath.Join(root, logRel))
 	if !strings.Contains(text, "\n- 2026-10-19 · worker · repo-a · lesson one → fixed: def456 (repo-a)\n") ||
-		!strings.Contains(text, "last_reviewed: "+write.Today()+"\n") ||
+		!strings.Contains(text, "last_reviewed: "+clock.TodayISO()+"\n") ||
 		!strings.Contains(text, "- 2026-10-19 · worker · repo-b · lesson two → fixed: abc123\n") {
 		t.Fatal(text)
 	}

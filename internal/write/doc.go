@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -171,7 +172,7 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit Note
 			out = ferr
 			return text
 		}
-		head = setHeadField(head, "last_reviewed", Today())
+		head = setHeadField(head, "last_reviewed", clock.TodayISO())
 		for _, f := range fields {
 			if f.Drop {
 				head = dropHeadField(head, f.Key)

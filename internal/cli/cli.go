@@ -527,11 +527,11 @@ func runQueue(c *Ctx, p Parsed) int {
 	q := core.QueueArgs{
 		Action: p.Str("action"), ID: p.Str("id"), Project: p.Str("project"), Repo: p.Str("repo"), Cwd: p.Str("cwd"),
 		All: p.Bool("all"), Agent: p.Str("agent"), Origin: p.Str("origin"), IncludeOrigin: p.Bool("include_origin"), Kind: p.Str("kind"), Text: optStr(p, "text"), Owner: optStr(p, "owner"),
-		Alias: optStr(p, "alias"), Body: optStr(p, "body"),
+		Body:      optStr(p, "body"),
 		BlockedBy: p.List("blocked_by"), HasBlockedBy: p.Has("blocked_by"), Repos: p.List("repos"), HasRepos: p.Has("repos"),
 		Base: optStr(p, "base"), Transcript: optStr(p, "transcript"), Owns: p.List("owns"), HasOwns: p.Has("owns"),
 		Partial: p.Bool("partial"), Status: p.Str("status"), Ready: p.Bool("ready"),
-		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Release: p.Bool("release"), Resolution: p.Str("resolution"), DropAliases: p.Bool("drop_aliases"),
+		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Release: p.Bool("release"), Resolution: p.Str("resolution"),
 		View: view(p),
 	}
 	for _, k := range queue.LinkKeys {

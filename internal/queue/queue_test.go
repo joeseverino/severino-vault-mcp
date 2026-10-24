@@ -2,7 +2,6 @@ package queue
 
 import (
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -12,7 +11,7 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		{ID: "hq-1", Kind: "next", Status: "open", Text: "Plain text"},
 		{ID: "hq-2", Kind: "delegated", Status: "returned", Owner: "worker", Text: "Build the store",
 			Links:     map[string]string{"branch": "pass/queue", "commit": "abc1234,def5678", "pr": "https://example.com/pull/7", "slug": "store"},
-			BlockedBy: []string{"hq-1", "other-project-4"}, Body: "note-hq-2", Alias: "task-old-slug", Agent: "a1b2c3"},
+			BlockedBy: []string{"hq-1", "other-project-4"}, Body: "note-hq-2", Agent: "a1b2c3"},
 		{ID: "example-site-12", Kind: "decision", Status: "closed", Owner: "main", Text: "Ship it?", Resolution: "yes [after review] (Friday) · noted \\"},
 		{ID: "b-3", Kind: "follow-up", Status: "open", Text: `Text with · dots, → arrows, {braces}, [brackets], (parens), a \ backslash and a trailing \`},
 		{ID: "b-4", Kind: "next", Status: "open", Text: "ends in a field [kind:: decision]"},
@@ -99,10 +98,10 @@ func TestAResolutionEscapesOnlyWhatEndsItsField(t *testing.T) {
 	}
 }
 
-// A note written when every bracket and parenthesis in a value was escaped
-// still reads as typed.
-func TestAResolutionWithTheOldEscapingStillReads(t *testing.T) {
-	line := `- [x] t  [kind:: next]  [resolution:: merged \(#213\) after \[review\]]  [id:: hq-1]`
+// A resolution whose brackets and parentheses carry backslashes reads as
+// typed.
+func TestAnEscapedResolutionReadsAsTyped(t *testing.T) {
+	line := `- [x] t #queue/next  [resolution:: merged \(#213\) after \[review\]]  [id:: hq-1]`
 	if it, ok := Parse(line); !ok || it.Resolution != "merged (#213) after [review]" {
 		t.Fatalf("%+v %v", it, ok)
 	}
@@ -121,21 +120,6 @@ func TestEveryStatusIsATasksCheckbox(t *testing.T) {
 	}
 }
 
-// The parked status is gone: its [>] mark reads as open, so an older note
-// never fails, and the line is written back with the open mark.
-func TestARetiredParkedLineReadsAsOpen(t *testing.T) {
-	line := "- [>] Someday #queue/next  [id:: hq-3]"
-	it, ok := Parse(line)
-	if !ok || it.Status != "open" || slices.Contains(Statuses, "parked") {
-		t.Fatalf("%+v %v", it, ok)
-	}
-	if got := Format(it); got != "- [ ] Someday #queue/next  [id:: hq-3]" {
-		t.Fatal(got)
-	}
-}
-
-// The created date is Tasks' own field, after dependsOn where Tasks reads
-// it; the emoji form a person may type reads as the same field.
 func TestATranscriptPathRoundTrips(t *testing.T) {
 	it := Item{ID: "hq-4", Kind: "delegated", Status: "open", Text: "Built", Transcript: "/Users/example/.claude/projects/p/agent-a1.jsonl"}
 	line := Format(it)
@@ -261,24 +245,6 @@ func TestTextTagsInTheQueueNamespacesAreEscaped(t *testing.T) {
 	}
 }
 
-// Lines written before kind and owner were tags still read, and the next
-// write gives them the current form.
-func TestTheOlderFieldFormStillReads(t *testing.T) {
-	for line, want := range map[string]string{
-		"- [ ] Old  [kind:: delegated]  [owner:: worker]  [agent:: a1]  [id:: hq-1]  [dependsOn:: hq-0]":         "- [ ] Old #queue/delegated #owner/worker  [agent:: a1]  [id:: hq-1]  [dependsOn:: hq-0]",
-		"- [x] Old  [kind:: next]  [body:: project-x]  [alias:: task-x]  [id:: hq-2]  [completion:: 2026-10-22]": "- [x] Old #queue/next  [body:: project-x]  [alias:: task-x]  [id:: hq-2]  [completion:: 2026-10-22]",
-		"- [ ] Mentions #owner/x  [kind:: next]  [id:: hq-3]":                                                    `- [ ] Mentions \#owner/x #queue/next  [id:: hq-3]`,
-	} {
-		it, ok := Parse(line)
-		if !ok {
-			t.Fatalf("%q does not parse", line)
-		}
-		if got := Format(it); got != want {
-			t.Errorf("%q rewrites as\n%s\nwant\n%s", line, got, want)
-		}
-	}
-}
-
 // Tasks moves the tags it finds among the fields at the end of a line to the
 // end of the description when it rewrites the line; a hand edit may leave
 // them anywhere in that run. Every placement reads the same.
@@ -302,20 +268,19 @@ func TestLinesOutsideTheGrammarAreNotItems(t *testing.T) {
 		"",
 		"- a plain bullet",
 		"- [ ] a plain task",
-		"- [ ]   [kind:: next]  [id:: hq-1]",
-		"- [ ] no id  [kind:: next]",
+		"- [ ] no id #queue/next",
 		"- [ ] no kind  [id:: hq-1]",
-		"- [ ] unknown kind  [kind:: nope]  [id:: hq-1]",
-		"- [?] unknown status  [kind:: next]  [id:: hq-1]",
-		"- [/] returned but not delegated  [kind:: next]  [id:: hq-1]",
-		"- [ ] open with a resolution  [kind:: next]  [resolution:: yes]  [id:: hq-1]",
-		"- [ ] no number  [kind:: next]  [id:: hq]",
-		"- [ ] repeated  [kind:: next]  [pr:: 1]  [pr:: 2]  [id:: hq-1]",
-		"- [ ] empty owner  [kind:: next]  [owner:: ]  [id:: hq-1]",
-		"- [ ] fields hidden behind text  [kind:: next]  [id:: hq-1] trailing words",
+		"- [ ] kind as a field  [kind:: next]  [id:: hq-1]",
+		"- [?] unknown status #queue/next  [id:: hq-1]",
+		"- [>] a retired mark #queue/next  [id:: hq-1]",
+		"- [/] returned but not delegated #queue/next  [id:: hq-1]",
+		"- [ ] open with a resolution #queue/next  [resolution:: yes]  [id:: hq-1]",
+		"- [ ] no number #queue/next  [id:: hq]",
+		"- [ ] repeated #queue/next  [pr:: 1]  [pr:: 2]  [id:: hq-1]",
+		"- [ ] empty owner tag #queue/next #owner/  [id:: hq-1]",
+		"- [ ] fields hidden behind text #queue/next  [id:: hq-1] trailing words",
 		"- [ ] two kind tags #queue/next #queue/decision  [id:: hq-1]",
 		"- [ ] two owners #queue/next #owner/a #owner/b  [id:: hq-1]",
-		"- [ ] owner both ways #queue/next #owner/a  [owner:: a]  [id:: hq-1]",
 		"- [ ] unknown kind tag #queue/nope  [id:: hq-1]",
 		"- [ ] empty kind tag #queue/  [id:: hq-1]",
 		"- [ ] owner with a dot #queue/next #owner/a.b  [id:: hq-1]",
@@ -334,7 +299,7 @@ func TestIDsSplitAtTheLastDash(t *testing.T) {
 		t.Fatal(p, n, ok)
 	}
 	if _, _, ok := SplitID("task-old-slug"); ok {
-		t.Fatal("an alias is not an id")
+		t.Fatal("a slug without a number is not an id")
 	}
 }
 
@@ -381,14 +346,6 @@ func TestTopCountsEveryIDFieldInTheText(t *testing.T) {
 	}
 	if got := IDsIn("- [ ] {kind=next}  [id:: ex-2]  [dependsOn:: ex-1]"); !reflect.DeepEqual(got, []string{"ex-2"}) {
 		t.Fatal(got)
-	}
-}
-
-func TestOnlyAKnownQueueFormatIsWritable(t *testing.T) {
-	for v, ok := range map[string]bool{"": true, "1": true, "2": true, "3": true, "4": false, "0": false, "one": false} {
-		if err := CheckVersion(v); (err == nil) != ok {
-			t.Errorf("%q: %v", v, err)
-		}
 	}
 }
 

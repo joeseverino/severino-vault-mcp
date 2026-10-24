@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -41,7 +42,7 @@ func TestWriteDocCreatesAValidRegisteredDoc(t *testing.T) {
 	if _, body := splitHead(t, text); body != "# Rotate Example Token\n\n## Steps\n\n1. Run `x`.\n" {
 		t.Fatalf("%q", body)
 	}
-	if got, _ := fm.Get("last_reviewed"); got != write.Today() {
+	if got, _ := fm.Get("last_reviewed"); got != clock.TodayISO() {
 		t.Fatal(got)
 	}
 	if rel, problems, ok := core.CheckDoc(v, rotateRel); !ok || rel != rotateRel || len(problems) != 0 {
@@ -136,7 +137,7 @@ func TestWriteDocSectionModesSpliceOnlyTheirSection(t *testing.T) {
 	text := tk.Read(t, path)
 	head, body := splitHead(t, text)
 	origHead, _ := splitHead(t, original)
-	if head != strings.Replace(origHead, "last_reviewed: 2026-05-01", "last_reviewed: "+write.Today(), 1) {
+	if head != strings.Replace(origHead, "last_reviewed: 2026-05-01", "last_reviewed: "+clock.TodayISO(), 1) {
 		t.Fatalf("frontmatter changed beyond last_reviewed:\n%s", head)
 	}
 	want := "Overview line before any heading.\n\n## Routine operations\n\nRun it weekly.\n\n## Troubleshooting\n\nCheck the resolver logs first when latency spikes.\n"

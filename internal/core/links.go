@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/links"
 )
 
@@ -34,7 +35,7 @@ func (l *layout) has(rel string) bool {
 	if l.file {
 		return rel == l.from
 	}
-	return under(rel, l.from)
+	return config.Under(rel, l.from)
 }
 
 // retarget is the new path for a link written as clean that resolves to f,
@@ -46,9 +47,6 @@ func (l *layout) retarget(clean, f string) string {
 	return l.to + clean[len(l.from):]
 }
 
-// under reports whether rel is inside dir.
-func under(rel, dir string) bool { return strings.HasPrefix(rel, dir+"/") }
-
 // moved is where rel, a path before the move, is after it.
 func (l *layout) moved(rel string) string {
 	if l.file {
@@ -57,7 +55,7 @@ func (l *layout) moved(rel string) string {
 		}
 		return rel
 	}
-	if under(rel, l.from) {
+	if config.Under(rel, l.from) {
 		return l.to + rel[len(l.from):]
 	}
 	return rel
@@ -71,7 +69,7 @@ func (l *layout) before(rel string) string {
 		}
 		return rel
 	}
-	if under(rel, l.to) {
+	if config.Under(rel, l.to) {
 		return l.from + rel[len(l.to):]
 	}
 	return rel
@@ -106,7 +104,7 @@ func (l *layout) wikiTarget(target string) string {
 		}
 		return lead + l.retarget(clean, f) + tail
 	}
-	if !l.file && under(strings.ToLower(clean), strings.ToLower(l.from)) {
+	if !l.file && config.Under(strings.ToLower(clean), strings.ToLower(l.from)) {
 		return lead + l.to + clean[len(l.from):] + tail
 	}
 	f, ok := l.BySuffix(clean)
@@ -157,7 +155,7 @@ func (l *layout) mdTarget(raw, note string) string {
 		switch {
 		case ok && l.has(f):
 			next = l.retarget(clean, f)
-		case !ok && !l.file && under(strings.ToLower(clean), strings.ToLower(l.from)):
+		case !ok && !l.file && config.Under(strings.ToLower(clean), strings.ToLower(l.from)):
 			next = l.to + clean[len(l.from):]
 		case !ok && strings.Contains(clean, "/"):
 			g, found := l.BySuffix(clean)

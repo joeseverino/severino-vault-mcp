@@ -795,14 +795,13 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		linkProps.Set(k, jsonx.New("type", []string{"string", "null"}))
 	}
 	h.add(s, "queue", descQueue, object(jsonx.New(
-		"action", enum(core.QueueActions, core.QueueActions[0], "list, add, set, close or reformat."),
+		"action", enum(core.QueueActions, core.QueueActions[0], "list, add, set or close."),
 		"vault", h.vaultProp("Which vault."),
 		"project", optStr("The queue's project folder under 01 Projects, or backlog."),
 		"repo", optStr("A repository directory name, resolved through index.md repos."),
 		"cwd", optStr("A working directory, resolved to its repository's project."),
-		"all", boolean("list, reformat: every queue."),
-		"id", optStr("set, close: the item's id, e.g. example-3, or its alias."),
-		"alias", optStr("add, set: an old id the item also answers to, such as a task doc_id (\"\" removes it on set). list: only the item with it."),
+		"all", boolean("list: every queue."),
+		"id", optStr("set, close: the item's id, e.g. example-3."),
 		"body", optStr("add, set: the doc_id of the doc holding the item's detail; it must exist (\"\" removes it on set)."),
 		"agent", optStr("add: the worker's agent id. list: only that agent's items. set, close: the item by agent instead of id; set with id writes the agent onto that item."),
 		"origin", optStr("add: the sending session's repo or working directory. list: only items from it."),
@@ -812,7 +811,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"owner", optStr("add, set: who holds the item (one word; \"\" or \"-\" for nobody). list: only that owner's items."),
 		"links", jsonx.New("type", []string{"object", "null"}, "properties", linkProps, "additionalProperties", false,
 			"description", "add, set, close: typed links, each one word; on set, \"\" removes one. list: only items whose links equal these, e.g. {\"branch\": \"pass/x\"}."),
-		"blocked_by", strList("add, set: item ids (or aliases) that must close before this one is ready."),
+		"blocked_by", strList("add, set: item ids that must close before this one is ready."),
 		"repos", strList("add, set: the repos one worker's item spans."),
 		"base", optStr("add, set: the branch the item's work lands on (\"\" removes it on set)."),
 		"transcript", optStr("add, set: the absolute path of the worker transcript holding the item's brief and report (\"\" removes it on set)."),
@@ -825,9 +824,8 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"release", boolean("set: hand the item back to the queue: no agent or owner, kind next (from delegated), status open. With id, agent names the holder it must have."),
 		"resolution", optStr("close: one line: repo@sha (comma-separated for repos), a PR, a doc id, or why it was dropped."),
 		"partial", boolean("close: record these repo@sha landings, closing once every repo has one."),
-		"drop_aliases", boolean("reformat: also remove every item's alias."),
 		"fields", strList("list: item fields to return. Default: id, kind, status, owner, text (and project, origin "+
-			"on include_origin); also links (or links.pr), blocked_by, body, alias, agent, repos, base, owns, transcript, created, resolution."),
+			"on include_origin); also links (or links.pr), blocked_by, body, agent, repos, base, owns, transcript, created, resolution."),
 	), nil), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -867,9 +865,6 @@ func queueArgs(a args) (core.QueueArgs, error) {
 	if q.Owner, err = a.opt("owner"); err != nil {
 		return q, err
 	}
-	if q.Alias, err = a.opt("alias"); err != nil {
-		return q, err
-	}
 	if q.Body, err = a.opt("body"); err != nil {
 		return q, err
 	}
@@ -879,7 +874,7 @@ func queueArgs(a args) (core.QueueArgs, error) {
 	for _, f := range []struct {
 		name string
 		dst  *bool
-	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"release", &q.Release}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}, {"drop_aliases", &q.DropAliases}} {
+	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"release", &q.Release}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}} {
 		if *f.dst, err = a.boolean(f.name); err != nil {
 			return q, err
 		}
@@ -1104,8 +1099,7 @@ reads the backlog under a warning.
 list (default): open and returned items; all=true every queue;
     include_origin adds the workers this repo sent to other queues.
 add: kind and text; returns the new id (an agent's open item with the
-    same text answers instead, as no_op). alias keeps an old id the item
-    answers to wherever an id does; body names its detail doc.
+    same text answers instead, as no_op); body names its detail doc.
 set: id (or agent, when it holds one item) and what changes; claim=true
     with owner takes an item no other owner or agent holds, atomically.
     With an id, agent, kind=delegated (from next or follow-up) and
@@ -1113,10 +1107,7 @@ set: id (or agent, when it holds one item) and what changes; claim=true
     back as unowned next work. A change to an item another agent holds
     goes through with a warning naming it.
 close: id (or agent) and resolution; status=dropped for work not done. An
-    item with repos closes once each has a repo@sha; partial=true adds some.
-reformat: rewrite the named queue (or all=true) in the current line
-    grammar; idempotent, and returns the notes it changed. drop_aliases=true
-    also removes every alias.`
+    item with repos closes once each has a repo@sha; partial=true adds some.`
 
 const descBoard = `A vault's task board: open work, counts, recently shipped, and the projects tasks can go in.`
 

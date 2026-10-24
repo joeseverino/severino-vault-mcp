@@ -39,11 +39,6 @@ var (
 // types them: TODO, IN_PROGRESS, DONE and CANCELLED.
 var marks = map[string]rune{"open": ' ', "returned": '/', "closed": 'x', "dropped": '-'}
 
-// retiredMarks are checkbox characters of statuses the queue no longer has,
-// each read as the status that replaced it, so an older note still parses
-// and its next write gives the line the current mark.
-var retiredMarks = map[rune]string{'>': "open"}
-
 // Done reports whether status ends an item: it sits under ## Closed, may carry
 // a resolution, and no longer blocks another (as Tasks treats DONE and
 // CANCELLED).
@@ -51,14 +46,14 @@ func Done(status string) bool { return status == "closed" || status == "dropped"
 
 // LinkKeys are the typed links a hook can match an item by. Format writes the
 // body link and the kind and owner tags after the text, then agent, origin,
-// repos, the links, base, owns, alias and resolution in this order, then id,
+// repos, the links, base, owns and resolution in this order, then id,
 // dependsOn and created.
 var LinkKeys = []string{"pr", "branch", "commit", "slug"}
 
 // Unowned is the owner argument meaning nobody; the line simply omits owner.
 const Unowned = "-"
 
-// TokenRule says what a one-word value (owner, agent, link, body, alias) may
+// TokenRule says what a one-word value (owner, agent, link, body) may
 // hold.
 const TokenRule = "one word without spaces, brackets, parentheses or a backslash"
 
@@ -119,7 +114,7 @@ type Item struct {
 	Links                         map[string]string
 	BlockedBy                     []string
 	Body, BodyLink                string
-	Alias, Agent, Origin          string
+	Agent, Origin                 string
 	Repos                         []string
 	Base                          string
 	Owns                          []string
@@ -148,28 +143,6 @@ var (
 	// cancelled, due, scheduled, start, created.
 	emojiDateRe = regexp.MustCompile(`(?:^|\s)((?:✅|❌|📅|⏳|🛫|➕) \d{4}-\d{2}-\d{2})$`)
 )
-
-// Version is the item line format this binary writes and reads in full. A
-// queue note records the format it was written in as queue_format; a higher
-// one was written by a newer binary, whose lines this one may misread.
-const Version = 3
-
-// CheckVersion refuses a note's queue_format that this binary cannot write
-// under: one above Version, or anything but a whole number. "" is a note
-// written before the field existed.
-func CheckVersion(v string) error {
-	if v == "" {
-		return nil
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	switch {
-	case err != nil || n < 1:
-		return fmt.Errorf("queue_format %q is not a format version", v)
-	case n > Version:
-		return fmt.Errorf("queue_format is %d and this binary knows format %d", n, Version)
-	}
-	return nil
-}
 
 // ItemShaped reports whether line has an item's shape, a task checkbox at the
 // start of the line ("- [<char>] ..."), whether or not it parses.
@@ -407,7 +380,7 @@ func (it Item) Validate() error {
 			return fmt.Errorf("blocked_by %q is not an item id", b)
 		}
 	}
-	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}, {"origin", it.Origin}, {"base", it.Base}} {
+	for _, f := range [][2]string{{"body", it.Body}, {"agent", it.Agent}, {"origin", it.Origin}, {"base", it.Base}} {
 		if f[1] != "" && !ValidToken(f[1]) {
 			return fmt.Errorf("%s %q must be %s", f[0], f[1], TokenRule)
 		}
@@ -468,7 +441,7 @@ func (it *Item) Reopen(status string) {
 // owned reports whether the queue owns field key.
 func owned(key string) bool {
 	switch key {
-	case "kind", "owner", "agent", "origin", "repos", "base", "owns", "transcript", "body", "alias", "resolution", idKey, dependsOnKey, createdKey:
+	case "agent", "origin", "repos", "base", "owns", "transcript", "body", "resolution", idKey, dependsOnKey, createdKey:
 		return true
 	}
 	return slices.Contains(LinkKeys, key)
@@ -502,7 +475,6 @@ func Format(it Item) string {
 	if it.BodyLink == "" {
 		field("body", it.Body)
 	}
-	field("alias", it.Alias)
 	field("resolution", escape(it.Resolution, valueSpecial))
 	var after []string
 	for _, x := range it.Extra {
@@ -537,22 +509,13 @@ func Parse(line string) (it Item, ok bool) {
 			it.Status = st
 		}
 	}
-	if st, ok := retiredMarks[mark]; ok {
-		it.Status = st
-	}
 	if it.Status == "" {
 		return Item{}, false
 	}
 	var fields []inline
-	// A line with a [kind:: …] or [owner:: …] field predates the tags, so a
-	// tag in it is its text's.
-	older := false
 	for {
 		f, ok := lastField(rest)
-		if ok && (f.key == "kind" || f.key == "owner") {
-			older = true
-		}
-		if !ok && !older {
+		if !ok {
 			f, ok = lastTag(rest)
 		}
 		if !ok {
@@ -567,7 +530,7 @@ func Parse(line string) (it Item, ok bool) {
 		if f.key == "" && strings.HasPrefix(f.raw, createdEmoji) {
 			f.key, f.value = createdKey, strings.TrimSpace(strings.TrimPrefix(f.raw, createdEmoji))
 		}
-		if f.key == "" || !owned(f.key) {
+		if f.key == "" || !f.tag && !owned(f.key) {
 			it.Extra = append(it.Extra, f.raw)
 			continue
 		}
@@ -596,8 +559,6 @@ func Parse(line string) (it Item, ok bool) {
 			it.Created = f.value
 		case "body":
 			it.Body = f.value
-		case "alias":
-			it.Alias = f.value
 		case "resolution":
 			it.Resolution = Unescape(f.value)
 		case idKey:
@@ -626,20 +587,21 @@ func Parse(line string) (it Item, ok bool) {
 }
 
 // inline is one field at the end of a line: a Dataview inline field
-// ([key:: value] or (key:: value)), or a Tasks emoji date (key "").
+// ([key:: value] or (key:: value)), a Tasks emoji date (key ""), or a tag in
+// one of the queue's namespaces (tag set, key the field it carries).
 type inline struct {
 	raw, key, value string
+	tag             bool
 }
 
 // lastTag reads a tag in one of the queue's namespaces that ends s, as the
-// field it carries: #queue/<kind> is kind and #owner/<owner> is owner, the
-// keys the older [kind:: …] and [owner:: …] fields still read as.
+// field it carries: #queue/<kind> is kind and #owner/<owner> is owner.
 func lastTag(s string) (inline, bool) {
 	m := tagRe.FindStringSubmatch(s)
 	if m == nil {
 		return inline{}, false
 	}
-	return inline{raw: m[1], key: tagKeys[strings.ToLower(m[2])], value: m[3]}, true
+	return inline{raw: m[1], key: tagKeys[strings.ToLower(m[2])], value: m[3], tag: true}, true
 }
 
 // lastField reads the field that ends s, after whitespace or at its start.

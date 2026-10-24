@@ -100,6 +100,13 @@ func IsDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// IsFile reports whether path is a regular file, following symlinks, for the
+// checks made outside a vault root.
+func IsFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // IsDir reports whether p is a directory inside the vault.
 func (v *Vault) IsDir(p string) bool {
 	info, err := v.Stat(p)

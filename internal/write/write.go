@@ -18,9 +18,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
-// Today is the local date as YYYY-MM-DD.
-func Today() string { return clock.TodayISO() }
-
 const nextStep = "run any downstream vault metadata sync if your workflow uses one"
 
 func writeFailed(err error) *jsonx.Obj { return jsonx.Fail("write failed: " + err.Error()) }
@@ -94,9 +91,9 @@ func newFrontmatter(c Changes, p *schema.Profile) *jsonx.Obj {
 		return fallback
 	}
 	list := func(name string) []any { return jsonx.Strings(c.Lists[name].created()) }
-	reviewed := def("last_reviewed", Today())
+	reviewed := def("last_reviewed", clock.TodayISO())
 	if slices.Contains(c.Touch, "last_reviewed") {
-		reviewed = Today()
+		reviewed = clock.TodayISO()
 	}
 	var fm *jsonx.Obj
 	task := c.Str("doc_type") == "task"
@@ -138,7 +135,7 @@ func newFrontmatter(c Changes, p *schema.Profile) *jsonx.Obj {
 		}
 		switch {
 		case slices.Contains(c.Touch, name):
-			fm.Set(name, Today())
+			fm.Set(name, clock.TodayISO())
 		case c.Lists[name].given():
 			fm.Set(name, list(name))
 		default:
@@ -235,7 +232,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 		cur, _ := fm.Get(name)
 		switch {
 		case slices.Contains(c.Touch, name):
-			set(name, Today())
+			set(name, clock.TodayISO())
 		case c.Lists[name].given():
 			current := vault.CoerceList(cur)
 			if next := applyListOp(current, c.Lists[name]); !slices.Equal(next, current) {
@@ -253,7 +250,7 @@ func applyChanges(text, rel, archive string, c Changes, p *schema.Profile, idx *
 	docID, _ := fm.Get("doc_id")
 	if len(changed) == 0 {
 		return text, jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
-			"message", "No fields differ — nothing written.")
+			"message", "No fields differ, so nothing was written.")
 	}
 	task := schema.IsTask(fm)
 	var errs []string
@@ -381,11 +378,11 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 			out = jsonx.Fail(strings.Join(errs, "; "))
 			return text
 		}
-		reviewed := Today()
+		reviewed := clock.TodayISO()
 		docID, _ := fm.Get("doc_id")
 		if cur, _ := fm.Get("last_reviewed"); cur == reviewed {
 			out = jsonx.New("ok", true, "no_op", true, "doc_id", docID, "relative_path", rel,
-				"message", "No fields differ — nothing written.")
+				"message", "No fields differ, so nothing was written.")
 			return text
 		}
 		fm.Set("last_reviewed", reviewed)

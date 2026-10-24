@@ -134,9 +134,7 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   each landing with `partial=true, resolution="repo@sha"`, and it closes
   when every repo has landed. Several workers: one item each in its repo,
   and a parent in yours with `blocked_by` their ids.
-- Moving an old task into a queue: `add` with `alias` its doc_id and
-  `body` the doc holding its detail; the alias then works as `id` and in
-  `blocked_by`.
+- An item's detail lives in a doc: `add` or `set` with `body` its doc_id.
 
 `log_entries` stays the tool for append-only log notes such as lessons.
 

@@ -30,5 +30,5 @@ questions start there and route intent → `doc_id` → the specific doc.
 ## Consequences
 
 - One place encodes "where do I look for X".
-- The MCP reads the index first, then the target doc — fewer wrong answers.
+- The MCP reads the index first, then the target doc, which gives fewer wrong answers.
 - Decision records like this one live under `02 Infrastructure/00 Reporting/`.

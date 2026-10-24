@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/contracts"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
@@ -20,7 +21,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
 
 // Folder layout.
@@ -210,7 +210,7 @@ func List(l *vault.Loader, f Filter) *jsonx.Obj {
 	}
 	slices.SortStableFunc(shown, compareRecords)
 
-	today, _ := time.ParseInLocation("2006-01-02", write.Today(), time.Local)
+	today := clock.Today()
 	var shipped []record
 	for _, t := range all {
 		if t.status != "done" || t.closed == "" || !inProject(t) {
@@ -220,7 +220,7 @@ func List(l *vault.Loader, f Filter) *jsonx.Obj {
 		if len(c) > 10 {
 			c = c[:10]
 		}
-		closedOn, err := time.ParseInLocation("2006-01-02", c, time.Local)
+		closedOn, err := clock.ParseDate(c)
 		if err != nil {
 			continue
 		}
@@ -267,18 +267,8 @@ func Projects(l *vault.Loader) *jsonx.Obj {
 			open[p]++
 		}
 	}
-	entries, err := os.ReadDir(filepath.Join(l.Config.VaultPath, ProjectsDir))
-	var names []string
-	if err == nil {
-		for _, e := range entries {
-			if fsx.IsDir(filepath.Join(l.Config.VaultPath, ProjectsDir, e.Name())) {
-				names = append(names, e.Name())
-			}
-		}
-	}
-	slices.Sort(names)
 	projects := []*jsonx.Obj{}
-	for _, name := range names {
+	for _, name := range vault.ProjectFolders(l.Config.VaultPath) {
 		projects = append(projects, jsonx.New("slug", name, "open", open[name]))
 	}
 	return jsonx.New("ok", true, "count", len(projects), "projects", projects)
@@ -364,7 +354,7 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		"related_projects", jsonx.Strings(related),
 		"effort", n.Effort,
 		"priority", n.Priority,
-		"created", write.Today(),
+		"created", clock.TodayISO(),
 		"tags", jsonx.Strings(tags),
 	)
 	if err := v.MkdirAll(targetDir); err != nil {
@@ -493,7 +483,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 		}
 		fm.Set("status", status)
 		if status == "done" {
-			fm.Set("closed", write.Today())
+			fm.Set("closed", clock.TodayISO())
 		} else {
 			fm.Delete("closed")
 		}

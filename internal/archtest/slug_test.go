@@ -8,8 +8,8 @@ import (
 )
 
 // sections.Slugify (and SlugifyWith) is the server's one slug function. A
-// function named for slugs anywhere else, or the [^a-z0-9] class it used to be
-// built from, is a second copy.
+// function named for slugs anywhere else, or a [^a-z0-9] class that rebuilds
+// its rule, is a second copy.
 func TestOneSlugFunction(t *testing.T) {
 	for _, s := range sources(t) {
 		if in(s.rel, "internal/sections") {

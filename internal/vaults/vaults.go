@@ -7,12 +7,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/provider"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 )
@@ -53,11 +53,6 @@ func EduConfigPath(env config.Env) string {
 // Edu is the edu vault.
 func Edu(env config.Env) *core.Vault {
 	return core.NewVault("edu", config.Load(EduConfigPath(env), ScopedEnv(env)), schema.Builtin["edu"])
-}
-
-func isFile(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.Mode().IsRegular()
 }
 
 // ProviderSpecs reads the [[providers]] entries from the labs config:
@@ -135,7 +130,7 @@ func (r *Registry) Names() []string {
 // config exists. Providers are not started.
 func Local(env config.Env, log io.Writer) []*core.Vault {
 	out := []*core.Vault{Labs(env)}
-	if eduPath := EduConfigPath(env); isFile(eduPath) {
+	if eduPath := EduConfigPath(env); fsx.IsFile(eduPath) {
 		out = append(out, Edu(env))
 	} else {
 		fmt.Fprintf(log, "severino-vault-mcp: no edu config at %s; edu vault off\n", eduPath)

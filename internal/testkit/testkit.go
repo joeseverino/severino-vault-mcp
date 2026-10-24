@@ -151,7 +151,8 @@ func IDs(hits []*jsonx.Obj) []string {
 	return out
 }
 
-// FakeVault is the Python suite's fake_vault fixture.
+// FakeVault builds a throwaway labs vault: a runbook, an infrastructure
+// note, a Quick Index, a note without frontmatter, a daily note and aliases.
 func FakeVault(t testing.TB) string {
 	t.Helper()
 	root := Dir(t)
@@ -233,7 +234,8 @@ date: 2026-06-19
 	return root
 }
 
-// MultisectionDoc is the Python suite's _write_multisection_doc.
+// MultisectionDoc adds a runbook with several H2 sections to the vault at
+// root, for the section menu and section reads.
 func MultisectionDoc(t testing.TB, root string) {
 	t.Helper()
 	Write(t, filepath.Join(root, "03 Runbooks", "Backup Ops.md"), `---

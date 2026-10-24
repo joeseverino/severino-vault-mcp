@@ -52,6 +52,7 @@ func TestOneNoteReader(t *testing.T) {
 
 // The value coercions have one home each: jsonx.Obj's Text, Int and Str for a
 // field, jsonx.Strings for a JSON string list, vault.CoerceList for a value read as a list, fsx.IsDir for a folder check,
+// fsx.IsFile for a regular-file check,
 // core's containsFold for a case-blind match.
 func TestOneCoercion(t *testing.T) {
 	for _, s := range sources(t) {
@@ -69,7 +70,7 @@ func TestOneCoercion(t *testing.T) {
 			if fn.Name.Name != "CoerceList" && listCoercion(fn) {
 				t.Errorf("%s:%d: %s turns a value into a []string by hand; use vault.CoerceList", s.rel, s.line(fn), fn.Name.Name)
 			}
-			stats, isDir := false, false
+			stats, isDir, isRegular := false, false, false
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -80,6 +81,8 @@ func TestOneCoercion(t *testing.T) {
 					stats = true
 				case isMethodCall(call, "IsDir"):
 					isDir = true
+				case isMethodCall(call, "IsRegular"):
+					isRegular = true
 				case isBuiltinMake(call, "any") && !in(s.rel, "internal/jsonx"):
 					t.Errorf("%s:%d: builds a []any by hand; use jsonx.Strings", s.rel, s.line(call))
 				case isPkgCall(call, stringsName, "Contains") && fn.Name.Name != "containsFold":
@@ -91,6 +94,9 @@ func TestOneCoercion(t *testing.T) {
 			})
 			if stats && isDir && !in(s.rel, "internal/fsx") {
 				t.Errorf("%s:%d: %s checks for a folder with os.Stat; use fsx.IsDir", s.rel, s.line(fn), fn.Name.Name)
+			}
+			if stats && isRegular && !in(s.rel, "internal/fsx") {
+				t.Errorf("%s:%d: %s checks for a file with os.Stat; use fsx.IsFile", s.rel, s.line(fn), fn.Name.Name)
 			}
 		}
 	}
