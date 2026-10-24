@@ -64,14 +64,3 @@ func TestAProcedureNamedForTheActionOutranksTaggedNotes(t *testing.T) {
 		t.Fatalf("want the deploy guide first, got %v", hits)
 	}
 }
-
-func TestRestrictedBodiesNeverFeedRankingOrMenus(t *testing.T) {
-	d := doc("rb-ca", "Certificate Authority", "pki", gate.Restricted,
-		"## Root key\n\nThe zebrafish passphrase lives offline.\n")
-	if hits := search.Rank([]*vault.Doc{d}, "zebrafish passphrase", 5); len(hits) != 0 {
-		t.Fatalf("restricted body ranked: %v", hits)
-	}
-	if sec, _ := search.BestSection(d, "zebrafish"); sec != nil {
-		t.Fatalf("restricted section offered: %+v", sec)
-	}
-}

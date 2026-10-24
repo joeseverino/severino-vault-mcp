@@ -89,9 +89,8 @@ type Backend interface {
 // Opener builds a backend over one vault's config.
 type Opener func(config.Config) (Backend, error)
 
-// Backends are the retrievers a run can score, by name. A new retriever (a
-// qmd BM25 backend, say) is one Opener added here; the cases and metrics stay
-// as they are.
+// Backends are the retrievers a run can score, by name. A new retriever is
+// one Opener added here; the cases and metrics stay as they are.
 var Backends = map[string]Opener{
 	"ours": OpenOurs,
 	"grep": OpenGrep,
@@ -269,12 +268,16 @@ func JSON(reports []Report) *jsonx.Obj {
 	return jsonx.New("ok", true, "limit", Limit, "reports", out)
 }
 
+// runCacheSeconds keeps one loaded index for a whole run, however long: a
+// run never writes the vault, and re-indexing on every find dominates a run's
+// time once the server's own cache window lapses.
+const runCacheSeconds = "86400"
+
 // FixtureConfig is a hermetic config over a fixture vault: no config file,
-// no aliases beyond the fixture's own and no restricted unlock. The index
-// is cached for the run, since nothing writes to the fixture.
+// no aliases beyond the fixture's own and no restricted unlock.
 func FixtureConfig(root string) config.Config {
 	env := config.Hermetic(root)
-	env["SVMC_CACHE_SECONDS"] = "300"
+	env["SVMC_CACHE_SECONDS"] = runCacheSeconds
 	return config.Load("", env)
 }
 
@@ -283,6 +286,7 @@ func FixtureConfig(root string) config.Config {
 func RealConfig(path string) config.Config {
 	env := config.Locked(config.OSEnv())
 	env["SVMC_VAULT_PATH"] = path
+	env["SVMC_CACHE_SECONDS"] = runCacheSeconds
 	return config.Load("", env)
 }
 

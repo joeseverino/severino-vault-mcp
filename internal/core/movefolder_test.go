@@ -13,6 +13,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -35,6 +36,9 @@ func projectVault(t *testing.T) (string, *core.Vault) {
 		t.Helper()
 		front := "doc_id: " + id + "\ntitle: " + strings.TrimSuffix(path.Base(rel), ".md") + "\ndoc_type: " + docType +
 			"\nsystem: Example Service\nenvironment: other\nstatus: " + status + "\nsensitivity: " + sens + "\nlast_reviewed: 2026-09-01"
+		if docType == schema.ReportDocType {
+			front += "\nkind: audit"
+		}
 		if len(related) > 0 {
 			front += "\nrelated_projects:\n  - " + strings.Join(related, "\n  - ")
 		}
@@ -43,7 +47,7 @@ func projectVault(t *testing.T) (string, *core.Vault) {
 	doc(oldProject+"/index.md", "project-widgetry", "architecture_note", "active", "internal", nil,
 		"# Widgetry\n\nSee [[01 Projects/Widgetry/Reports/Widget Audit|the audit]], [the same](Reports/Widget%20Audit.md) and\n"+
 			"![[01 Projects/Widgetry/diagram.png]].\n")
-	doc(oldProject+"/Reports/Widget Audit.md", "report-widget-audit", "decision_record", "active", "internal", []string{"Widgetry"},
+	doc(oldProject+"/Reports/Widget Audit.md", "report-widget-audit", schema.ReportDocType, "active", "internal", []string{"Widgetry"},
 		"# Widget Audit\n\nBack to [[Widgetry/index|the project]]; steps in [the runbook](<../../../03 Runbooks/Widget Runbook.md>).\n")
 	tk.Write(t, filepath.Join(root, oldProject, "diagram.png"), "png\n")
 	doc("03 Runbooks/Widget Runbook.md", "rb-widget-runbook", "runbook", "active", "internal", []string{"Widgetry", "example-other"},
@@ -54,7 +58,7 @@ func projectVault(t *testing.T) (string, *core.Vault) {
 	doc("04 Reference/Widget Secrets.md", "note-widget-secrets", "runbook", "active", "restricted", nil,
 		"Keys for [[01 Projects/Widgetry/index]].\n")
 	doc(retired+"/index.md", "project-gizmo-retired", "architecture_note", "active", "internal", nil, "# Gizmo Retired\n")
-	doc(retired+"/Reports/Gizmo Notes.md", "report-gizmo-notes", "decision_record", "archived", "internal", nil,
+	doc(retired+"/Reports/Gizmo Notes.md", "report-gizmo-notes", schema.ReportDocType, "archived", "internal", nil,
 		"# Gizmo Notes\n\nSee [[01 Projects/Gizmo Retired/index]] and [the runbook](../../../03%20Runbooks/Widget%20Runbook.md#widget-runbook).\n")
 	v := tk.Vault(root)
 	mustOK(t, core.Queue(v, core.QueueArgs{Action: "add", Project: "Widgetry", Kind: "next", Text: new("Ship the widget")}))

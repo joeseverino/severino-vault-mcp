@@ -13,14 +13,20 @@ import (
 )
 
 const (
-	oldReport = "04 Reference/Example Audit — 2026-08-01.md"
-	newReport = "04 Reference/Example Audit — 2026-10-01.md"
+	oldReport = "04 Reference/Reports/Example Audit — 2026-08-01.md"
+	newReport = "04 Reference/Reports/Example Audit — 2026-10-01.md"
 )
 
-func report(t *testing.T, root, rel, id, status string) {
+// report writes a report at rel; docType replaces it, for a doc that is not
+// one.
+func report(t *testing.T, root, rel, id, status string, docType ...string) {
 	t.Helper()
 	title := strings.TrimSuffix(filepath.Base(rel), ".md")
-	tk.Doc(t, filepath.Join(root, rel), "doc_id: "+id+"\ntitle: "+title+"\ndoc_type: decision_record\nsystem: Example Site\n"+
+	kind := "doc_type: report\nkind: audit"
+	if len(docType) > 0 {
+		kind = "doc_type: " + docType[0]
+	}
+	tk.Doc(t, filepath.Join(root, rel), "doc_id: "+id+"\ntitle: "+title+"\n"+kind+"\nsystem: Example Site\n"+
 		"environment: other\nstatus: "+status+"\nsensitivity: internal\nlast_reviewed: 2026-10-01", "# "+title+"\n")
 }
 
@@ -34,7 +40,7 @@ func TestASupersededReportPointsAtItsSuccessor(t *testing.T) {
 	report(t, root, newReport, "report-example-audit-2026-10-01", "active")
 	got := findings(root)
 	if len(got) != 1 || got[0].RelativePath != oldReport || got[0].Severity != "warning" || !strings.Contains(got[0].Message, "superseded_by") {
-		t.Fatalf("a deprecated dated report without a successor: %+v", got)
+		t.Fatalf("a deprecated report without a successor: %+v", got)
 	}
 
 	l := tk.Loader(root)
@@ -58,7 +64,7 @@ func TestASupersededReportPointsAtItsSuccessor(t *testing.T) {
 	for _, f := range findings(root) {
 		byFile[f.RelativePath] += f.Severity + ": " + f.Message
 	}
-	if !strings.Contains(byFile[oldReport], "is itself deprecated") || !strings.Contains(byFile[newReport], "names no superseded_by") {
+	if !strings.Contains(byFile[oldReport], "is deprecated, not live") || !strings.Contains(byFile[newReport], "names no superseded_by") {
 		t.Fatal(byFile)
 	}
 }
@@ -66,7 +72,7 @@ func TestASupersededReportPointsAtItsSuccessor(t *testing.T) {
 func TestASupersededByNamingNoDocIsAnError(t *testing.T) {
 	root := tk.Dir(t)
 	report(t, root, oldReport, "report-example-audit-2026-08-01", "deprecated")
-	tk.Doc(t, filepath.Join(root, newReport), "doc_id: report-example-audit-2026-10-01\ntitle: Example Audit\ndoc_type: decision_record\n"+
+	tk.Doc(t, filepath.Join(root, newReport), "doc_id: report-example-audit-2026-10-01\ntitle: Example Audit\ndoc_type: report\nkind: audit\n"+
 		"system: Example Site\nenvironment: other\nstatus: active\nsensitivity: internal\nsuperseded_by: report-gone", "# Example Audit\n")
 	got := findings(root)
 	var errs []string
@@ -80,12 +86,15 @@ func TestASupersededByNamingNoDocIsAnError(t *testing.T) {
 	}
 }
 
-// An undated deprecated doc is not a report of a series, so it needs no
-// successor.
-func TestAnUndatedDeprecatedDocNeedsNoSuccessor(t *testing.T) {
+// The series rule keys on the type: a deprecated report needs a successor
+// whatever its title says, and a deprecated doc of another type needs none,
+// a date in its title included.
+func TestTheSeriesRuleKeysOnTheReportType(t *testing.T) {
 	root := tk.Dir(t)
-	report(t, root, "04 Reference/Old Example Notes.md", "note-old-example", "deprecated")
-	if got := findings(root); len(got) != 0 {
+	report(t, root, "04 Reference/Reports/Old Example Audit.md", "report-old-example-audit", "deprecated")
+	report(t, root, "04 Reference/Example Plan — 2026-08-01.md", "note-example-plan", "deprecated", "architecture_note")
+	got := findings(root)
+	if len(got) != 1 || got[0].RelativePath != "04 Reference/Reports/Old Example Audit.md" || !strings.Contains(got[0].Message, "names no superseded_by") {
 		t.Fatalf("%+v", got)
 	}
 }

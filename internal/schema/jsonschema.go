@@ -14,10 +14,11 @@ const JSONSchemaDialect = "https://json-schema.org/draft/2020-12/schema"
 // JSONSchema is the profile's frontmatter rules as a JSON Schema (draft
 // 2020-12), derived from Settable, so off-the-shelf validators and editors
 // check a block the way Check does. A task (doc_type: task) is held to the
-// task's required fields and lifecycle through if/then/else. What a schema
-// can't see is left to Check and RefProblems and said in the field's
-// description: a field's path scope, uniqueness across docs, immutability,
-// and whether a doc reference names a doc that exists.
+// task's required fields and lifecycle through if/then/else, and a field
+// only some doc_types carry is held absent on the others. What a schema
+// can't see is left to Check and RefProblems and said in the description: a
+// field's path scope, uniqueness across docs, immutability, whether a doc
+// reference names a doc that exists, and the folder a doc_type lives in.
 func (p *Profile) JSONSchema() *jsonx.Obj {
 	shared, task, doc := jsonx.New(), jsonx.New(), jsonx.New()
 	for _, f := range p.Settable() {
@@ -41,7 +42,7 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 	o := jsonx.New(
 		"$schema", JSONSchemaDialect,
 		"title", p.Name+" frontmatter",
-		"description", "The frontmatter block of a doc in a "+p.Name+" vault. Fields it does not declare are allowed.",
+		"description", "The frontmatter block of a doc in a "+p.Name+" vault. Fields it does not declare are allowed."+p.placementText(),
 		"type", "object",
 		"$defs", jsonx.New("absent", jsonx.New("description", "A value Check treats as not given.", "enum", []any{nil, "", []any{}})),
 		"properties", shared,
@@ -62,10 +63,26 @@ func (p *Profile) JSONSchema() *jsonx.Obj {
 		}
 		perType = append(perType, jsonx.New("if", ofType(name), "then", branch(props, required)))
 	}
+	for _, f := range p.Settable() {
+		if len(f.DocTypes) > 0 {
+			perType = append(perType, jsonx.New("if", jsonx.New("not", ofType(Sorted(f.DocTypes)...)),
+				"then", jsonx.New("properties", jsonx.New(f.Name, absent()))))
+		}
+	}
 	if len(perType) > 0 {
 		o.Set("allOf", perType)
 	}
 	return o
+}
+
+// placementText says where each doc_type with a folder lives, "" when none
+// has one.
+func (p *Profile) placementText() string {
+	var out strings.Builder
+	for _, t := range slices.Sorted(mapKeys(p.DocTypeFolders)) {
+		out.WriteString(" A doc_type " + t + " doc lives in a " + p.DocTypeFolders[t] + " folder, and only those docs do.")
+	}
+	return out.String()
 }
 
 // absent is a value Check treats as not given: null, "", or an empty list.
@@ -127,6 +144,9 @@ func describe(f Field) string {
 	}
 	if f.Scope != "" {
 		parts = append(parts, "Only on docs at "+f.Scope+".")
+	}
+	if len(f.DocTypes) > 0 {
+		parts = append(parts, "Only on doc_type "+strings.Join(Sorted(f.DocTypes), ", ")+".")
 	}
 	if f.Unique {
 		parts = append(parts, "Unique across docs.")

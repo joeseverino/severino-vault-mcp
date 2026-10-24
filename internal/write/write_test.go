@@ -161,3 +161,49 @@ func TestFrontmatterWritersRefuseTraversalAndEscapingSymlinks(t *testing.T) {
 		t.Fatalf("outside file changed: %q", got)
 	}
 }
+
+// An update refuses any problem by validate's rules that the block it would
+// write has and the block before did not, so no write leaves a doc failing
+// validate in a way it didn't before; a problem already there stays
+// editable around.
+func TestAnUpdateRefusesEveryProblemItIntroduces(t *testing.T) {
+	root := tk.Dir(t)
+	l := tk.Loader(root)
+	front := func(docType string) string {
+		return "doc_id: note-example\ntitle: Example\ndoc_type: " + docType + "\nsystem: example\nenvironment: other\nstatus: active\nsensitivity: internal"
+	}
+	runbook := "03 Runbooks/Example.md"
+	tk.Doc(t, filepath.Join(root, runbook), front("runbook"), "# Example\n")
+	for _, c := range []struct {
+		name string
+		rel  string
+		with write.Changes
+		want string
+	}{
+		{"kind on a runbook", runbook, write.With(schema.ReportKindField, "audit"), "kind only applies to doc_type ['report']"},
+		{"a report without its kind", "03 Runbooks/Reports/Example.md", write.With("doc_type", schema.ReportDocType), "missing required field: kind"},
+		{"a report outside a Reports folder", runbook, write.With("doc_type", schema.ReportDocType, schema.ReportKindField, "audit"), "lives in a 'Reports' folder"},
+		{"a queue note without its format", runbook, write.With("doc_type", schema.QueueDocType), "missing required field: " + schema.QueueFormatField},
+	} {
+		full := filepath.Join(root, c.rel)
+		if c.rel != runbook {
+			tk.Doc(t, full, front("runbook"), "# Example\n")
+		}
+		before := tk.Read(t, full)
+		r := write.SetFrontmatter(l, c.rel, c.with, schema.Labs)
+		if r.Bool("ok") || !strings.Contains(r.Str("error"), c.want) {
+			t.Errorf("%s: %s", c.name, jsonx.Compact(r))
+		}
+		if tk.Read(t, full) != before {
+			t.Errorf("%s: a refused update wrote the file", c.name)
+		}
+	}
+
+	// A doc already failing validate (a runbook in a Reports folder, an
+	// unknown environment) still takes an edit that adds nothing new.
+	legacy := "03 Runbooks/Reports/Legacy.md"
+	tk.Doc(t, filepath.Join(root, legacy), strings.NewReplacer("note-example", "note-legacy", "environment: other", "environment: moon").Replace(front("runbook")), "# Legacy\n")
+	if r := write.SetFrontmatter(l, legacy, write.With("title", "Legacy Notes"), schema.Labs); !r.Bool("ok") {
+		t.Fatal(jsonx.Compact(r))
+	}
+}

@@ -27,7 +27,8 @@ func reportVault(t *testing.T) (string, *core.Vault) {
 	report := func(rel, id, title string) {
 		tk.Doc(t, filepath.Join(root, rel), `doc_id: `+id+`
 title: `+title+`
-doc_type: decision_record
+doc_type: report
+kind: audit
 system: Example Site
 environment: other
 status: active

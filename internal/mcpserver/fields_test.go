@@ -67,7 +67,7 @@ func TestFrontmatterToolArgumentsAreTheProfilesFields(t *testing.T) {
 }
 
 // Every field each vault's profile declares is set through set_frontmatter,
-// and the doc then validates.
+// on a doc of a type that may carry it, and the docs then validate.
 func TestEveryDeclaredFieldIsSettableThroughTheServer(t *testing.T) {
 	reg, _ := labsAndEdu(t)
 	s := connect(t, reg)
@@ -79,9 +79,15 @@ func TestEveryDeclaredFieldIsSettableThroughTheServer(t *testing.T) {
 		full := filepath.Join(v.Config.VaultPath, c.rel)
 		tk.Write(t, full, "---\ntitle: Example\n---\n\n# Example\n")
 		tk.RefTargets(t, v.Config.VaultPath, "03 Runbooks", c.profile)
+		docs := []string{full}
 		for _, f := range c.profile.Settable() {
+			rel, full := c.rel, full
+			if carrier := tk.Carrier(t, v.Config.VaultPath, "04 Reference", c.profile, f); carrier != "" {
+				rel, full = carrier, filepath.Join(v.Config.VaultPath, carrier)
+				docs = append(docs, full)
+			}
 			want := tk.Sample(f)
-			r, isErr := call(t, s, "set_frontmatter", map[string]any{"vault": c.vault, "relative_path": c.rel, f.Name: want})
+			r, isErr := call(t, s, "set_frontmatter", map[string]any{"vault": c.vault, "relative_path": rel, f.Name: want})
 			if isErr || !r.Bool("ok") {
 				t.Fatalf("%s %s: %s", c.vault, f.Name, jsonx.Compact(r))
 			}
@@ -93,8 +99,10 @@ func TestEveryDeclaredFieldIsSettableThroughTheServer(t *testing.T) {
 				t.Fatalf("%s %s: wrote %v, want %v", c.vault, f.Name, got, want)
 			}
 		}
-		if _, problems, ok := core.CheckDoc(v, full); !ok || len(problems) > 0 {
-			t.Fatalf("%s: %v", c.vault, problems)
+		for _, doc := range docs {
+			if _, problems, ok := core.CheckDoc(v, doc); !ok || len(problems) > 0 {
+				t.Fatalf("%s %s: %v", c.vault, doc, problems)
+			}
 		}
 	}
 }

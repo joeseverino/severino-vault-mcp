@@ -258,6 +258,41 @@ func RefTargets(t testing.TB, root, dir string, p *schema.Profile) {
 	}
 }
 
+// Carrier writes, under dir in root, a doc that may carry f when only some
+// doc_types may (f.DocTypes): one of the first such type, in the folder that
+// type lives in, carrying every field its type requires but f. It returns
+// the doc's vault-relative path, "" when every doc may carry f.
+func Carrier(t testing.TB, root, dir string, p *schema.Profile, f schema.Field) string {
+	t.Helper()
+	if len(f.DocTypes) == 0 {
+		return ""
+	}
+	docType := schema.Sorted(f.DocTypes)[0]
+	if folder, ok := p.DocTypeFolders[docType]; ok {
+		dir = filepath.Join(dir, folder)
+	}
+	id := p.DocIDPrefixes[0] + "carrier-" + strings.ReplaceAll(f.Name, "_", "-")
+	var block []string
+	for _, name := range p.RequiredFor(docType) {
+		value := ""
+		switch name {
+		case f.Name:
+			continue
+		case "doc_id":
+			value = id
+		case "doc_type":
+			value = docType
+		default:
+			field, _ := p.Field(name)
+			value = fmt.Sprint(Sample(field))
+		}
+		block = append(block, name+": "+value)
+	}
+	rel := filepath.Join(dir, id+".md")
+	Doc(t, filepath.Join(root, rel), strings.Join(block, "\n"), "# "+id+"\n")
+	return filepath.ToSlash(rel)
+}
+
 // Sample is a value a declared field accepts, from its own declaration: its
 // example, first choice or first prefix, else one per kind. A list gets one
 // item.

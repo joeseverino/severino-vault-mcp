@@ -82,9 +82,12 @@ they started with.
   edit an archived doc like any other while it stays archived, and
   `set_frontmatter` registers a bare archive note with `doc_id`, `title`,
   `doc_type` and `status: archived`.
-- A newer report of a series supersedes the old one: on the old one,
-  `set_frontmatter` `superseded_by` to the new doc's doc_id and
-  `status: deprecated`.
+- A report (`doc_type: report`, with `kind`: audit, review, research, pass,
+  session_log or evaluation) is a dated record of one run, written once. It
+  lives in a `Reports/` folder, and only reports do: a plan, decision record
+  or scorecard that keeps changing is a living note elsewhere. A newer report
+  of a series supersedes the old one: on the old one, `set_frontmatter`
+  `superseded_by` to the new doc's doc_id and `status: deprecated`.
 - `task_board` shows open work, best first (`limit`, `status`, `project`),
   and the projects a task can go in; `task_write` adds, moves, promotes or
   deletes tasks, and `items=[...]` makes several changes in one call, each

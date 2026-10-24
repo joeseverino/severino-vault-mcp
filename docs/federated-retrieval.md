@@ -107,7 +107,7 @@ but can't silently rot.
 
 ## Non-goals
 
-- **No embeddings / vector store.** Keyword + section scoring is enough at this
+- **No embeddings / vector store.** BM25 over sections is enough at this
   scale; revisit only if ranking regresses on real queries.
 - **No indexing of code source files.** Only model-facing docs + emitted facts.
 - **No auto-copying repo docs into the vault.** That *is* the copy step we're

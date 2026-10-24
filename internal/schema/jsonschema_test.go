@@ -106,6 +106,7 @@ func brokenBlocks() []block {
 		return fm
 	}
 	const at, index, queue = "03 Runbooks/Example.md", "01 Projects/example/index.md", "01 Projects/example/Queue.md"
+	const report = "01 Projects/example/Reports/Example Audit.md"
 	return []block{
 		{"valid doc", at, doc()},
 		{"empty optional values", at, doc("tags", []any{}, "last_reviewed", "", "effort", nil)},
@@ -136,6 +137,11 @@ func brokenBlocks() []block {
 		{"repo with an owner", index, doc("doc_id", "project-example", "repos", []any{"owner/example"})},
 		{"reserved queue prefix", index, doc("doc_id", "project-example", "queue_prefix", "backlog")},
 		{"uppercase queue prefix", index, doc("doc_id", "project-example", "queue_prefix", "EX")},
+		{"report", report, doc("doc_id", "report-example", "doc_type", schema.ReportDocType, schema.ReportKindField, "audit")},
+		{"report without its kind", report, doc("doc_id", "report-example", "doc_type", schema.ReportDocType)},
+		{"report with an unknown kind", report, doc("doc_id", "report-example", "doc_type", schema.ReportDocType, schema.ReportKindField, "musing")},
+		{"kind on a runbook", at, doc(schema.ReportKindField, "audit")},
+		{"kind on a task", at, task(schema.ReportKindField, "audit")},
 	}
 }
 
@@ -191,6 +197,7 @@ func TestTheEducationJSONSchemaAgreesWithCheck(t *testing.T) {
 func TestTheJSONSchemaDescribesWhatItCannotCheck(t *testing.T) {
 	text := jsonx.Pretty(schema.Labs.JSONSchema())
 	for _, want := range []string{"Only on docs at 01 Projects/*/index.md.", "Unique across docs.", "Names the doc_id of another doc in the vault.",
+		"Only on doc_type report.", "A doc_type report doc lives in a Reports folder, and only those docs do.",
 		`"$schema": "https://json-schema.org/draft/2020-12/schema"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("schema does not say %q", want)

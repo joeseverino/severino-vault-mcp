@@ -132,9 +132,9 @@ func TestBestSectionPicksTheQueryMatchingSpan(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.MultisectionDoc(t, root)
 	d := tk.Loader(root).Index(false).ByDocID["rb-backup-ops"]
-	sec, score := search.BestSection(d, "resolver latency")
-	if sec.Slug != "troubleshooting" || score <= 0 {
-		t.Fatal(sec.Slug, score)
+	hits := search.Rank([]*vault.Doc{d}, "resolver latency", 1)
+	if len(hits) != 1 || hits[0].Section == nil || hits[0].Section.Slug != "troubleshooting" {
+		t.Fatalf("%+v", hits)
 	}
 }
 
