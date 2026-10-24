@@ -78,10 +78,9 @@ binary serves MCP on stdio.
 
 ## Install
 
-Requires Go 1.27. `ripgrep` is needed for `find(by="text")`. Indexing uses
-Go's built-in filesystem walk and needs no external file-listing tool.
-Hidden trees and templates are skipped; Git ignore files do not hide notes
-inside the configured folders.
+Requires Go 1.27 and `ripgrep`, which `find(by="text")` runs. The index
+skips hidden trees and templates; a Git ignore file hides nothing inside a
+configured folder.
 
 Install the binary:
 

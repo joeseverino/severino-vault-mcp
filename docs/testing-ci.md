@@ -46,14 +46,13 @@ cache; a pull request reads it. `check` runs every `check:*` task and
 On a pull request, the `Dependency review` job fails a change that adds or
 bumps a dependency with a known high or critical advisory.
 
-A separate macOS job runs the race suite with the same pinned Go and
-ripgrep. The required Linux gate keeps its existing status-check name.
-Hosted runner labels are versioned. Local tool installation also enforces
-`mise.lock`; `GOTOOLCHAIN=local` prevents a second, implicit Go download.
-`TestToolchainPinsAgree` holds mise's Go to `go.mod`'s language and toolchain.
+A macOS job runs the race suite with the same pinned Go and ripgrep. Runner
+labels name a version. mise installs only what `mise.lock` records, locally
+too, and `GOTOOLCHAIN=local` stops Go from downloading a second toolchain;
+`TestToolchainPinsAgree` holds mise's Go to `go.mod`'s language and
+toolchain lines.
 
-`mise run fix` applies Go's built-in modernizations and formatting. Other
-linters remain in golangci-lint; modernization has one owner, `go fix`.
+`mise run fix` applies `go fix` and `go fmt`.
 
 ### `codeql.yml`: SAST
 
@@ -79,16 +78,15 @@ archives and `SHA256SUMS`. `docs/release-checklist.md` is the procedure.
 
 ### Renovate
 
-[`Dependencies`](dependencies.md) lists every dependency's purpose, the
-pin locations and the update policy. Renovate groups routine updates weekly,
-keeps majors separate, maintains locks and proposes security fixes immediately.
-`govulncheck` checks the currently selected packages and standard library.
+`renovate.json` is the update policy; [Dependencies](dependencies.md) holds
+the choices it cannot state. `govulncheck` checks the selected packages and
+the standard library.
 
 ## What the Tests Cover
 
 - Indexing, the lenient frontmatter parse, duplicate `doc_id` exclusion, aliases.
-- Stable file visibility with or without external tools: hidden trees and
-  templates are skipped, Git ignore files do not override configured folders.
+- Which files the index sees: hidden trees and templates are skipped, and a
+  Git ignore file hides nothing inside a configured folder.
 - Section chunking, ranking, the section menu, section reads.
 - `read_doc` release for `public`, `internal`, `sensitive`; default withholding
   for `restricted`; the one-request 1Password unlock (approved, withheld,

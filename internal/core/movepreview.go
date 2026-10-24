@@ -16,7 +16,7 @@ import (
 
 // previewMove uses the same link transform as a move, against the paths the
 // notes would have afterwards. It writes nothing and never asks to unlock a
-// restricted body. A preview is a snapshot, not a reservation of these paths.
+// restricted body. A preview reserves none of these paths.
 func previewMove(v *Vault, root *fsx.Vault, l *layout, docs []*vault.Doc) *jsonx.Obj {
 	moves, rewrites := []*jsonx.Obj{}, []*jsonx.Obj{}
 	for rel := range l.Paths() {
@@ -95,7 +95,7 @@ func restrictedNote(note frontmatter.Note) bool {
 	return note.FM != nil && gate.Parse(note.FM.Str("sensitivity")) == gate.Restricted
 }
 
-// linkRepair uses write_doc's existing exact-text contract. It only offers
+// linkRepair uses write_doc's exact-text contract. It only offers
 // calls for registered, writable docs; other files remain in failed for an
 // editor to repair. The call refuses if its passage changed or was applied
 // already, rather than rerunning the move against a different layout.
