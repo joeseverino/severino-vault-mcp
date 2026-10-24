@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -149,14 +151,17 @@ func (v *Vault) Remove(p string) error {
 	return v.root.Remove(rel)
 }
 
-// Move moves the note at from to to, the one way this server relocates a
-// file. With folder, the note's whole folder moves instead, to the folder
-// that holds to, so files beside the note go with it. It holds both notes'
-// locks (taken in path order, so two moves never wait on each other), creates
-// the destination's missing parents, and never replaces anything: a
-// destination that exists is ErrExists. A note moves by hard link then unlink,
-// so a crash between the two leaves two copies, never none.
-func (v *Vault) Move(from, to string, folder bool) error {
+// Move moves the file or folder at from to to, the one way this server
+// relocates anything in the vault. A folder moves whole, every file in it
+// (notes, reports, assets) included. Move holds the lock of every note it
+// moves under both its old and its new path (taken in lock-path order, so two
+// moves never wait on each other), creates the destination's missing
+// parents, and never replaces anything: a destination that exists is
+// ErrExists, and so is a folder moved into itself. A note moves by hard link
+// then unlink, so a crash between the two leaves two copies, never none. A
+// folder moves by one rename, which os.Root refuses onto an existing folder
+// and rename(2) onto a non-empty one, so nothing at the destination is lost.
+func (v *Vault) Move(from, to string) error {
 	src, err := v.Rel(from)
 	if err != nil {
 		return err
@@ -165,23 +170,25 @@ func (v *Vault) Move(from, to string, folder bool) error {
 	if err != nil {
 		return err
 	}
-	notes := []string{src, dst}
-	switch {
-	case LockPath(dst) == LockPath(src):
-		notes = notes[:1]
-	case LockPath(dst) < LockPath(src):
-		notes = []string{dst, src}
+	info, err := v.root.Lstat(src)
+	if err != nil {
+		return err
 	}
-	for _, n := range notes {
-		unlock, err := v.Lock(n)
-		if err != nil {
+	dir := info.IsDir()
+	if dir && (dst == src || strings.HasPrefix(dst, src+string(filepath.Separator))) {
+		return fmt.Errorf("%w: %s is inside %s", ErrExists, dst, src)
+	}
+	notes := []string{src}
+	if dir {
+		if notes, err = v.notesUnder(src); err != nil {
 			return err
 		}
-		defer unlock()
 	}
-	if folder {
-		src, dst = filepath.Dir(src), filepath.Dir(dst)
+	unlock, err := v.lockAll(notes, src, dst)
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	if _, err := v.root.Lstat(dst); err == nil {
 		return fmt.Errorf("%w: %s", ErrExists, dst)
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -190,8 +197,14 @@ func (v *Vault) Move(from, to string, folder bool) error {
 	if err := v.root.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if folder {
-		return v.root.Rename(src, dst)
+	if dir {
+		if err := v.root.Rename(src, dst); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("%w: %s", ErrExists, dst)
+			}
+			return err
+		}
+		return nil
 	}
 	if err := v.root.Link(src, dst); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -200,6 +213,49 @@ func (v *Vault) Move(from, to string, folder bool) error {
 		return err
 	}
 	return v.root.Remove(src)
+}
+
+// notesUnder is every markdown file under dir, a clean vault-relative folder.
+func (v *Vault) notesUnder(dir string) ([]string, error) {
+	var out []string
+	err := fs.WalkDir(v.root.FS(), filepath.ToSlash(dir), func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
+			out = append(out, filepath.FromSlash(p))
+		}
+		return nil
+	})
+	return out, err
+}
+
+// lockAll takes the lock of each note, under its path now and under the
+// path it has once src becomes dst, in lock-path order. The returned func
+// releases them all.
+func (v *Vault) lockAll(notes []string, src, dst string) (func(), error) {
+	seen := map[string]string{}
+	for _, n := range notes {
+		seen[LockPath(n)] = n
+		moved := dst + strings.TrimPrefix(n, src)
+		seen[LockPath(moved)] = moved
+	}
+	order := slices.Sorted(maps.Keys(seen))
+	var held []func()
+	release := func() {
+		for _, u := range slices.Backward(held) {
+			u()
+		}
+	}
+	for _, lp := range order {
+		unlock, err := v.Lock(seen[lp])
+		if err != nil {
+			release()
+			return nil, err
+		}
+		held = append(held, unlock)
+	}
+	return release, nil
 }
 
 var tempSeq = func() func() string {

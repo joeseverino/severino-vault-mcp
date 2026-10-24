@@ -506,7 +506,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	target := filedDir(filepath.Dir(d.Path), status)
 	final := filepath.Join(target, filepath.Base(d.Path))
 	if final != d.Path {
-		if err := v.Move(d.Path, final, false); err != nil {
+		if err := v.Move(d.Path, final); err != nil {
 			return jsonx.Fail("write failed: " + err.Error())
 		}
 	}
@@ -533,7 +533,7 @@ func Reconcile(l *vault.Loader) *jsonx.Obj {
 		if filepath.Dir(d.Path) == target {
 			continue
 		}
-		if v.Move(d.Path, filepath.Join(target, filepath.Base(d.Path)), false) == nil {
+		if v.Move(d.Path, filepath.Join(target, filepath.Base(d.Path))) == nil {
 			moved++
 		}
 	}

@@ -24,8 +24,11 @@ var annotations = map[string]*mcp.ToolAnnotations{
 	"write_doc":       {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// A move keeps every byte and never replaces a file; repeating it finds
 	// the doc already there.
-	"move_doc":   {DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: closedWorld},
-	"task_write": {DestructiveHint: new(true), OpenWorldHint: closedWorld},
+	"move_doc": {DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: closedWorld},
+	// A folder move rewrites links and related_projects in other notes;
+	// repeating it finds the folder already gone.
+	"move_folder": {DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: closedWorld},
+	"task_write":  {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// Closing an entry appends to its line and never removes text.
 	"log_entries": {DestructiveHint: new(false), OpenWorldHint: closedWorld},
 	// set replaces an item's text, owner and links.
@@ -104,6 +107,18 @@ var outputSchemas = map[string]json.RawMessage{
 		"wikilinks", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
 			jsonx.New("relative_path", ty("string"), "count", ty("integer")))),
 		"skipped_restricted", textList(), "next_steps", textList(),
+	)),
+	"move_folder": outSchema(jsonx.New(
+		"ok", ty("boolean"), "error", ty("string"), "from", ty("string"), "to", ty("string"),
+		"files", ty("integer"), "docs", ty("integer"),
+		"links", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties",
+			jsonx.New("relative_path", ty("string"), "count", ty("integer")))),
+		"skipped_restricted", textList(),
+		"project", jsonx.New("type", "object", "properties", jsonx.New(
+			"from", ty("string"), "to", ty("string"), "related_projects", textList(), "related_projects_skipped", textList(),
+			"queue", jsonx.New("type", "object", "properties", jsonx.New("doc_id", ty("string"), "relative_path", ty("string"), "title", ty("string"))),
+			"queue_prefix", ty("string"))),
+		"failed", textList(), "next_steps", textList(),
 	)),
 }
 

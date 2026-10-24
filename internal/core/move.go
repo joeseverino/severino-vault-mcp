@@ -16,18 +16,22 @@ import (
 
 // MoveArgs are move_doc's arguments. DocID or RelativePath names the doc; To
 // is a vault-relative .md path, or a folder ending in "/" that keeps the file
-// name. WithFolder moves the doc's whole folder into To, a folder.
+// name. WithFolder moves the doc's whole folder into To, a folder. Archive,
+// for a move into the archive, sets status: archived first.
 type MoveArgs struct {
 	DocID        string
 	RelativePath string
 	To           string
 	WithFolder   bool
+	Archive      bool
 }
 
 // MoveDoc moves or renames a registered doc, keeping its doc_id and
 // frontmatter. Obsidian resolves [[Name]] by unique file name, so a
 // destination whose name another note in the vault already has is refused;
 // links elsewhere that named the old location are reported, never rewritten.
+// A doc moves into the archive only once it is archived (a task: closed);
+// Archive sets status: archived in the same call.
 func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	d, msg, steps := moveSource(v, a)
 	if d == nil {
@@ -38,7 +42,15 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	if msg != "" {
 		return failNext(msg, steps...)
 	}
-	if problems := newProblems(v, d, from, to); len(problems) > 0 {
+	if v.Config.Archived(to) {
+		again := []any{"doc_id", d.DocID, "to", a.To}
+		if a.WithFolder {
+			again = append(again, "with_folder", true)
+		}
+		if refused := archiveReady(v, []*vault.Doc{d}, a.Archive, Call("move_doc", append(again, "archive", true)...)); refused != nil {
+			return refused
+		}
+	} else if problems := newProblems(v, d, from, to); len(problems) > 0 {
 		return failNext(fmt.Sprintf("at %s the frontmatter would not validate: %s", to, strings.Join(problems, "; ")),
 			Call("move_doc", "doc_id", d.DocID, "to", path.Dir(from)+"/")+" or another folder the fields apply to",
 			Call("set_frontmatter", "relative_path", from)+" to drop the fields the error names first")
@@ -47,7 +59,11 @@ func MoveDoc(v *Vault, a MoveArgs) *jsonx.Obj {
 	if err != nil {
 		return failNext("move failed: "+err.Error(), Call("move_doc", "doc_id", d.DocID, "to", a.To)+" again")
 	}
-	err = root.Move(from, to, a.WithFolder)
+	if a.WithFolder {
+		err = root.Move(path.Dir(from), path.Dir(to))
+	} else {
+		err = root.Move(from, to)
+	}
 	_ = root.Close()
 	switch {
 	case errors.Is(err, fsx.ErrExists):
@@ -125,7 +141,7 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 	to := path.Clean(raw)
 	if a.WithFolder {
 		dir := path.Dir(from)
-		if dir == "." || slices.Contains(v.Config.SearchDirs(), dir) {
+		if dir == "." || slices.Contains(v.Config.SearchDirs(), dir) || dir == v.Config.ArchiveDir {
 			return "", fmt.Sprintf("with_folder would move %s, a top-level folder; move the doc alone", pystr.Repr(dir)),
 				[]string{retry(to + "/")}
 		}
@@ -146,8 +162,8 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 	case v.Config.ReadOnlyDir(to) != "":
 		return "", fmt.Sprintf("%s is in %s, and %s are read-only: their notes keep their own frontmatter", to,
 			pystr.Repr(v.Config.ReadOnlyDir(to)), pystr.ReprList(v.Config.ReadOnlyDirs)), []string{v.movable(d, from)}
-	case !vault.IsDocPath(to, v.Config.IndexedDirs):
-		return "", "to must be a .md path under the indexed dirs " + pystr.ReprList(v.Config.IndexedDirs) + ": " + to, []string{v.movable(d, from)}
+	case !vault.IsDocPath(to, v.destinations()):
+		return "", "to must be a .md path under the indexed dirs " + pystr.ReprList(v.destinations()) + ": " + to, []string{v.movable(d, from)}
 	case v.exists(to):
 		return "", "destination exists: " + to, []string{retry(path.Dir(to) + "/" + d.Stem() + " (moved).md")}
 	case a.WithFolder && v.exists(path.Dir(to)):
@@ -162,6 +178,15 @@ func moveTarget(v *Vault, d *vault.Doc, a MoveArgs) (string, string, []string) {
 		}
 	}
 	return to, "", nil
+}
+
+// destinations are the folders a move may land in: the indexed dirs, then
+// the archive.
+func (v *Vault) destinations() []string {
+	if v.Config.ArchiveDir == "" {
+		return v.Config.IndexedDirs
+	}
+	return append(slices.Clone(v.Config.IndexedDirs), v.Config.ArchiveDir)
 }
 
 // uniqueName suggests a file name for d that says which doc it is.

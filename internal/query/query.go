@@ -65,7 +65,8 @@ func SectionMenu(d *vault.Doc, query string) *jsonx.Obj {
 // Clamp bounds n to [lo, hi].
 func Clamp(n, lo, hi int) int { return max(lo, min(n, hi)) }
 
-// Keep narrows a search to the docs it returns true for; nil keeps every doc.
+// Keep narrows a search to the docs it returns true for; nil keeps every
+// doc, the archived ones included.
 type Keep func(*vault.Doc) bool
 
 func (k Keep) docs(all []*vault.Doc) []*vault.Doc {
@@ -86,7 +87,7 @@ func (k Keep) docs(all []*vault.Doc) []*vault.Doc {
 func FindSections(l *vault.Loader, query string, limit int, keep Keep) *jsonx.Obj {
 	idx := l.Index(false)
 	hits := []*jsonx.Obj{}
-	for _, h := range search.Rank(keep.docs(idx.Docs), query, Clamp(limit, 1, maxLimit)) {
+	for _, h := range search.Rank(keep.docs(idx.WithArchived()), query, Clamp(limit, 1, maxLimit)) {
 		o := jsonx.New("score", h.Score).Merge(Hit(h.Doc)).Merge(SectionMenu(h.Doc, query))
 		hits = append(hits, o)
 	}
@@ -190,7 +191,10 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	idx := l.Index(false)
 	root := fsx.Resolve(l.Config.VaultPath)
 	var roots []string
-	for _, sub := range l.Config.SearchDirs() {
+	for _, sub := range append(l.Config.SearchDirs(), l.Config.ArchiveDir) {
+		if sub == "" {
+			continue
+		}
 		r := filepath.Join(root, sub)
 		if fsx.IsDir(r) {
 			roots = append(roots, r)
@@ -273,7 +277,7 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	}
 
 	byPath := map[string]*vault.Doc{}
-	for _, d := range idx.Docs {
+	for _, d := range idx.WithArchived() {
 		byPath[fsx.Resolve(d.Path)] = d
 	}
 	type docHits struct {
@@ -286,6 +290,9 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	restricted, unindexed := 0, 0
 	for _, p := range order {
 		d, ok := byPath[p]
+		if !ok && l.Config.Archived(relTo(root, p)) {
+			continue
+		}
 		if !ok {
 			unindexed++
 			continue
@@ -351,6 +358,15 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	)
 }
 
+// relTo is p, a path ripgrep printed under root, relative to root.
+func relTo(root, p string) string {
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return p
+	}
+	return rel
+}
+
 const maxWordSnippets = 5
 
 // firstMatch is the line number of the first match among snippets.
@@ -403,7 +419,7 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 	}
 	var hits []docHits
 	restricted := 0
-	for _, d := range keep.docs(l.Index(false).Docs) {
+	for _, d := range keep.docs(l.Index(false).WithArchived()) {
 		if !search.Searchable(d) {
 			restricted++
 			continue

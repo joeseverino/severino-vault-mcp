@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "aa209c1bbf060f9be8ba211ccca1fc36d6a079dc70100d7814d72f48e2568d17"
+const labsFingerprint = "a978fb8e0581acd40a0cd16ab0ddcc06108ebdde3b6165acc1082cc90f5c8506"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()

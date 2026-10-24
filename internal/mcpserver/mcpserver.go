@@ -75,7 +75,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "move_doc", "task_board", "task_write", "log_entries", "queue"}
+var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "move_doc", "move_folder", "task_board", "task_write", "log_entries", "queue"}
 
 // ----- schemas ------------------------------------------------------------------
 
@@ -442,6 +442,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"limit", integer(10, "Maximum hits (documents for `text`)."),
 		"context_lines", integer(1, "Lines of context per match, `text` only."),
 		"case_sensitive", boolean("Case-sensitive match, `text` only."),
+		"include_archived", boolean("Also search the archive folder's docs (status archived), left out by default."),
 		"fields", strList("Hit fields as dotted paths (`tags`, `snippets.text`)."),
 	), []string{"query"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
@@ -480,12 +481,16 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
+		archived, err := a.boolean("include_archived")
+		if err != nil {
+			return nil, err
+		}
 		fields, _, err := a.list("fields")
 		if err != nil {
 			return nil, err
 		}
 		return core.Find(v, q, core.FindArgs{By: by, Limit: limit, ContextLines: ctxLines, CaseSensitive: cs,
-			System: system, Project: project, DocType: docType, Fields: fields}), nil
+			System: system, Project: project, DocType: docType, IncludeArchived: archived, Fields: fields}), nil
 	})
 
 	h.add(s, "read_doc", descReadDoc, object(jsonx.New(
@@ -584,6 +589,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"doc_id", optStr("The doc to move (or give relative_path)."),
 		"relative_path", optStr("The doc's current path from the vault root."),
 		"with_folder", boolean("Move the doc's whole folder, files beside it included, into `to` (a folder)."),
+		"archive", boolean("Into the archive: set status: archived first instead of refusing a doc without it."),
 	), []string{"to"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -602,7 +608,37 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if m.WithFolder, err = a.boolean("with_folder"); err != nil {
 			return nil, err
 		}
+		if m.Archive, err = a.boolean("archive"); err != nil {
+			return nil, err
+		}
 		return core.MoveDoc(v, m), nil
+	})
+
+	h.add(s, "move_folder", descMoveFolder, object(jsonx.New(
+		"from", str(`The folder to move, from the vault root ("01 Projects/example-old").`),
+		"to", str(`Its new path from the vault root ("01 Projects/example-new", "99 Archive/example-old").`),
+		"vault", h.vaultProp("Which vault."),
+		"archive", boolean("Into the archive: set status: archived on every doc in the folder first instead of refusing."),
+		"include_restricted", boolean("Also rewrite links inside restricted notes, behind a Touch ID approval through 1Password."),
+	), []string{"from", "to"}), func(a args) (*jsonx.Obj, error) {
+		v, _, err := h.vault(a)
+		if err != nil {
+			return nil, err
+		}
+		var m core.FolderArgs
+		if m.From, err = a.str("from", true, ""); err != nil {
+			return nil, err
+		}
+		if m.To, err = a.str("to", true, ""); err != nil {
+			return nil, err
+		}
+		if m.Archive, err = a.boolean("archive"); err != nil {
+			return nil, err
+		}
+		if m.IncludeRestricted, err = a.boolean("include_restricted"); err != nil {
+			return nil, err
+		}
+		return core.MoveFolder(v, m), nil
 	})
 
 	h.add(s, "task_board", descBoard, object(jsonx.New(
@@ -748,12 +784,12 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		linkProps.Set(k, jsonx.New("type", []string{"string", "null"}))
 	}
 	h.add(s, "queue", descQueue, object(jsonx.New(
-		"action", enum(core.QueueActions, core.QueueActions[0], "list, add, set or close."),
+		"action", enum(core.QueueActions, core.QueueActions[0], "list, add, set, close or reformat."),
 		"vault", h.vaultProp("Which vault."),
 		"project", optStr("The queue's project folder under 01 Projects, or backlog."),
 		"repo", optStr("A repository directory name, resolved through index.md repos."),
 		"cwd", optStr("A working directory, resolved to its repository's project."),
-		"all", boolean("list: every queue."),
+		"all", boolean("list, reformat: every queue."),
 		"id", optStr("set, close: the item's id, e.g. example-3, or its alias."),
 		"alias", optStr("add, set: an old id the item also answers to, such as a task doc_id (\"\" removes it on set). list: only the item with it."),
 		"body", optStr("add, set: the doc_id of the doc holding the item's detail; it must exist (\"\" removes it on set)."),
@@ -774,6 +810,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"claim", boolean("set: take the item for owner only if nobody holds it."),
 		"resolution", optStr("close: one line: repo@sha (comma-separated for repos), a PR, a doc id, or why it was dropped."),
 		"partial", boolean("close: record these repo@sha landings, closing once every repo has one."),
+		"drop_aliases", boolean("reformat: also remove every item's alias."),
 		"fields", strList("list: item fields to return. Default: id, kind, status, owner, text (and project, origin "+
 			"on include_origin); also links (or links.pr), blocked_by, body, alias, agent, repos, resolution."),
 	), nil), func(a args) (*jsonx.Obj, error) {
@@ -824,7 +861,7 @@ func queueArgs(a args) (core.QueueArgs, error) {
 	for _, f := range []struct {
 		name string
 		dst  *bool
-	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}} {
+	}{{"all", &q.All}, {"ready", &q.Ready}, {"claim", &q.Claim}, {"include_origin", &q.IncludeOrigin}, {"partial", &q.Partial}, {"drop_aliases", &q.DropAliases}} {
 		if *f.dst, err = a.boolean(f.name); err != nil {
 			return q, err
 		}
@@ -992,8 +1029,26 @@ indexed folders or inside a read-only one, and a file name another note in
 the vault already has (Obsidian resolves [[Name]] by unique file name). A
 rename in the same folder is how a shared name like Audit.md gets a unique
 one. with_folder moves the doc's folder, evidence files included, into to.
+The archive (99 Archive) takes only archived docs: status archived, or a
+closed task; archive=true sets status: archived first. find leaves archived
+docs out unless include_archived=true.
 wikilinks lists the notes whose [[links]] named the old location, with a
 count each; fix them with write_doc. Other notes are never rewritten.`
+
+const descMoveFolder = `Move or rename a folder with everything in it (notes, Reports/, assets), then point every link at the new path.
+
+Afterwards each [[path/link]], ![[embed]] and [text](path) anywhere in the
+vault that named a file in the folder by path names its new path, and a
+relative link the move broke is recomputed; links by file name alone need
+nothing. links lists each rewritten note with a count. Restricted notes are
+rewritten only with include_restricted and Touch ID, else listed in
+skipped_restricted. Refused: a destination that exists, one outside the
+indexed folders and the archive, and a read-only folder.
+A project renamed under 01 Projects also updates every related_projects entry
+naming the old slug and retitles its queue note; doc_ids and queue item ids
+never change, and an index.md without queue_prefix gets the old slug pinned
+so new items keep their prefix. Into 99 Archive every doc must be archived
+(a task: closed); archive=true sets status: archived first.`
 
 const descLogEntries = `Work an append-only log note: one top-level bullet per entry, closed once
 its line carries " → " and a resolution.
@@ -1022,7 +1077,10 @@ add: kind and text; returns the new id. alias keeps an old id the item
 set: id (or agent) and what changes; claim=true with owner takes an
     unowned item atomically.
 close: id (or agent) and resolution; status=dropped for work not done. An
-    item with repos closes once each has a repo@sha; partial=true adds some.`
+    item with repos closes once each has a repo@sha; partial=true adds some.
+reformat: rewrite the named queue (or all=true) in the current line
+    grammar; idempotent, and returns the notes it changed. drop_aliases=true
+    also removes every alias.`
 
 const descBoard = `A vault's task board: open work, counts, recently shipped, and the projects tasks can go in.`
 

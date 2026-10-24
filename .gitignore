@@ -27,3 +27,6 @@ Thumbs.db
 
 # Eval cases for the real vault: real doc ids and titles are private
 /evals/local/
+
+# Scratch scripts the house rules point workers at.
+/var/

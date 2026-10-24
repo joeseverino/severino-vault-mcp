@@ -60,6 +60,7 @@ Shared, each taking `vault`:
 | `find` | Find docs in a vault. Use this first for any question the vault may answer. |
 | `log_entries` | Work an append-only log note: one top-level bullet per entry, closed once its line carries " → " and a resolution. |
 | `move_doc` | Move or rename a registered doc; its doc_id and frontmatter stay as they are. |
+| `move_folder` | Move or rename a folder with everything in it (notes, Reports/, assets), then point every link at the new path. |
 | `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), parked, closed, dropped; a box ticked in Obsidian reads as closed. |
 | `read_doc` | Read a vault doc's markdown body, gated by its sensitivity. |
 | `set_frontmatter` | Create or update a doc's frontmatter, validated against the vault's schema. |
@@ -146,6 +147,7 @@ override the labs config:
 |---|---|---|
 | `SVMC_VAULT_PATH` | `~/Documents/vault` | Vault root |
 | `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks:07 Backlog` | Folders the loader indexes |
+| `SVMC_ARCHIVE_DIR` | `99 Archive` with the default indexed dirs, else unset | The archive: indexed apart, left out of `find` unless `include_archived` |
 | `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Phrase to `doc_id` aliases |
 | `SVMC_CACHE_SECONDS` | `30` | How long the index stays warm |
 | `SVMC_RESTRICTED_UNLOCK_REF` | unset | `op://` reference to the 1Password unlock item; unset keeps restricted bodies withheld |

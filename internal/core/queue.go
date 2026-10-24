@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
@@ -24,12 +25,14 @@ import (
 
 // A project's work queue is one note, <project folder>/Queue.md, with an
 // ## Open and a ## Closed section of item lines (internal/queue holds the
-// grammar). Every change rewrites the note through write.EditBodyUnindexed,
+// grammar). Every change rewrites the note through write.EditNoteUnindexed,
 // so it runs under the note's lock and re-reads the note before replacing
-// it; ids are allocated and claims checked inside that locked edit.
+// it; ids are allocated and claims checked inside that locked edit, which
+// refuses a note this binary does not fully read (queueBody.writable) and
+// stamps the line format it wrote (queue_format).
 
 // QueueActions are the queue tool's actions; the first is the default.
-var QueueActions = []string{"list", "add", "set", "close"}
+var QueueActions = []string{"list", "add", "set", "close", "reformat"}
 
 // Queue note layout.
 const (
@@ -70,6 +73,7 @@ type QueueArgs struct {
 	Limit              int
 	Claim              bool
 	Resolution         string
+	DropAliases        bool
 	View
 }
 
@@ -109,6 +113,8 @@ func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
 		return s.set(a)
 	case "close":
 		return s.close(a)
+	case "reformat":
+		return s.reformat(a)
 	}
 	return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(QueueActions, ", ")),
 		qcall("action", "list", "all", true))
@@ -122,16 +128,27 @@ type queueProject struct {
 	name, dir, prefix string
 	repos             []string
 	problem           string // why this project's index.md cannot name its queue
+	id                string // the queue note's own doc_id, "" before it exists
 }
 
-func (p queueProject) rel() string   { return path.Join(p.dir, queueFile) }
-func (p queueProject) docID() string { return schema.QueueDocIDPrefix + sections.Slugify(p.name) }
+func (p queueProject) rel() string { return path.Join(p.dir, queueFile) }
+
+// docID is the queue note's doc_id: its own once it exists, since a doc_id
+// never changes and a renamed project keeps the one its queue was created
+// with.
+func (p queueProject) docID() string {
+	if p.id != "" {
+		return p.id
+	}
+	return schema.QueueDocIDPrefix + sections.Slugify(p.name)
+}
 
 type queueStore struct {
 	v        *Vault
 	root     *fsx.Vault
 	projects []queueProject      // by folder name, the backlog last
 	docs     map[string]queueDoc // reads, by project name, for this call
+	links    *noteLinks
 }
 
 func openQueues(v *Vault) (*queueStore, error) {
@@ -139,7 +156,8 @@ func openQueues(v *Vault) (*queueStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &queueStore{v: v, root: root, docs: map[string]queueDoc{}}
+	s := &queueStore{v: v, root: root, docs: map[string]queueDoc{},
+		links: newNoteLinks(func() *vault.Index { return v.Loader.Index(false) })}
 	entries, _ := os.ReadDir(filepath.Join(v.Config.VaultPath, tasks.ProjectsDir))
 	for _, e := range entries {
 		dir := path.Join(tasks.ProjectsDir, e.Name())
@@ -156,6 +174,9 @@ func openQueues(v *Vault) (*queueStore, error) {
 // readProject reads the queue_prefix and repos keys of dir/index.md.
 func (s *queueStore) readProject(name, dir string) queueProject {
 	p := queueProject{name: name, dir: dir, prefix: sections.Slugify(name)}
+	if q, err := s.root.ReadNote(p.rel()); err == nil && q.FM != nil {
+		p.id = q.FM.Text("doc_id")
+	}
 	note, err := s.root.ReadNote(path.Join(dir, "index.md"))
 	if err != nil {
 		return p
@@ -265,23 +286,19 @@ func cmpBool(a, b bool) int {
 	return -1
 }
 
-// topNumber is the largest n among items prefix-n in every queue but p's, so
-// a new id never repeats one another queue issued under the same prefix
-// before a queue_prefix changed. p's own ids are counted under its lock.
+// topNumber is the largest n among the ids prefix-n written in every queue
+// note but p's, read from the text so a line that does not parse, or a
+// restricted note, still counts: a new id never repeats one another queue
+// issued under the same prefix before a queue_prefix changed. p's own ids are
+// counted under its lock.
 func (s *queueStore) topNumber(p queueProject) int {
 	top := 0
 	for _, q := range s.projects {
 		if q.name == p.name {
 			continue
 		}
-		d := s.cached(q)
-		if !d.readable() {
-			continue
-		}
-		for _, x := range d.body.items {
-			if pre, n, ok := queue.SplitID(x.it.ID); ok && pre == p.prefix && n > top {
-				top = n
-			}
+		if d := s.cached(q); d.exists {
+			top = max(top, queue.Top(d.body.String(), p.prefix))
 		}
 	}
 	return top
@@ -414,7 +431,8 @@ func repoCandidates(cwd string) []string {
 type queueBody struct {
 	*sections.Body
 	items    []bodyItem
-	unparsed int
+	unparsed []int // line indexes that start "- [" and do not parse
+	links    *noteLinks
 }
 
 type bodyItem struct {
@@ -422,23 +440,85 @@ type bodyItem struct {
 	it queue.Item
 }
 
-func parseBody(body string) *queueBody {
-	b := &queueBody{Body: sections.NewBody(body)}
+func parseBody(body string, links *noteLinks) *queueBody {
+	b := &queueBody{Body: sections.NewBody(body), links: links}
 	b.scan()
 	return b
 }
 
 func (b *queueBody) scan() {
-	b.items, b.unparsed = nil, 0
+	b.items, b.unparsed = nil, nil
 	for i, l := range b.Lines {
 		if !strings.HasPrefix(l, "- [") {
 			continue
 		}
 		if it, ok := queue.Parse(l); ok {
+			b.links.resolve(&it)
 			b.items = append(b.items, bodyItem{at: i, it: it})
 		} else {
-			b.unparsed++
+			b.unparsed = append(b.unparsed, i)
 		}
+	}
+}
+
+// noteLinks maps a body's doc_id to the note name its link writes, and back,
+// from the vault index, which it reads only once an item has a body.
+type noteLinks struct {
+	load         func() *vault.Index
+	names, byKey map[string]string
+}
+
+func newNoteLinks(load func() *vault.Index) *noteLinks { return &noteLinks{load: load} }
+
+// build names each indexed doc by its file name without .md, as Obsidian
+// resolves a link, or by its vault path without .md where another doc
+// shares that file name.
+func (l *noteLinks) build() {
+	if l.names != nil {
+		return
+	}
+	l.names, l.byKey = map[string]string{}, map[string]string{}
+	docs := l.load().Docs
+	count := map[string]int{}
+	for _, d := range docs {
+		count[path.Base(noteKey(d.RelativePath))]++
+	}
+	for _, d := range docs {
+		key := noteKey(d.RelativePath)
+		name := path.Base(key)
+		if count[name] > 1 {
+			name = key
+		} else {
+			l.byKey[name] = d.DocID
+		}
+		l.byKey[key] = d.DocID
+		if queue.ValidBodyLink(name) {
+			l.names[d.DocID] = name
+		}
+	}
+}
+
+func noteKey(rel string) string { return strings.TrimSuffix(filepath.ToSlash(rel), ".md") }
+
+// name is the note name a link to docID writes, or "" when it has none.
+func (l *noteLinks) name(docID string) string {
+	if docID == "" {
+		return ""
+	}
+	l.build()
+	return l.names[docID]
+}
+
+// resolve fills it's body from its link, or its link from its body, so a
+// line with either reads back the doc_id and writes the link. A link to no
+// indexed doc stays as written and carries no body.
+func (l *noteLinks) resolve(it *queue.Item) {
+	switch {
+	case it.BodyLink != "":
+		l.build()
+		it.Body = l.byKey[it.BodyLink]
+	case it.Body != "":
+		it.BodyLink = l.name(it.Body)
 	}
 }
 
@@ -478,6 +558,64 @@ func (b *queueBody) put(i int, it queue.Item) {
 	b.appendTo(section, line)
 }
 
+// skewStep is the next step for a note written in a format this server does
+// not read in full.
+const skewStep = "this server may be older than the note's format: reconnect it (/mcp) or upgrade the binary"
+
+// writable refuses a write to a note this binary does not fully understand:
+// a queue_format newer than it knows, or an item-shaped line under ## Open or
+// ## Closed that it cannot parse. Writing past either would rewrite lines it
+// misread, and count ids from items it cannot see.
+func (b *queueBody) writable(rel, format string) *jsonx.Obj {
+	if err := queue.CheckVersion(format); err != nil {
+		return failNext(rel+": "+err.Error()+"; nothing was written", skewStep)
+	}
+	for _, at := range b.unparsed {
+		if s := b.queueSection(at); !queue.ItemShaped(b.Lines[at]) || s != queueOpen && s != queueClosed {
+			continue
+		}
+		return failNext(fmt.Sprintf("%s: the item line %s does not parse in queue format %d; nothing was written", rel, pystr.Repr(b.Lines[at]), queue.Version),
+			skewStep, "if the line was typed by hand, fix or remove it in the note, then retry")
+	}
+	return nil
+}
+
+// duplicateID is the first id written as an id field on more than one item
+// line, or "".
+func (b *queueBody) duplicateID() string {
+	seen := map[string]bool{}
+	for _, l := range b.Lines {
+		if !queue.ItemShaped(l) {
+			continue
+		}
+		for _, id := range queue.IDsIn(l) {
+			if seen[id] {
+				return id
+			}
+			seen[id] = true
+		}
+	}
+	return ""
+}
+
+// queueSection is the text of the ## heading whose section holds line at,
+// through any deeper headings, or "".
+func (b *queueBody) queueSection(at int) string {
+	out := ""
+	for _, h := range b.Headings() {
+		if h.Line >= at {
+			break
+		}
+		switch {
+		case h.Level == queueLevel:
+			out = h.Text
+		case h.Level < queueLevel:
+			out = ""
+		}
+	}
+	return out
+}
+
 // sectionOf is the text of the ## heading line at sits directly under, or "".
 func (b *queueBody) sectionOf(at int) string {
 	if h, ok := b.Under(at); ok && h.Level == queueLevel {
@@ -491,11 +629,12 @@ type queueDoc struct {
 	p          queueProject
 	exists     bool
 	restricted bool
+	format     string // queue_format as written, "" when absent
 	body       *queueBody
 }
 
 func (s *queueStore) read(p queueProject) (queueDoc, error) {
-	d := queueDoc{p: p, body: parseBody("")}
+	d := queueDoc{p: p, body: parseBody("", s.links)}
 	note, err := s.root.ReadNote(p.rel())
 	if os.IsNotExist(err) {
 		return d, nil
@@ -507,8 +646,9 @@ func (s *queueStore) read(p queueProject) (queueDoc, error) {
 	if note.FM != nil {
 		sens, _ := note.FM.Get("sensitivity")
 		d.restricted = !gate.Releasable(gate.Parse(pystr.Str(sens)))
+		d.format = note.FM.Text(schema.QueueFormatField)
 	}
-	d.body = parseBody(note.Text[note.Offset:])
+	d.body = parseBody(note.Text[note.Offset:], s.links)
 	return d, nil
 }
 
@@ -529,16 +669,34 @@ func (s *queueStore) readWritable(p queueProject) (queueDoc, *jsonx.Obj) {
 	return d, nil
 }
 
+// currentFormat is queue_format as this binary writes it.
+var currentFormat = strconv.Itoa(queue.Version)
+
 // change rewrites p's queue under its lock. edit gets the body as it is on
 // disk at that moment and may run more than once; it returns a failure, or
-// nil once it has changed the body.
+// nil once it has changed the body. A note this binary does not fully read
+// is refused before edit runs, a body that would carry an id twice is
+// refused after, and the note is stamped with the format it was written in.
 func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) *jsonx.Obj {
-	out := write.EditBodyUnindexed(s.v.Loader, p.rel(), s.v.Profile, func(body, _ string) (string, *jsonx.Obj) {
-		b := parseBody(body)
-		if f := edit(b); f != nil {
-			return "", f
+	out := write.EditNoteUnindexed(s.v.Loader, p.rel(), s.v.Profile, func(fm *jsonx.Obj, body, _ string) (string, []write.HeadField, *jsonx.Obj) {
+		b := parseBody(body, s.links)
+		format := fm.Text(schema.QueueFormatField)
+		if f := b.writable(p.rel(), format); f != nil {
+			return "", nil, f
 		}
-		return b.String(), nil
+		if f := edit(b); f != nil {
+			return "", nil, f
+		}
+		if id := b.duplicateID(); id != "" {
+			return "", nil, failNext(fmt.Sprintf("%s would carry id %s on more than one item line; an id never repeats, so nothing was written", p.rel(), pystr.Repr(id)),
+				"give one of those lines a new id by hand in the note, then retry; "+
+					qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" shows the ids in use")
+		}
+		var stamp []write.HeadField
+		if format != currentFormat {
+			stamp = []write.HeadField{{Key: schema.QueueFormatField, Value: currentFormat}}
+		}
+		return b.String(), stamp, nil
 	})
 	if !out.Failed() {
 		return nil
@@ -568,7 +726,7 @@ func (s *queueStore) create(p queueProject) *jsonx.Obj {
 	}
 	r := write.CreateDoc(s.v.Loader, p.rel(), "# "+title+"\n\n## "+queueOpen+"\n\n## "+queueClosed+"\n", write.With(
 		"doc_id", p.docID(), "title", title, "doc_type", schema.QueueDocType, "system", p.name,
-		"tags", []string{"queue"}, "related_projects", related,
+		"tags", []string{"queue"}, "related_projects", related, schema.QueueFormatField, queue.Version,
 	), s.v.Profile)
 	return guide(r, s.v.createSteps(p.rel(), p.docID()))
 }
@@ -627,8 +785,8 @@ func owner(s string) string {
 // anything is read.
 func checkInput(a QueueArgs) error {
 	if a.Owner != nil {
-		if o := owner(*a.Owner); o != "" && !queue.ValidToken(o) {
-			return fmt.Errorf("owner %s must be %s", pystr.Repr(o), queue.TokenRule)
+		if o := owner(*a.Owner); o != "" && !queue.ValidOwner(o) {
+			return fmt.Errorf("owner %s must be %s", pystr.Repr(o), queue.OwnerRule)
 		}
 	}
 	for k, v := range a.Links {
@@ -807,13 +965,15 @@ func (s *queueStore) checkRefs(a QueueArgs, self string) error {
 	return nil
 }
 
-// setRefs applies a given alias and body to it; "" removes one.
-func setRefs(it *queue.Item, a QueueArgs) {
+// setRefs applies a given alias and body to it; "" removes one. A body is
+// written as a link to its note.
+func (s *queueStore) setRefs(it *queue.Item, a QueueArgs) {
 	if a.Alias != nil {
 		it.Alias = pystr.Strip(*a.Alias)
 	}
 	if a.Body != nil {
 		it.Body = pystr.Strip(*a.Body)
+		it.BodyLink = s.links.name(it.Body)
 	}
 }
 
@@ -862,11 +1022,8 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 	var item queue.Item
 	floor := s.topNumber(p)
 	if f := s.change(p, func(b *queueBody) *jsonx.Obj {
-		top := floor
+		top := max(floor, queue.Top(b.String(), p.prefix))
 		for _, x := range b.items {
-			if pre, n, ok := queue.SplitID(x.it.ID); ok && pre == p.prefix && n > top {
-				top = n
-			}
 			if a.Agent != "" && x.it.Agent == a.Agent && !queue.Done(x.it.Status) {
 				return failNext(fmt.Sprintf("agent %s already has %s", pystr.Repr(a.Agent), x.it.ID),
 					qcall("action", "set", "agent", a.Agent)+" to change that item instead")
@@ -879,7 +1036,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 			item.Owner = owner(*a.Owner)
 		}
 		applyLinks(&item, a.Links)
-		setRefs(&item, a)
+		s.setRefs(&item, a)
 		if err := item.Validate(); err != nil {
 			return failNext(err.Error(), retry("with what the error names fixed"))
 		}
@@ -1028,7 +1185,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			it.Text = pystr.Strip(*a.Text)
 		}
 		applyLinks(it, a.Links)
-		setRefs(it, a)
+		s.setRefs(it, a)
 		if a.HasBlockedBy {
 			it.BlockedBy = blockedBy
 		}
@@ -1156,6 +1313,97 @@ func recorded(resolution, given string) bool {
 	return !slices.ContainsFunc(queue.SplitList(given), func(e string) bool { return !slices.Contains(have, e) })
 }
 
+// lineEdit is one item line a reformat rewrites.
+type lineEdit struct {
+	at   int
+	line string
+}
+
+// reformatted are the item lines of b that Format writes differently,
+// without their aliases when drop is set. A line that does not parse is left
+// as it is.
+func (b *queueBody) reformatted(drop bool) (edits []lineEdit, aliases int) {
+	for _, x := range b.items {
+		it := x.it
+		if drop && it.Alias != "" {
+			it.Alias = ""
+			aliases++
+		}
+		if line := queue.Format(it); line != b.Lines[x.at] {
+			edits = append(edits, lineEdit{x.at, line})
+		}
+	}
+	return edits, aliases
+}
+
+// reformat rewrites every item line of the queues named (by project, repo or
+// cwd, or all) in the current format, through the locked write path, and
+// stamps it with that format; a note already in it is not written at all.
+func (s *queueStore) reformat(a QueueArgs) *jsonx.Obj {
+	scoped := a.Project != "" || a.Repo != "" || a.Cwd != ""
+	var targets []queueProject
+	switch {
+	case a.All && scoped:
+		return failNext("give all, or one of project, repo or cwd", qcall("action", "reformat", "all", true))
+	case a.All:
+		targets = s.projects
+	case !scoped:
+		return failNext("name the queue: give project, repo or cwd, or all=true", qcall("action", "reformat", "all", true))
+	default:
+		p, _, f := s.resolve(a)
+		if f != nil {
+			return f
+		}
+		targets = []queueProject{p}
+	}
+	changed, skipped := []*jsonx.Obj{}, []string{}
+	unparsed, dropped := 0, 0
+	for _, p := range targets {
+		d := s.cached(p)
+		if d.restricted {
+			skipped = append(skipped, p.docID())
+		}
+		if !d.readable() {
+			continue
+		}
+		// A note with nothing to rewrite is still refused when this binary
+		// does not fully read it, so its lines are never reported current.
+		if f := d.body.writable(p.rel(), d.format); f != nil {
+			return f.Set("changed", changed)
+		}
+		if edits, _ := d.body.reformatted(a.DropAliases); len(edits) == 0 && d.format == currentFormat {
+			unparsed += len(d.body.unparsed)
+			continue
+		}
+		lines, aliases, left := 0, 0, 0
+		if f := s.change(p, func(b *queueBody) *jsonx.Obj {
+			var edits []lineEdit
+			edits, aliases = b.reformatted(a.DropAliases)
+			for _, e := range edits {
+				b.Lines[e.at] = e.line
+			}
+			lines, left = len(edits), len(b.unparsed)
+			return nil
+		}); f != nil {
+			return f.Set("changed", changed)
+		}
+		unparsed += left
+		dropped += aliases
+		changed = append(changed, jsonx.New("project", p.name, "relative_path", p.rel(), "lines", lines))
+	}
+	out := jsonx.New("ok", true, "count", len(changed), "changed", changed)
+	if a.DropAliases {
+		out.Set("aliases_dropped", dropped)
+	}
+	if len(skipped) > 0 {
+		out.Set("skipped_restricted", skipped)
+	}
+	if unparsed > 0 {
+		out.Set("unparsed_lines", unparsed)
+	}
+	return out
+}
+
 // boardQueue is the open and returned items of every queue, or of project's
 // when it names one, as task_board shows them.
 func boardQueue(v *Vault, project string) []*jsonx.Obj {
@@ -1263,7 +1511,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 			continue
 		}
 		if home {
-			unparsed += d.body.unparsed
+			unparsed += len(d.body.unparsed)
 		}
 		for _, x := range d.body.items {
 			it := x.it

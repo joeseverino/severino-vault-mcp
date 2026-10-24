@@ -655,6 +655,8 @@ var Labs = &Profile{
 		{Name: "queue_prefix", Kind: KindString, Scope: projectIndex, Unique: true, Pattern: `[a-z][a-z0-9]{0,11}`,
 			Shape: "lowercase letters and digits, starting with a letter, at most 12 characters", Reserved: []string{"backlog"},
 			Example: "hq", Help: "The id prefix of this project's work queue items."},
+		{Name: QueueFormatField, Kind: KindInteger, Minimum: new(1), Example: "1",
+			Help: "The item line format a work queue note is written in; the queue tool writes it and refuses to write a note whose format is newer than it knows."},
 		{Name: "superseded_by", Kind: KindString, DocRef: true, Example: "report-example-audit-2026-10-01",
 			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
 	},
@@ -664,10 +666,12 @@ var Labs = &Profile{
 	},
 }
 
-// QueueDocType and QueueDocIDPrefix mark a work queue note in the labs profile.
+// QueueDocType and QueueDocIDPrefix mark a work queue note in the labs
+// profile; QueueFormatField is the note's line format version.
 const (
 	QueueDocType     = "queue"
 	QueueDocIDPrefix = "queue-"
+	QueueFormatField = "queue_format"
 )
 
 // Education is the coursework profile.

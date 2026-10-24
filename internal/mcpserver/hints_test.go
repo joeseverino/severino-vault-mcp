@@ -26,7 +26,7 @@ func TestCoreToolsCarryHonestAnnotations(t *testing.T) {
 		if a.ReadOnlyHint != readOnly {
 			t.Errorf("%s readOnlyHint %v", name, a.ReadOnlyHint)
 		}
-		destructive := slices.Contains([]string{"set_frontmatter", "write_doc", "task_write", "queue"}, name)
+		destructive := slices.Contains([]string{"set_frontmatter", "write_doc", "move_folder", "task_write", "queue"}, name)
 		if !readOnly && (a.DestructiveHint == nil || *a.DestructiveHint != destructive) {
 			t.Errorf("%s destructiveHint %v, want %v", name, a.DestructiveHint, destructive)
 		}

@@ -66,7 +66,7 @@ func TestTheFirstAddCreatesAQueueThatValidates(t *testing.T) {
 		t.Fatal(second)
 	}
 	note := tk.Read(t, filepath.Join(root, trackerQueue))
-	if !strings.Contains(note, "## Open\n\n- [ ] Write the store  [kind:: next]  [branch:: pass/queue]  [id:: ex-1]\n- [ ] Ship it?  [kind:: decision]  [id:: ex-2]\n\n## Closed\n") {
+	if !strings.Contains(note, "## Open\n\n- [ ] Write the store #queue/next  [branch:: pass/queue]  [id:: ex-1]\n- [ ] Ship it? #queue/decision  [id:: ex-2]\n\n## Closed\n") {
 		t.Fatal(note)
 	}
 	if _, problems, ok := core.CheckDoc(v, filepath.Join(root, trackerQueue)); !ok || len(problems) > 0 {
@@ -175,7 +175,7 @@ func TestCloseMovesTheLineToClosedAndSetReopensIt(t *testing.T) {
 	note := tk.Read(t, filepath.Join(root, trackerQueue))
 	open, closed, _ := strings.Cut(note, "## Closed")
 	if !strings.Contains(open, "[id:: "+keep+"]") || strings.Contains(open, "[id:: "+done+"]") ||
-		!strings.Contains(closed, "\n- [x] Gets done  [kind:: next]  [resolution:: example-tracker@abc1234]  [id:: "+done+"]\n") {
+		!strings.Contains(closed, "\n- [x] Gets done #queue/next  [resolution:: example-tracker@abc1234]  [id:: "+done+"]\n") {
 		t.Fatal(note)
 	}
 	if strings.Contains(note, "\n\n\n") {
@@ -188,7 +188,7 @@ func TestCloseMovesTheLineToClosedAndSetReopensIt(t *testing.T) {
 	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: done, Status: "open"}))
 	note = tk.Read(t, filepath.Join(root, trackerQueue))
 	open, _, _ = strings.Cut(note, "## Closed")
-	if !strings.Contains(open, "- [ ] Gets done  [kind:: next]  [id:: "+done+"]\n") {
+	if !strings.Contains(open, "- [ ] Gets done #queue/next  [id:: "+done+"]\n") {
 		t.Fatal(note)
 	}
 }
@@ -201,8 +201,8 @@ func TestABoxTickedInObsidianClosesTheItemAndSurvivesTheNextWrite(t *testing.T) 
 	blocked := add(t, v, "Example Tracker", "next", "Waits on it", func(a *core.QueueArgs) { a.BlockedBy = []string{first} })
 	path := filepath.Join(root, trackerQueue)
 	note := tk.Read(t, path)
-	line := "- [ ] Ticked by hand  [kind:: next]  [id:: " + first + "]"
-	ticked := "- [x] Ticked by hand  [kind:: next]  [id:: " + first + "]  [completion:: 2026-10-22]"
+	line := "- [ ] Ticked by hand #queue/next  [id:: " + first + "]"
+	ticked := "- [x] Ticked by hand #queue/next  [id:: " + first + "]  [completion:: 2026-10-22]"
 	if !strings.Contains(note, line+"\n") {
 		t.Fatal(note)
 	}
@@ -220,7 +220,7 @@ func TestABoxTickedInObsidianClosesTheItemAndSurvivesTheNextWrite(t *testing.T) 
 	// close records a resolution, keeps the date, and files the line under ## Closed.
 	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", ID: first, Resolution: "example-tracker@abc1234"}))
 	_, closed, _ := strings.Cut(tk.Read(t, path), "## Closed")
-	if !strings.Contains(closed, "- [x] Ticked by hand  [kind:: next]  [resolution:: example-tracker@abc1234]  [id:: "+first+"]  [completion:: 2026-10-22]\n") {
+	if !strings.Contains(closed, "- [x] Ticked by hand #queue/next  [resolution:: example-tracker@abc1234]  [id:: "+first+"]  [completion:: 2026-10-22]\n") {
 		t.Fatal(tk.Read(t, path))
 	}
 }
@@ -275,7 +275,7 @@ func TestACwdResolvesThroughItsRepoToTheProject(t *testing.T) {
 	if r.Str("project") != "backlog" || r.Str("id") != "backlog-1" || r.Str("doc_id") != "queue-backlog" {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if !strings.Contains(tk.Read(t, filepath.Join(root, "07 Backlog/Queue.md")), "- [ ] Nowhere  [kind:: next]  [id:: backlog-1]") {
+	if !strings.Contains(tk.Read(t, filepath.Join(root, "07 Backlog/Queue.md")), "- [ ] Nowhere #queue/next  [id:: backlog-1]") {
 		t.Fatal("the backlog queue was not written")
 	}
 }
@@ -388,7 +388,7 @@ func TestAMultiRepoItemClosesWhenEveryRepoHasLanded(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if open, _, _ := strings.Cut(tk.Read(t, filepath.Join(root, trackerQueue)), "## Closed"); !strings.Contains(open,
-		"- [ ] Span  [kind:: delegated]  [agent:: w2]  [repos:: example-a,example-b]  [resolution:: example-a@abc1234]  [id:: "+id+"]") {
+		"- [ ] Span #queue/delegated  [agent:: w2]  [repos:: example-a,example-b]  [resolution:: example-a@abc1234]  [id:: "+id+"]") {
 		t.Fatal(tk.Read(t, filepath.Join(root, trackerQueue)))
 	}
 	if r := mustOK(t, closeIt(true, "example-a@abc1234")); !r.Bool("no_op") {
@@ -528,7 +528,7 @@ func TestAnAliasNamesTheItemAndABodyNamesADoc(t *testing.T) {
 		a.Alias, a.Body = new("task-old-slug"), new("project-example-tracker")
 	})
 	note := tk.Read(t, filepath.Join(root, trackerQueue))
-	if !strings.Contains(note, "- [ ] Imported  [kind:: next]  [body:: project-example-tracker]  [alias:: task-old-slug]  [id:: "+blocker+"]") {
+	if !strings.Contains(note, "- [ ] Imported ([[01 Projects/Example Tracker/index|notes]]) #queue/next  [alias:: task-old-slug]  [id:: "+blocker+"]") {
 		t.Fatal(note)
 	}
 	got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Alias: new("task-old-slug"), Full: true}))
@@ -601,5 +601,33 @@ func TestEveryQueueFailureCarriesNextSteps(t *testing.T) {
 		if r.Bool("ok") || !r.Has("next_steps") {
 			t.Errorf("%+v: %s", a, jsonx.Compact(r))
 		}
+	}
+}
+
+// A body is written as a link to its note, by file name where that is unique,
+// and reads back as the doc_id; a link to no indexed note stays as written.
+func TestABodyIsALinkToItsNote(t *testing.T) {
+	root, v := queueVault(t)
+	tk.Doc(t, filepath.Join(root, "01 Projects/Example Tracker/Store Design.md"),
+		"doc_id: project-store-design\ntitle: Store Design\ndoc_type: architecture_note\nsystem: Example\n"+
+			"environment: other\nstatus: active\nsensitivity: internal", "# Store Design\n")
+	id := add(t, v, "Example Tracker", "next", "Build the store", func(a *core.QueueArgs) { a.Body = new("project-store-design") })
+	path := filepath.Join(root, trackerQueue)
+	line := "- [ ] Build the store ([[Store Design|notes]]) #queue/next  [id:: " + id + "]"
+	if note := tk.Read(t, path); !strings.Contains(note, line+"\n") {
+		t.Fatal(note)
+	}
+	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Full: true}))
+	if tk.Get(r, "items.0.body") != "project-store-design" {
+		t.Fatal(jsonx.Compact(r))
+	}
+	gone := strings.Replace(line, "Store Design|", "Deleted Note|", 1)
+	tk.Write(t, path, strings.Replace(tk.Read(t, path), line, gone, 1))
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: id, Owner: new("worker")}))
+	if note := tk.Read(t, path); !strings.Contains(note, "([[Deleted Note|notes]]) #queue/next #owner/worker  [id:: "+id+"]") {
+		t.Fatal(note)
+	}
+	if r := core.Queue(v, core.QueueArgs{Action: "set", ID: id, Owner: new("a.b")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "letters, digits") {
+		t.Fatal(jsonx.Compact(r))
 	}
 }
