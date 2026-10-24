@@ -23,7 +23,8 @@ func linkDoc(t *testing.T, sensitivity string) (string, string) {
 }
 
 func addFM(root, rel, docID, title, docType, status, env, sens string, p *schema.Profile) *jsonx.Obj {
-	return write.AddFrontmatter(tk.Loader(root), rel, docID, title, docType, "gt", env, status, sens, nil, nil, nil, false, false, false, "", p)
+	return write.SetFrontmatter(tk.Loader(root), rel, write.With("doc_id", docID, "title", title, "doc_type", docType, "system", "gt",
+		"environment", env, "status", status, "sensitivity", sens), p)
 }
 
 func TestWritePathValidatesAgainstTheHandedProfile(t *testing.T) {
@@ -41,8 +42,10 @@ func TestAddFrontmatterTaskRetrofitRidesTheTaskContract(t *testing.T) {
 	root := tk.Dir(t)
 	tk.Write(t, filepath.Join(root, "07 Backlog", "loose-todo.md"), "# Loose todo\n")
 	l := tk.Loader(root)
-	r := write.AddFrontmatter(l, "07 Backlog/loose-todo.md", "task-loose-todo", "Loose todo", "task", "", "other", "open", "internal",
-		nil, nil, nil, false, false, false, "", schema.Labs)
+	task := func(docID, title, status string) write.Changes {
+		return write.With("doc_id", docID, "title", title, "doc_type", "task", "system", "backlog", "status", status)
+	}
+	r := write.SetFrontmatter(l, "07 Backlog/loose-todo.md", task("task-loose-todo", "Loose todo", "open"), schema.Labs)
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -56,8 +59,7 @@ func TestAddFrontmatterTaskRetrofitRidesTheTaskContract(t *testing.T) {
 		t.Fatal(text)
 	}
 	tk.Write(t, filepath.Join(root, "07 Backlog", "bad.md"), "# Bad\n")
-	bad := write.AddFrontmatter(l, "07 Backlog/bad.md", "task-bad", "Bad", "task", "", "other", "deprecated", "internal",
-		nil, nil, nil, false, false, false, "", schema.Labs)
+	bad := write.SetFrontmatter(l, "07 Backlog/bad.md", task("task-bad", "Bad", "deprecated"), schema.Labs)
 	if bad.Bool("ok") || !strings.Contains(bad.Str("error"), "task lifecycle") {
 		t.Fatal(jsonx.Compact(bad))
 	}
@@ -91,10 +93,10 @@ func TestEveryWriterRefusesTheReadOnlyFolders(t *testing.T) {
 			t.Fatalf("%s: %s", name, jsonx.Compact(r))
 		}
 	}
-	refused("set_frontmatter", write.SetFrontmatter(l, "05 Writeups/example-article/index.md", write.Set{Status: new("active")}, schema.Labs))
+	refused("set_frontmatter", write.SetFrontmatter(l, "05 Writeups/example-article/index.md", write.With("status", "active"), schema.Labs))
 	refused("touch_reviewed", write.TouchReviewed(l, "00 Inbox/capture.md"))
 	refused("create", write.CreateDoc(l, "00 Inbox/new.md", "body\n",
-		write.NewDoc{DocID: "note-new", Title: "New", DocType: "architecture_note", System: "example"}, schema.Labs))
+		write.With("doc_id", "note-new", "title", "New", "doc_type", "architecture_note", "system", "example"), schema.Labs))
 	refused("edit_section", write.EditSection(l, "05 Writeups/example-article/index.md", "Body", "new\n", false, schema.Labs))
 	if r := write.BackfillAliases(l); !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
@@ -145,12 +147,10 @@ func TestFrontmatterWritersRefuseTraversalAndEscapingSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := tk.Loader(root)
-	title := "Changed"
 	for _, rel := range []string{"../outside-doc.md", "02 Infrastructure/../../outside-doc.md", "02 Infrastructure/link.md"} {
 		for name, r := range map[string]*jsonx.Obj{
-			"update": write.UpdateFrontmatter(l, rel, write.Update{Title: &title}, schema.Labs),
-			"touch":  write.TouchReviewed(l, rel),
-			"set":    write.SetFrontmatter(l, rel, write.Set{Title: &title}, schema.Labs),
+			"touch": write.TouchReviewed(l, rel),
+			"set":   write.SetFrontmatter(l, rel, write.With("title", "Changed"), schema.Labs),
 		} {
 			if r.Bool("ok") {
 				t.Fatalf("%s(%q) accepted: %s", name, rel, jsonx.Compact(r))

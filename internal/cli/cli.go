@@ -26,6 +26,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/mcpserver"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/queue"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -486,18 +487,7 @@ func optStr(p Parsed, k string) *string {
 }
 
 func runUpdateFrontmatter(c *Ctx, p Parsed) int {
-	listOp := func(k string) write.ListOp {
-		if !p.Has(k) {
-			return write.ListOp{}
-		}
-		return write.ListOp{Set: p.List(k), HasSet: true}
-	}
-	return c.emit(write.UpdateFrontmatter(c.labs(), p.Str("relative_path"), write.Update{
-		TouchLastReviewed: p.Bool("touch_last_reviewed"),
-		Title:             optStr(p, "title"), DocType: optStr(p, "doc_type"), System: optStr(p, "system"),
-		Environment: optStr(p, "environment"), Status: optStr(p, "status"), Sensitivity: optStr(p, "sensitivity"),
-		Tags: listOp("set_tags"), RelatedProjects: listOp("set_related_projects"), RelatedAssets: listOp("set_related_assets"),
-	}, schema.Labs), p.Bool("pretty"))
+	return c.emit(write.SetFrontmatter(c.labs(), p.Str("relative_path"), changesFrom(p, updateArgs), schema.Labs), p.Bool("pretty"))
 }
 
 func runWriteDoc(c *Ctx, p Parsed) int {
@@ -506,13 +496,8 @@ func runWriteDoc(c *Ctx, p Parsed) int {
 		return c.emit(jsonx.New("ok", false, "error", "could not read stdin: "+err.Error()), p.Bool("pretty"))
 	}
 	return c.emit(core.WriteDoc(vaults.Labs(c.Env), core.WriteDocArgs{
-		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), Heading: p.Str("heading"), Body: pystr.Decode(content),
-		New: write.NewDoc{
-			DocID: p.Str("doc_id"), Title: p.Str("title"), DocType: p.Str("doc_type"), System: p.Str("system"),
-			Environment: p.Str("environment"), Status: p.Str("status"), Sensitivity: p.Str("sensitivity"),
-			LastReviewed: p.Str("last_reviewed"),
-			Tags:         p.List("tags"), RelatedProjects: p.List("related_projects"), RelatedAssets: p.List("related_assets"),
-		},
+		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), DocID: p.Str("doc_id"), Heading: optStr(p, "heading"),
+		Body: pystr.Decode(content), New: changesFrom(p, createArgs),
 	}), p.Bool("pretty"))
 }
 
@@ -521,6 +506,25 @@ func runLogEntries(c *Ctx, p Parsed) int {
 		Action: p.Str("action"), OpenOnly: !p.Bool("include_closed"), Contains: p.Str("contains"), Limit: p.Int("limit"),
 		Match: p.Str("match"), Resolution: p.Str("resolution"), View: view(p),
 	}), p.Bool("pretty"))
+}
+
+func runQueue(c *Ctx, p Parsed) int {
+	q := core.QueueArgs{
+		Action: p.Str("action"), ID: p.Str("id"), Project: p.Str("project"), Repo: p.Str("repo"), Cwd: p.Str("cwd"),
+		All: p.Bool("all"), Agent: p.Str("agent"), Kind: p.Str("kind"), Text: optStr(p, "text"), Owner: optStr(p, "owner"),
+		BlockedBy: p.List("blocked_by"), HasBlockedBy: p.Has("blocked_by"), Status: p.Str("status"), Ready: p.Bool("ready"),
+		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Resolution: p.Str("resolution"),
+		Content: p.Str("content"), View: view(p),
+	}
+	for _, k := range queue.LinkKeys {
+		if p.Has(k) {
+			if q.Links == nil {
+				q.Links = map[string]string{}
+			}
+			q.Links[k] = p.Str(k)
+		}
+	}
+	return c.emit(core.Queue(c.labsVault(), q), p.Bool("pretty"))
 }
 
 func runTaskReconcile(c *Ctx, p Parsed) int {

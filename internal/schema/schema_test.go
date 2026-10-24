@@ -8,8 +8,9 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 )
 
-// Computed by the Python engine (LABS_PROFILE.fingerprint()) at the port.
-const pythonLabsFingerprint = "c1c784ddd8072ff36b9809dcb57eec8979d2c240c74608dd1688bd3cf0b7c80d"
+// The labs contract's fingerprint. HQ commits the contract, so a change to it
+// is deliberate: update this with the regenerated tests/golden/schema.json.
+const labsFingerprint = "6eb4b8b67dfcd2087775d1a53d7343e3ee0bd927f61331a71c36ef580c70d405"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -123,11 +124,8 @@ func TestEducationIsADistinctContract(t *testing.T) {
 	}
 }
 
-func TestLabsFingerprintMatchesThePythonEngine(t *testing.T) {
-	if pythonLabsFingerprint == "" {
-		t.Skip()
-	}
-	if got := Labs.Fingerprint(); got != pythonLabsFingerprint {
+func TestLabsFingerprintIsPinned(t *testing.T) {
+	if got := Labs.Fingerprint(); got != labsFingerprint {
 		t.Fatalf("got %s", got)
 	}
 }

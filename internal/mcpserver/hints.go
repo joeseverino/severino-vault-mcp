@@ -25,6 +25,8 @@ var annotations = map[string]*mcp.ToolAnnotations{
 	"task_write":      {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// Closing an entry appends to its line and never removes text.
 	"log_entries": {DestructiveHint: new(false), OpenWorldHint: closedWorld},
+	// set replaces an item's text, owner and links.
+	"queue": {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 }
 
 // toolMeta are the _meta keys Claude Code reads on a tools/list entry
@@ -83,6 +85,13 @@ var outputSchemas = map[string]json.RawMessage{
 		"relative_path", ty("string"), "action", ty("string"), "line", ty("integer"), "text", ty("string"),
 		"no_op", ty("boolean"), "wrote_bytes", ty("integer"), "next_step", ty("string"), "next_steps", textList(),
 	)),
+	"queue": outSchema(jsonx.New(
+		"ok", ty("boolean"), "error", ty("string"), "id", ty("string"), "project", ty("string"), "doc_id", ty("string"),
+		"relative_path", ty("string"), "exists", ty("boolean"), "created_queue", ty("boolean"), "fallback", ty("string"),
+		"item", jsonx.New("type", "object", "properties", fieldProps(core.QueueItemFields)), "no_op", ty("boolean"),
+		"body", ty("string"), "owner", ty("string"), "count", ty("integer"), "items", records(core.QueueItemFields),
+		"skipped_restricted", textList(), "unparsed_lines", ty("integer"), "next_steps", textList(),
+	)),
 	"set_frontmatter": outSchema(jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList())),
 	"write_doc":       outSchema(jsonx.New("ok", ty("boolean"), "error", ty("string"), "next_steps", textList())),
 }
@@ -99,6 +108,8 @@ func fieldProps(fs []core.Field) *jsonx.Obj {
 	props := jsonx.New()
 	for _, f := range fs {
 		switch {
+		case f.Type == "object":
+			props.Set(f.Name, jsonx.New("type", "object", "properties", fieldProps(f.Inner)))
 		case f.Inner != nil:
 			props.Set(f.Name, records(f.Inner))
 		case f.Type == "array":

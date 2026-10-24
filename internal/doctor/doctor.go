@@ -79,7 +79,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 				seen[id] = rel
 			}
 		}
-		for _, msg := range p.Check(fm) {
+		for _, msg := range p.Check(fm, rel) {
 			r.add(Finding{rel, "error", msg, ""})
 		}
 	}

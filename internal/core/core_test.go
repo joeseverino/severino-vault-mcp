@@ -175,7 +175,7 @@ status: active
 sensitivity: internal
 last_reviewed: 2026-01-01
 `, "## Steps\n\nBack up NPM before enabling https.\n")
-	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.Set{RelatedProjects: write.ListOp{Add: []string{"client-edge-dns"}}})
+	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.With().List("related_projects", write.ListOp{Add: []string{"client-edge-dns"}}))
 	// One query takes the all-words path, the other the ripgrep path.
 	for _, q := range []string{"npm https", "NPM"} {
 		if got := tk.IDs(tk.Hits(findBy(v, q, "text"), "hits")); !slices.Contains(got, "rb-npm-backup") || !slices.Contains(got, target) {
@@ -247,7 +247,7 @@ func TestResourcesRenderPerVault(t *testing.T) {
 
 func TestSetFrontmatterValidatesAgainstEachVaultsProfile(t *testing.T) {
 	v := newTwoVaults(t)
-	fields := write.Set{DocID: new("course-cs6200"), Title: new("Lecture"), DocType: new("course"), System: new("Georgia Tech"), Environment: new("gatech")}
+	fields := write.With("doc_id", "course-cs6200", "title", "Lecture", "doc_type", "course", "system", "Georgia Tech", "environment", "gatech")
 	rejected := core.SetFrontmatter(v.labs, "03 Runbooks/Untagged.md", fields)
 	if rejected.Bool("ok") || !strings.Contains(rejected.Str("error"), "doc_type") {
 		t.Fatal(jsonx.Compact(rejected))
@@ -263,7 +263,7 @@ func TestSetFrontmatterValidatesAgainstEachVaultsProfile(t *testing.T) {
 
 func TestSetFrontmatterCreateNeedsIdentityFields(t *testing.T) {
 	v := newTwoVaults(t)
-	r := core.SetFrontmatter(v.labs, "03 Runbooks/Untagged.md", write.Set{Title: new("Untagged")})
+	r := core.SetFrontmatter(v.labs, "03 Runbooks/Untagged.md", write.With("title", "Untagged"))
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "doc_id") || !strings.Contains(r.Str("error"), "doc_type") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -271,10 +271,7 @@ func TestSetFrontmatterCreateNeedsIdentityFields(t *testing.T) {
 
 func TestSetFrontmatterCreateMergesAddLists(t *testing.T) {
 	v := newTwoVaults(t)
-	r := core.SetFrontmatter(v.labs, "03 Runbooks/Untagged.md", write.Set{
-		DocID: new("rb-untagged"), Title: new("Untagged"), DocType: new("runbook"), System: new("misc"),
-		Tags: write.ListOp{Set: []string{"one"}, HasSet: true, Add: []string{"two"}},
-	})
+	r := core.SetFrontmatter(v.labs, "03 Runbooks/Untagged.md", write.With("doc_id", "rb-untagged", "title", "Untagged", "doc_type", "runbook", "system", "misc").List("tags", write.ListOp{Set: []string{"one"}, HasSet: true, Add: []string{"two"}}))
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -286,11 +283,11 @@ func TestSetFrontmatterCreateMergesAddLists(t *testing.T) {
 
 func TestSetFrontmatterUpdatesInPlaceAndKeepsDocID(t *testing.T) {
 	v := newTwoVaults(t)
-	renamed := core.SetFrontmatter(v.labs, "03 Runbooks/Add Proxy Host.md", write.Set{DocID: new("rb-other")})
+	renamed := core.SetFrontmatter(v.labs, "03 Runbooks/Add Proxy Host.md", write.With("doc_id", "rb-other"))
 	if renamed.Bool("ok") || !strings.Contains(renamed.Str("error"), "immutable") {
 		t.Fatal(jsonx.Compact(renamed))
 	}
-	updated := core.SetFrontmatter(v.labs, "03 Runbooks/Add Proxy Host.md", write.Set{Tags: write.ListOp{Add: []string{"proxy"}}, Status: new("deprecated")})
+	updated := core.SetFrontmatter(v.labs, "03 Runbooks/Add Proxy Host.md", write.With("status", "deprecated").List("tags", write.ListOp{Add: []string{"proxy"}}))
 	if !updated.Bool("ok") {
 		t.Fatal(jsonx.Compact(updated))
 	}
@@ -646,7 +643,7 @@ func TestQuickIndexAndDocResources(t *testing.T) {
 
 func TestReadDocReleasesSensitiveWithAdvisory(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
-	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.Set{Sensitivity: new("sensitive")})
+	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.With("sensitivity", "sensitive"))
 	r := core.ReadDoc(v, "rb-add-nginx-proxy-host", core.ReadArgs{})
 	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "## Goal") || !strings.Contains(strings.ToLower(r.Str("advisory")), "sensitive") {
 		t.Fatal(jsonx.Compact(r))
@@ -655,7 +652,7 @@ func TestReadDocReleasesSensitiveWithAdvisory(t *testing.T) {
 
 func TestSetFrontmatterValidatesEnums(t *testing.T) {
 	r := core.SetFrontmatter(tk.Vault(tk.FakeVault(t)), "01 Projects/untagged.md",
-		write.Set{DocID: new("bad-prefix-foo"), Title: new("Foo"), DocType: new("runbook"), System: new("Foo")})
+		write.With("doc_id", "bad-prefix-foo", "title", "Foo", "doc_type", "runbook", "system", "Foo"))
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "doc_id") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -663,10 +660,7 @@ func TestSetFrontmatterValidatesEnums(t *testing.T) {
 
 func TestSetFrontmatterAcceptsHomelabEnvironmentAndCreates(t *testing.T) {
 	root := tk.FakeVault(t)
-	r := core.SetFrontmatter(tk.Vault(root), "01 Projects/untagged.md", write.Set{
-		DocID: new("project-homelab-untagged"), Title: new("Homelab Untagged"), DocType: new("architecture_note"),
-		System: new("Homelab"), Environment: new("homelab"),
-	})
+	r := core.SetFrontmatter(tk.Vault(root), "01 Projects/untagged.md", write.With("doc_id", "project-homelab-untagged", "title", "Homelab Untagged", "doc_type", "architecture_note", "system", "Homelab", "environment", "homelab"))
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -678,7 +672,7 @@ func TestSetFrontmatterAcceptsHomelabEnvironmentAndCreates(t *testing.T) {
 
 func TestSetFrontmatterRefusesDocIDChange(t *testing.T) {
 	r := core.SetFrontmatter(tk.Vault(tk.FakeVault(t)), "03 Runbooks/Add Nginx Proxy Host.md",
-		write.Set{DocID: new("rb-something-else"), Title: new("X"), DocType: new("runbook"), System: new("X")})
+		write.With("doc_id", "rb-something-else", "title", "X", "doc_type", "runbook", "system", "X"))
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "immutable") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -688,19 +682,18 @@ func TestSetFrontmatterRegistersABlockWithoutDocID(t *testing.T) {
 	root := tk.FakeVault(t)
 	path := filepath.Join(root, "01 Projects", "stub.md")
 	tk.Write(t, path, "---\ntags: [ci]\ncreated: 2026-06-01\n---\n# Stub\n")
-	set := write.Set{DocID: new("note-stub"), Title: new("Stub"), DocType: new("architecture_note"),
-		System: new("Stub"), Environment: new("other"), Status: new("active"), Sensitivity: new("internal")}
+	set := write.With("doc_id", "note-stub", "title", "Stub", "doc_type", "architecture_note", "system", "Stub", "environment", "other", "status", "active", "sensitivity", "internal")
 	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub.md", set); !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if body := tk.Read(t, path); !strings.HasPrefix(body, "---\ndoc_id: note-stub\n") || !strings.Contains(body, "created: 2026-06-01") {
 		t.Fatal(body)
 	}
-	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub.md", write.Set{DocID: new("note-other")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "immutable") {
+	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub.md", write.With("doc_id", "note-other")); r.Bool("ok") || !strings.Contains(r.Str("error"), "immutable") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	tk.Write(t, filepath.Join(root, "01 Projects", "stub2.md"), "---\ntags: [ci]\n---\n# Stub 2\n")
-	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub2.md", write.Set{DocID: new("note-stub")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "already exists") {
+	if r := core.SetFrontmatter(tk.Vault(root), "01 Projects/stub2.md", write.With("doc_id", "note-stub")); r.Bool("ok") || !strings.Contains(r.Str("error"), "already exists") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -708,7 +701,7 @@ func TestSetFrontmatterRegistersABlockWithoutDocID(t *testing.T) {
 func TestSetFrontmatterTouchesLastReviewed(t *testing.T) {
 	root := tk.FakeVault(t)
 	r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md",
-		write.Set{TouchLastReviewed: true, Tags: write.ListOp{Add: []string{"proxy"}}})
+		write.With().List("tags", write.ListOp{Add: []string{"proxy"}}).Touched("last_reviewed"))
 	cf, _ := r.Get("changed_fields")
 	if !r.Bool("ok") || !slices.Contains(cf.([]string), "last_reviewed") || !slices.Contains(cf.([]string), "tags") {
 		t.Fatal(jsonx.Compact(r))
@@ -725,7 +718,7 @@ func TestSetFrontmatterPreservesMultilineScalar(t *testing.T) {
 	text := tk.Read(t, p)
 	tk.Write(t, p, strings.Replace(text, "tags:\n  - nginx\n  - network-operations\n",
 		"tags:\n  - nginx\n  - network-operations\nnotes: >-\n  First line of context.\n  Second line of context.\n", 1))
-	if r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md", write.Set{Title: new("Add an Nginx Proxy Host")}); !r.Bool("ok") {
+	if r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md", write.With("title", "Add an Nginx Proxy Host")); !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if !strings.Contains(tk.Read(t, p), "notes: First line of context. Second line of context.") {
@@ -745,14 +738,14 @@ func TestSetFrontmatterKeepsOriginalOnAtomicWriteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
-	r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md", write.Set{Title: new("Should Not Persist")})
+	r := core.SetFrontmatter(tk.Vault(root), "03 Runbooks/Add Nginx Proxy Host.md", write.With("title", "Should Not Persist"))
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "write failed") || tk.Read(t, p) != original {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
 
 func TestSetFrontmatterCreateNeedsTheRequiredFields(t *testing.T) {
-	r := core.SetFrontmatter(tk.Vault(tk.FakeVault(t)), "01 Projects/untagged.md", write.Set{Status: new("active")})
+	r := core.SetFrontmatter(tk.Vault(tk.FakeVault(t)), "01 Projects/untagged.md", write.With("status", "active"))
 	if r.Bool("ok") || !strings.Contains(r.Str("error"), "creating one needs") {
 		t.Fatal(jsonx.Compact(r))
 	}

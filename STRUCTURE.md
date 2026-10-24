@@ -20,6 +20,7 @@ One Go module, one binary.
 | `internal/schema/` | Profiles: built-in labs and education, `FromContract` for provider profiles. |
 | `internal/gate/` | Sensitivity policy, the 1Password Touch ID unlock, the audit log. |
 | `internal/write/`, `internal/tasks/` | Frontmatter writes and the task ledger. |
+| `internal/queue/` | The work queue's item line grammar (the store and tool are `internal/core/queue.go`). |
 | `internal/daily/`, `internal/brief/`, `internal/doctor/` | The daily note's brief region; the vault brief; frontmatter validation. |
 | `internal/education/`, `internal/hqmanifest/` | The edu dataset; the HQ docs manifest (moves to HQ). |
 | `internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}/` | Config, vault-confined file access (`os.Root`) and atomic writes, Python-exact JSON, Python string semantics, time, receipts, table rows. |

@@ -36,7 +36,7 @@ func TestValidateReportsAnEnumProblemInSetFrontmattersWords(t *testing.T) {
 	}
 	// set_frontmatter refuses the same value with the same words.
 	status := "proposed"
-	res := write.SetFrontmatter(tk.Loader(root), "03 Runbooks/Add Nginx Proxy Host.md", write.Set{Status: &status}, tk.Vault(root).Profile)
+	res := write.SetFrontmatter(tk.Loader(root), "03 Runbooks/Add Nginx Proxy Host.md", write.With("status", status), tk.Vault(root).Profile)
 	if !strings.HasSuffix(want, ": "+res.Str("error")+"\n") {
 		t.Fatal(jsonx.Compact(res))
 	}

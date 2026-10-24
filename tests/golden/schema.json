@@ -5,7 +5,8 @@
     "report-",
     "project-",
     "note-",
-    "task-"
+    "task-",
+    "queue-"
   ],
   "doc_types": [
     "architecture_note",

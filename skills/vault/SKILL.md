@@ -1,6 +1,6 @@
 ---
 name: vault
-description: How to use the severino-vault-mcp tools. Load it for any question the Obsidian vaults may answer (how do I, runbooks, infrastructure, projects, coursework, tasks) before answering from memory, and before any write to a vault doc or task.
+description: How to use the severino-vault-mcp tools. Load it for any question the Obsidian vaults may answer (how do I, runbooks, infrastructure, projects, coursework, tasks) before answering from memory, before any write to a vault doc or task, and before tracking next, delegated, decision or follow-up work in a project's queue.
 ---
 
 # Using the vault
@@ -48,9 +48,12 @@ they started with.
 ## Writes
 
 - `set_frontmatter` creates or updates a doc's frontmatter against that
-  vault's schema.
+  vault's schema. It takes every field the vault's profile declares (its
+  description lists them), so no frontmatter is ever edited by hand. On a
+  project's `index.md` that includes `project_path` and the work queue keys
+  `repos` / `add_repos` / `remove_repos` and `queue_prefix`.
 - `write_doc` creates a registered doc, or replaces or appends to one section
-  of its body. Body edits to a registered doc go through it, never the file
+  of its body; `heading: ""` is the text before the first heading. Body edits to a registered doc go through it, never the file
   directly.
 - `task_board` shows open work, best first (`limit`, `status`, `project`),
   and the projects a task can go in; `task_write` adds, moves, promotes or
@@ -61,6 +64,29 @@ they started with.
   a repo), and `action="close"` with `match` and `resolution` appends
   ` → <resolution>` to the one open entry `match` names. Use it instead of
   reading or editing a log note whole.
+
+## Work queue
+
+Track work that outlives the turn with `queue`, never in scratch files,
+memory or end-of-turn prose: what comes next (`kind="next"`), what a worker
+holds (`delegated`, with its `agent` id), what the user must answer
+(`decision`), and what to come back to (`follow-up`). Each project has one
+queue note; name it with `cwd` (your working directory), `repo` or `project`.
+
+- `queue(action="add", cwd=..., kind=..., text=...)` returns the item's id;
+  never invent one. A question you put to the user is an explicit
+  `kind="decision"` add, closed with their answer as the resolution.
+- `queue(action="list", cwd=...)` shows open and returned items;
+  `ready=true` the unblocked next work, `kind="decision"` the open questions,
+  `all=true` every project's queue.
+- `queue(action="set", id=..., claim=true, owner=...)` takes an item only if
+  nobody holds it; `status="returned"` marks a delegated item handed back;
+  `links={...}` records a pr, branch, commit or slug.
+- `queue(action="close", id=..., resolution="repo@sha")` closes it
+  (`status="dropped"` with the reason as the resolution for work not done);
+  `action="promote"` gives an item that needs prose a body doc.
+
+`log_entries` stays the tool for append-only log notes such as lessons.
 
 After a write, remind the user to run their vault sync.
 

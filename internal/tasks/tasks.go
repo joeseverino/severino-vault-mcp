@@ -30,8 +30,6 @@ const (
 )
 
 var (
-	efforts       = []string{"L", "M", "S"}
-	priorities    = []string{"high", "low", "med"}
 	statusOrder   = map[string]int{"active": 0, "open": 1, "parked": 2, "done": 3, "wontfix": 4}
 	priorityOrder = map[string]int{"high": 0, "med": 1, "low": 2, "": 3}
 	live          = map[string]bool{"open": true, "active": true}
@@ -343,11 +341,10 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 	if title == "" {
 		return fail("title is required")
 	}
-	if e := schema.NotIn("effort", n.Effort, efforts); e != "" {
-		return fail(e)
-	}
-	if e := schema.NotIn("priority", n.Priority, priorities); e != "" {
-		return fail(e)
+	for _, f := range [][2]string{{"effort", n.Effort}, {"priority", n.Priority}} {
+		if errs := schema.Labs.Problems(f[0], f[1], true); len(errs) > 0 {
+			return fail(errs[0])
+		}
 	}
 	slug := slugify(title)
 	if slug == "" {
@@ -516,8 +513,8 @@ func resolve(l *vault.Loader, docID string) (*vault.Doc, *jsonx.Obj) {
 // SetStatus moves a task; done stamps closed:, reopening clears it, and the
 // file moves into or out of done/.
 func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
-	if e := schema.Labs.FieldError("status", status, true); e != "" {
-		return fail(e)
+	if errs := schema.Labs.Problems("status", status, true); len(errs) > 0 {
+		return fail(errs[0])
 	}
 	d, err := resolve(l, docID)
 	if err != nil {

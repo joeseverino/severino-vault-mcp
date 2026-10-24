@@ -3,6 +3,7 @@ package core
 import (
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
@@ -139,8 +140,11 @@ func unlockSteps(docID, result string) []string {
 	return []string{retry + " after the user unlocks 1Password and approves the Touch ID prompt"}
 }
 
+// scopeRefusal is schema.Field.ScopeError's wording; its group is the scope.
+var scopeRefusal = regexp.MustCompile(`only applies to docs at '([^']+)'`)
+
 // setSteps recovers a refused set_frontmatter.
-func (v *Vault) setSteps(rel string, docID *string) func(string) []string {
+func (v *Vault) setSteps(rel, docID string) func(string) []string {
 	return func(msg string) []string {
 		switch {
 		case contended(msg):
@@ -150,14 +154,14 @@ func (v *Vault) setSteps(rel string, docID *string) func(string) []string {
 		case !v.exists(rel):
 			return []string{Call("write_doc", "mode", "create", "relative_path", rel) +
 				" with body, doc_id, title, doc_type and system to create the doc"}
-		case strings.Contains(msg, "already exists at") || strings.Contains(msg, "already duplicated"):
-			id := ""
-			if docID != nil {
-				id = *docID
-			}
-			return []string{Call("read_doc", "doc_id", id) + " to see the doc holding that id, then pick another doc_id"}
+		case strings.HasPrefix(msg, "doc_id ") && strings.Contains(msg, "already exists at"):
+			return []string{Call("read_doc", "doc_id", docID) + " to see the doc holding that id, then pick another doc_id"}
+		case strings.Contains(msg, "already exists at"):
+			return []string{Call("set_frontmatter", "relative_path", rel) + " with another value, or remove it from the doc the error names first"}
 		case strings.Contains(msg, "immutable"):
-			return []string{Call("set_frontmatter", "relative_path", rel) + " without doc_id"}
+			return []string{Call("set_frontmatter", "relative_path", rel) + " without that field"}
+		case scopeRefusal.MatchString(msg):
+			return []string{Call("set_frontmatter", "relative_path", scopeRefusal.FindStringSubmatch(msg)[1]) + " naming the doc that path pattern matches"}
 		}
 		return []string{Call("set_frontmatter", "relative_path", rel) + " again with the fields the error names corrected"}
 	}
@@ -178,7 +182,7 @@ func (v *Vault) createSteps(rel, docID string) func(string) []string {
 				Call("read_doc", "doc_id", ref, "fields", []string{"outline"}) + " to see its sections",
 				Call("write_doc", "mode", "replace_section", "relative_path", rel) + " with heading and body to edit one",
 			}
-		case strings.Contains(msg, "already exists at") || strings.Contains(msg, "already duplicated"):
+		case strings.Contains(msg, "already exists at"):
 			return []string{Call("read_doc", "doc_id", docID) + " to see the doc holding that id, then pick another doc_id"}
 		}
 		return []string{Call("write_doc", "mode", "create", "relative_path", rel) + " again with what the error names fixed"}

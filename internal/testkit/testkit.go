@@ -241,3 +241,30 @@ Run the daily job to keep things current.
 Check the resolver logs first when latency spikes.
 `)
 }
+
+// Sample is a value a declared field accepts, from its own declaration: its
+// example, first choice or first prefix, else one per kind. A list gets one
+// item.
+func Sample(f schema.Field) any {
+	var v any = "example"
+	switch {
+	case f.Example != "":
+		v = f.Example
+	case len(f.Choices) > 0:
+		v = f.Choices[0]
+	case len(f.Prefixes) > 0:
+		v = f.Prefixes[0] + "example"
+	case f.Kind == schema.KindDate:
+		v = "2026-01-02"
+	case f.Kind == schema.KindPath:
+		v = "~/Code/Archive/example"
+	case f.Kind == schema.KindInteger:
+		v = 3
+	case f.Kind == schema.KindBoolean:
+		v = true
+	}
+	if f.IsList() {
+		return []any{v}
+	}
+	return v
+}
