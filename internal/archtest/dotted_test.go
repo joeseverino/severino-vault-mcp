@@ -13,7 +13,7 @@ import (
 // testkit.Has, which walks it.
 func TestNoDottedPathReachesObjHas(t *testing.T) {
 	for _, s := range append(sources(t), testSources(t)...) {
-		tk := s.importName("github.com/joeseverino/severino-vault-mcp/internal/testkit")
+		tk := s.importName("github.com/joeseverino/severino-vault-mcp/v3/internal/testkit")
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok || len(call.Args) != 1 {

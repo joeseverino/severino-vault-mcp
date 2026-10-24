@@ -3,9 +3,8 @@
 The tests live next to the code (`internal/*/*_test.go`). They exercise the
 engine packages directly, drive the MCP server through a real in-memory client,
 and run the CLI end to end. The commands that run them, and the test idioms,
-are in [`AGENTS.md`](../AGENTS.md#verify). `govulncheck` and `deadcode` are
-`tool` directives in `go.mod` (`go tool deadcode -test ./...` lists unreachable
-functions).
+are in [`AGENTS.md`](../AGENTS.md#verify). `deadcode` is a `tool` directive in
+`go.mod` (`go tool deadcode -test ./...` lists unreachable functions).
 
 ## Fuzzing and Benchmarks
 
@@ -22,16 +21,24 @@ as a regular test. The vault index build has a benchmark:
 go test ./internal/vault -run '^$' -bench IndexBuild
 ```
 
-`find(by="text")` tests need `rg` on `PATH`.
+`find(by="text")` tests need `rg` on `PATH`; `mise.toml` pins it.
 
 ## GitHub Actions
 
-### `ci.yml`: the cordon gate
+### `ci.yml`: the gate
 
-Runs on pushes to `main` and pull requests. It calls cordon's reusable gate
-(`cordon-gate.yml`, pinned to a SHA), which runs the commands in `cordon.checks.json` with cordon's repo invariants.
-`mise run check` runs the same engine locally. `go.mod` pins the Go
-toolchain, so the runner fetches it if its own Go is older.
+Runs on pushes to `main` and pull requests. One job, `mise run check`, the
+required status check: `jdx/mise-action` installs and caches the tools
+`mise.lock` pins, then runs the same `mise run check` as a laptop. `check`
+runs every `check:*` task and `golden` in parallel and lets each finish, so
+one run names every failure:
+
+- `check:gofmt`, `check:vet`, `check:test` (`-race`), `check:govulncheck`,
+  `check:lint` (golangci-lint), `golden` (the contract snapshots);
+- `check:shellcheck` and `check:actionlint` over the scripts and workflows;
+- `check:secrets`, `check:build-output` and `check:conflict-copies`, which
+  refuse a tracked `.env`, build output, or a file named like a sync
+  conflict copy (`name 2.md`).
 
 ### `codeql.yml`: SAST
 
@@ -46,15 +53,16 @@ tab.
 
 ### `release.yml`
 
-release-please through cordon's reusable release workflow (`release-type: go`,
-versioned by tag). When it cuts a release, the `build` job compiles the
-darwin and linux (amd64, arm64) binaries with `-trimpath`, and `publish`
-uploads the archives with `SHA256SUMS` and a build provenance attestation.
+Runs on a pushed `vX.Y.Z` tag. The `build` job checks that go.mod's module
+path carries the tag's major (`/v3` for v3.x.y), then compiles the darwin and
+linux (amd64, arm64) binaries with `-trimpath`; `publish` attests the
+archives' provenance and creates the GitHub Release with generated notes, the
+archives and `SHA256SUMS`. `docs/release-checklist.md` is the procedure.
 
 ### Renovate
 
-`renovate.json` covers `gomod`, GitHub Actions, `mise.toml` tools and the
-`cordon-spec` pin in `scripts/check.sh`, each release held 7 days.
+`renovate.json` covers `gomod`, GitHub Actions and the `mise.toml` tools, each
+release held 7 days.
 `govulncheck` catches CVEs against the current pins.
 
 ## What the Tests Cover

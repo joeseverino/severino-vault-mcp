@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/provider"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/provider"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
 )
 
 // Default config paths.

@@ -3,9 +3,9 @@ package search_test
 import (
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
-	"github.com/joeseverino/severino-vault-mcp/internal/search"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/gate"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/search"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // A word few sections hold outweighs one most of them hold.

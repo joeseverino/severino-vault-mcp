@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // heading "" names the text before the first heading, so a note opening

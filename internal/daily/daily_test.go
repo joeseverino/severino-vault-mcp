@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/daily"
-	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/daily"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fuzzseed"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func cfg(t *testing.T) config.Config { return config.Load("", tk.Env(tk.Dir(t))) }

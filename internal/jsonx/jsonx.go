@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // Obj is a JSON object that keeps insertion order.

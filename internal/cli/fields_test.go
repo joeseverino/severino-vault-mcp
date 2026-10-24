@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // Every field the labs profile declares is set through update-frontmatter,

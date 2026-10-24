@@ -4,9 +4,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/write"
 )
 
 // Arg is one argument of a command. Flags start with "--".

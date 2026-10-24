@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // stepProblems lists what keeps a result's next_steps from telling an agent

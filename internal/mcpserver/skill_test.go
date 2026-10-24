@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vaults"
 )
 
 // skillProblems lists what keeps a skill file from carrying the server's

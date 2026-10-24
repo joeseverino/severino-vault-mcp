@@ -48,7 +48,7 @@ internal/evals           the retrieval eval behind scripts/evals.sh
 internal/testkit         throwaway vaults for tests; internal/fuzzseed: sample-vault fuzz seeds
 internal/archtest        source guards (tests only): one home per fact
 examples/sample-vault    the demo vault CI validates and replays
-cordon.checks.json       the gate's commands; .golangci.yml its lint rules
+mise.toml                the tools and the gate's tasks; .golangci.yml its lint rules
 docs/                    architecture, safety model, tool contract, testing and CI, releases
 ```
 
@@ -135,9 +135,9 @@ docs/                    architecture, safety model, tool contract, testing and 
 ## Verify
 
 ```bash
-mise run check                  # the CI gate: cordon.checks.json's commands and cordon's repo invariants
-mise run check --only go-test   # one check by id (golangci-lint, go-vet, gofmt, golden, ...), the fast inner loop
-mise run check --list           # every check id, and which apply here
+mise run check                  # the CI gate: every check:* task and golden, in parallel
+mise run check:test             # one check alone (check:vet, check:lint, check:gofmt, ...), the fast inner loop
+mise tasks                      # every task and what it checks
 mise run golden                 # re-emit tests/golden and diff
 mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
 ```
@@ -145,7 +145,7 @@ mise run evals --misses         # retrieval eval; SVMC_EVAL_VAULT=<vault> scores
 - Run the eval before changing ranking, `find` output or tool descriptions,
   and raise `TestEvalFloors` when the numbers improve. Decide on the real-vault
   run: the fixture is a regression floor, too small to compare backends.
-- The repository-policy check refuses file names that look like sync conflict
+- `check:conflict-copies` refuses file names that look like sync conflict
   copies (ending in ` <number>.md`); name fixtures accordingly.
 
 ## Test idioms

@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // Field kinds.

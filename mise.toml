@@ -1,10 +1,10 @@
-# The toolchain and every local gate, declared once.
+# The toolchain and every gate, declared once. CI runs `mise run check`.
 #
-#   mise install        the pinned tools (versions here, checksums in mise.lock)
-#   mise run check      the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, invariants
-#   mise run golden     re-emit the public surfaces and diff them against tests/golden
-#   mise run evals      score retrieval on the fixture vault (SVMC_EVAL_VAULT for a real one)
-#   mise tasks          the list
+#   mise install            the pinned tools (versions here, checksums in mise.lock)
+#   mise run check          the whole gate, its checks in parallel
+#   mise run check:<name>   one check (mise tasks lists them)
+#   mise run golden         re-emit the public surfaces and diff them against tests/golden
+#   mise run evals          score retrieval on the fixture vault (SVMC_EVAL_VAULT for a real one)
 
 min_version = "2026.10.15"
 
@@ -13,16 +13,96 @@ min_version = "2026.10.15"
 output = "keep-order"
 
 [tools]
-# Matches go.mod's toolchain line, which CI uses.
+# Matches go.mod's toolchain line.
 go = "1.27.3"
+golangci-lint = "2.14.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"
+# find(by="text") and its tests shell out to rg.
+ripgrep = "15.1.0"
 shellcheck = "0.11.0"
-# Runs cordon-spec (scripts/check.sh) and lints the workflows.
-node = "24.22.0"
 actionlint = "1.7.12"
 
 [tasks.check]
-description = "The CI gate, run locally"
-run = "scripts/check.sh"
+description = "The whole gate, as CI runs it: every check:* task and golden, in parallel"
+# A pattern picks up each check:* task as it is added; --continue-on-error lets
+# every check finish, so one run names every failure.
+run = "mise run --continue-on-error 'check:*' ::: golden"
+
+[tasks."check:gofmt"]
+description = "Every tracked or new Go file is gofmt-clean"
+run = '''
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
+git ls-files -z --cached --others --exclude-standard '*.go' > "$list"
+out=$(xargs -0 gofmt -l < "$list")
+if [ -n "$out" ]; then
+  echo "gofmt: run gofmt -w on:"
+  echo "$out"
+  exit 1
+fi
+'''
+
+[tasks."check:vet"]
+description = "go vet"
+run = "go vet ./..."
+
+[tasks."check:test"]
+description = "The test suite under the race detector"
+run = "go test -race ./..."
+
+[tasks."check:govulncheck"]
+description = "Known vulnerabilities reachable from the code"
+run = "govulncheck ./..."
+
+[tasks."check:lint"]
+description = "golangci-lint with .golangci.yml"
+run = "golangci-lint run ./..."
+
+[tasks."check:shellcheck"]
+description = "ShellCheck over every tracked shell script"
+run = '''
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
+git ls-files -z '*.sh' > "$list"
+xargs -0 shellcheck -x < "$list"
+'''
+
+[tasks."check:actionlint"]
+description = "actionlint over the GitHub workflows"
+run = "actionlint"
+
+[tasks."check:secrets"]
+description = "No tracked .env or .dev.vars file other than an example"
+run = '''
+bad=$(git -c core.quotePath=false ls-files | grep -E '(^|/)\.(env|dev\.vars)(\.|$)' | grep -vE '\.(env\.example|env\.tpl|dev\.vars\.example)$' || true)
+if [ -n "$bad" ]; then
+  echo "tracked secret files (untrack them):"
+  echo "$bad"
+  exit 1
+fi
+'''
+
+[tasks."check:build-output"]
+description = "No tracked build output (dist, playwright-report, test-results)"
+run = '''
+bad=$(git -c core.quotePath=false ls-files | grep -E '(^|/)(dist|playwright-report|test-results)(/|$)' || true)
+if [ -n "$bad" ]; then
+  echo "tracked build output (untrack it):"
+  echo "$bad"
+  exit 1
+fi
+'''
+
+[tasks."check:conflict-copies"]
+description = "No tracked file named like a sync conflict copy (\"name 2.md\")"
+run = '''
+bad=$(git -c core.quotePath=false ls-files | grep -E ' [0-9]+(\.[^/]*)?$' || true)
+if [ -n "$bad" ]; then
+  echo "conflict copies (remove or rename them):"
+  echo "$bad"
+  exit 1
+fi
+'''
 
 [tasks.golden]
 description = "Re-emit the public surfaces and diff them against tests/golden"

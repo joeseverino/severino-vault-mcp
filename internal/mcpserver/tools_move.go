@@ -1,8 +1,8 @@
 package mcpserver
 
 import (
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
 )
 
 func (h *handlers) moveDoc() coreTool {

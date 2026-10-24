@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/brief"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/brief"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func TestBriefFlagsStaleDocsAndInbox(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/query"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/query"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // A query that is a doc's name is a request for that doc, so find ranks it

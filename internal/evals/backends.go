@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/search"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/search"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // ours is core.Find and core.ReadDoc, as the MCP server calls them.

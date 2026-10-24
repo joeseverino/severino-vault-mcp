@@ -13,17 +13,18 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/gate"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
 )
 
 // Path components that are never vault docs: templates, metadata trees, and
@@ -378,9 +379,11 @@ func (idx *Index) add(doc *Doc) {
 	idx.ByDocID[doc.DocID] = doc
 }
 
-// Loader builds and caches one vault's index.
+// Loader builds and caches one vault's index. It is safe for concurrent use:
+// the server runs tool calls in parallel.
 type Loader struct {
 	Config config.Config
+	mu     sync.Mutex // guards index and its rebuild, so callers share one build
 	index  *Index
 }
 
@@ -388,7 +391,10 @@ type Loader struct {
 func NewLoader(cfg config.Config) *Loader { return &Loader{Config: cfg} }
 
 // Index returns the cached index, rebuilding past cache_seconds or on force.
+// The returned index is never modified afterwards, so callers read it freely.
 func (l *Loader) Index(force bool) *Index {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	now := time.Now()
 	if !force && l.index != nil && now.Sub(l.index.loadedAt).Seconds() < float64(l.Config.CacheSeconds) {
 		return l.index

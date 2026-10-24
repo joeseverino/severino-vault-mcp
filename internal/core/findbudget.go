@@ -3,7 +3,7 @@ package core
 import (
 	"slices"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
 )
 
 // FindBudget is the most characters a find result spends, as the client

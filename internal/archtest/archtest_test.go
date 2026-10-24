@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
 )
 
 // source is one non-test Go file of the server, parsed.

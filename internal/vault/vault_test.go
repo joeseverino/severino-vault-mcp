@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/search"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/search"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 func ids(idx *vault.Index) []string {
@@ -176,4 +177,20 @@ func BenchmarkIndexBuild(b *testing.B) {
 	for b.Loop() {
 		loader.Index(true)
 	}
+}
+
+// Callers sharing a loader build and read one index at a time (run under
+// -race).
+func TestLoaderIsSafeForConcurrentUse(t *testing.T) {
+	l := tk.Loader(tk.FakeVault(t))
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			if idx := l.Index(i%2 == 0); len(idx.Docs) == 0 {
+				t.Error("empty index")
+			}
+			_ = l.Err()
+		})
+	}
+	wg.Wait()
 }

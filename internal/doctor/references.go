@@ -14,13 +14,13 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/sections"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // references checks the code a living doc names in its inline code spans (a

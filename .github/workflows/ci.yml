@@ -14,10 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # cordon's reusable gate: the Go commands in cordon.checks.json (gofmt, vet,
-  # test, govulncheck, golden contracts) folded with cordon's repo invariants.
-  # Required check: `cordon / gate`.
-  cordon:
-    uses: joeseverino/cordon/.github/workflows/cordon-gate.yml@f0fbb6e1919514c024608254ec6501f821992ea5 # v2.1.0
-    with:
-      cordon-ref: f0fbb6e1919514c024608254ec6501f821992ea5
+  # The gate is mise.toml's `check` task, the same run as on a laptop.
+  # Required check: `mise run check`.
+  check:
+    name: mise run check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the tools mise.lock pins and caches them.
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+
+      - run: mise run check

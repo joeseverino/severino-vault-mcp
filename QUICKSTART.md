@@ -19,7 +19,7 @@ brew install go ripgrep
 ## Install The Binary
 
 ```bash
-go install -trimpath github.com/joeseverino/severino-vault-mcp/cmd/severino-vault-mcp@latest
+go install -trimpath github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp@latest
 ```
 
 Or download the archive for your platform (darwin or linux, amd64 or arm64)
@@ -229,7 +229,7 @@ Touch ID. The conditions, the setup rationale and the audit log are in
 Run these locally before opening a PR or publishing your own fork:
 
 ```bash
-scripts/check.sh
+mise run check
 ```
 
 Read:

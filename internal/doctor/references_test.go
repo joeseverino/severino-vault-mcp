@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/doctor"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // checkout writes a repository checkout holding one Go test, one Python

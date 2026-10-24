@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vaults"
 )
 
 // labsAndEdu is a registry of both built-in vaults, the edu one empty.

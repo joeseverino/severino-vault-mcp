@@ -7,9 +7,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 // longDoc writes a doc whose body is exactly chars characters, multibyte

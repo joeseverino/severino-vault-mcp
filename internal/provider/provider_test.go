@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/provider"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/provider"
 )
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
 )
 
 // View is how much of a result the caller asks for. Fields is an AIP-161

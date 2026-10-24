@@ -14,12 +14,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vaults"
 )
 
 // Instructions is the server's guidance to the model.
@@ -30,7 +30,7 @@ Load the vault skill for how to use these tools.
 `
 
 // version is a build's own label, set with
-// -ldflags "-X github.com/joeseverino/severino-vault-mcp/internal/mcpserver.version=<label>".
+// -ldflags "-X github.com/joeseverino/severino-vault-mcp/v3/internal/mcpserver.version=<label>".
 var version string
 
 // Version is the build's label, else the module version from build info.

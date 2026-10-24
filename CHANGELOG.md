@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+From v3.0.0 on, each release's notes are on its GitHub Release; this file
+is the record up to v3.0.0, whose breaking changes are listed first.
 
+## 3.0.0
+
+- **Breaking:** the module path is
+  `github.com/joeseverino/severino-vault-mcp/v3`; install with
+  `go install github.com/joeseverino/severino-vault-mcp/v3/cmd/severino-vault-mcp@latest`.
 - **Breaking:** the queue is the only work tracker. The MCP tools
   `task_board` and `task_write`, the CLI commands `task-list`, `task-add`,
   `task-move`, `task-delete`, `task-reconcile`, `task-projects` and

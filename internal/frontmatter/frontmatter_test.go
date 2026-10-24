@@ -3,8 +3,8 @@ package frontmatter
 import (
 	"testing"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/fuzzseed"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fuzzseed"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
 )
 
 func TestParseScalarsListsAndBlocks(t *testing.T) {

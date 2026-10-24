@@ -12,8 +12,8 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/gate"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // textStopwords are the filler words a text search drops. The list stays

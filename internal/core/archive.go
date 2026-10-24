@@ -4,10 +4,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/write"
 )
 
 // archivedStatus is the status a doc carries in the archive.

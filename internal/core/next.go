@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/vault"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vault"
 )
 
 // A failure, and a find that comes back empty, carries next_steps: the calls

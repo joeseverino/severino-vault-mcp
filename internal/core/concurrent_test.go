@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/write"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/core"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/write"
 )
 
 const hookLine = "- 2026-10-21 · hook · repo-c · appended mid-write\n"

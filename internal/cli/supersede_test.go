@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
 )
 
 func TestValidateReportsASupersededByThatNamesNoDoc(t *testing.T) {

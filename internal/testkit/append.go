@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/fsx"
 )
 
 // Append adds line to the note at root/rel the way an append-only hook does:

@@ -9,17 +9,18 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/provider"
-	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
-	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/jsonx"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/provider"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/schema"
+	tk "github.com/joeseverino/severino-vault-mcp/v3/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/v3/internal/vaults"
 )
 
 var coreTools = []string{"find", "log_entries", "move_doc", "move_folder", "queue", "read_doc", "set_frontmatter", "write_doc"}
@@ -378,5 +379,39 @@ func TestQueueLinkKeysGivenAtTheTopLevelAnswerWithTheLinksForm(t *testing.T) {
 	out := jsonx.Compact(r)
 	if !isErr || !strings.Contains(out, `links={\"branch\":\"pass/x\"}`) || strings.Contains(out, `, branch=`) {
 		t.Fatal(out)
+	}
+}
+
+// Parallel tool calls, as a client sends them, share one vault index: reads
+// and writes that invalidate it run together without a data race (run under
+// -race) and every read still sees a whole index.
+func TestParallelCallsShareTheIndexSafely(t *testing.T) {
+	root := tk.FakeVault(t)
+	rel := "03 Runbooks/Add Nginx Proxy Host.md"
+	for _, seconds := range []string{"0", "60"} {
+		t.Run("cache_seconds="+seconds, func(t *testing.T) {
+			reg := vaults.Build(context.Background(), tk.Env(root, "SVMC_CACHE_SECONDS", seconds), io.Discard)
+			s := connect(t, reg)
+			var wg sync.WaitGroup
+			for i := range 12 {
+				wg.Go(func() {
+					for j := range 4 {
+						switch {
+						case i%4 == 0:
+							call(t, s, "set_frontmatter", map[string]any{"relative_path": rel, "status": []string{"active", "draft"}[(i+j)%2]})
+						case i%2 == 0:
+							if r, isErr := call(t, s, "find", map[string]any{"query": "nginx"}); isErr || r.Has("error") {
+								t.Error(jsonx.Compact(r))
+							}
+						default:
+							if r, isErr := call(t, s, "read_doc", map[string]any{"doc_id": "rb-add-nginx-proxy-host"}); isErr || r.Has("error") {
+								t.Error(jsonx.Compact(r))
+							}
+						}
+					}
+				})
+			}
+			wg.Wait()
+		})
 	}
 }
