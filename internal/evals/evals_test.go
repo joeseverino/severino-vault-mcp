@@ -26,7 +26,8 @@ func fixture(t *testing.T) ([]Case, string) {
 var floors = struct {
 	hit1, hit3, mrr, zeroMax float64
 	findP90Max, readP90Max   int
-}{hit1: 0.72, hit3: 0.83, mrr: 0.80, zeroMax: 0.05, findP90Max: 2000, readP90Max: 750}
+	sectP90Max               int
+}{hit1: 0.72, hit3: 0.83, mrr: 0.80, zeroMax: 0.05, findP90Max: 650, readP90Max: 620, sectP90Max: 150}
 
 func TestEvalFloors(t *testing.T) {
 	cases, root := fixture(t)
@@ -43,7 +44,7 @@ func TestEvalFloors(t *testing.T) {
 		if m.HitAt1 < floors.hit1 || m.HitAt3 < floors.hit3 || m.MRR < floors.mrr || m.ZeroHitRate > floors.zeroMax {
 			t.Errorf("ours fell below the ranking floors %+v: %+v", floors, m)
 		}
-		if m.FindP90 > floors.findP90Max || m.ReadP90 > floors.readP90Max {
+		if m.FindP90 > floors.findP90Max || m.ReadP90 > floors.readP90Max || m.SectP90 > floors.sectP90Max {
 			t.Errorf("ours responses grew past the size ceilings %+v: %+v", floors, m)
 		}
 		return
@@ -75,9 +76,9 @@ func TestEvalRealVault(t *testing.T) {
 
 func TestSummarizeScoresRanksAndSizes(t *testing.T) {
 	outs := []Outcome{
-		{Rank: 1, Hits: 3, FindTokens: 10, ReadTokens: 100},
-		{Rank: 2, Hits: 3, FindTokens: 20, ReadTokens: 200},
-		{Rank: 4, Hits: 5, FindTokens: 30, ReadTokens: 300},
+		{Rank: 1, Hits: 3, FindTokens: 10, ReadTokens: 100, SectionTokens: 10},
+		{Rank: 2, Hits: 3, FindTokens: 20, ReadTokens: 200, SectionTokens: 20},
+		{Rank: 4, Hits: 5, FindTokens: 30, ReadTokens: 300, SectionTokens: 30},
 		{Rank: 0, Hits: 0, FindTokens: 40},
 	}
 	m := Summarize(outs)
@@ -88,7 +89,7 @@ func TestSummarizeScoresRanksAndSizes(t *testing.T) {
 		t.Fatalf("MRR %v, want %v", m.MRR, want)
 	}
 	// Reads count only cases with a top hit; percentiles are nearest-rank.
-	if m.FindMedian != 20 || m.FindP90 != 40 || m.ReadMedian != 200 || m.ReadP90 != 300 {
+	if m.FindMedian != 20 || m.FindP90 != 40 || m.ReadMedian != 200 || m.ReadP90 != 300 || m.SectMedian != 20 || m.SectP90 != 30 {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -97,7 +98,7 @@ type fake struct{ ids []string }
 
 func (fake) Name() string                              { return "fake" }
 func (f fake) Find(string, string, int) (Found, error) { return Found{IDs: f.ids, Tokens: 5}, nil }
-func (fake) Read(string) (int, error)                  { return 7, nil }
+func (fake) Read(string, string) (int, error)          { return 7, nil }
 
 func TestRunRanksTheFirstWantedHit(t *testing.T) {
 	r, err := Run(fake{[]string{"a", "b", "c"}}, []Case{

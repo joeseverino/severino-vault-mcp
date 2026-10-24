@@ -56,12 +56,12 @@ Shared, each taking `vault`:
 
 | Tool | Does |
 |---|---|
-| `find` | Search one vault. `by`: `relevance` (ranked sections, default) or `text` (body search; restricted docs never searched). `system` and `project` narrow either mode to docs whose `system` field, or a `related_projects` entry, contains the value. |
-| `read_doc` | A doc's body, or one section of it. Restricted bodies need `include_restricted=True` plus a Touch ID approval through 1Password. |
+| `find` | Search one vault. `by`: `relevance` (ranked sections, default) or `text` (body search; restricted docs never searched). `system` and `project` narrow either mode to docs whose `system` field, or a `related_projects` entry, contains the value. Hits carry doc_id, title, heading_path, section, section_summary and score; `fields` asks for others. |
+| `read_doc` | A doc's body, `sections=[...]` for just those sections, or `fields=["outline"]` for its section list without text. Restricted bodies need `include_restricted=True` plus a Touch ID approval through 1Password. |
 | `set_frontmatter` | Create a frontmatter block, or update one in place. `doc_id` never changes. |
 | `write_doc` | Create a registered doc, or replace or append one section of its body. |
-| `task_board` | Open tasks, with the projects tasks can be filed in. |
-| `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`. |
+| `task_board` | Open tasks, best first (`limit`, default 25; `status`, `project` and `fields`), with the projects tasks can be filed in. |
+| `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`; `items=[...]` applies several in one call and reports each. |
 
 Vault-specific: each provider's tools. The edu dataset is the CLI's
 `export education`.

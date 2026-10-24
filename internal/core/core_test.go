@@ -28,6 +28,11 @@ func findBy(v *core.Vault, q, by string) *jsonx.Obj {
 	return core.Find(v, q, core.FindArgs{By: by, Limit: 10, ContextLines: 1})
 }
 
+// findFull is find's whole, unmasked result.
+func findFull(v *core.Vault, q, by string) *jsonx.Obj {
+	return core.Find(v, q, core.FindArgs{By: by, Limit: 10, ContextLines: 1, Full: true})
+}
+
 // ----- the two-vault fixture from test_core_tools ------------------------------------
 
 type twoVaults struct{ labs, edu *core.Vault }
@@ -83,7 +88,7 @@ last_reviewed: 2026-01-01
 func TestFindRoutesToTheNamedVault(t *testing.T) {
 	v := newTwoVaults(t)
 	labs := find(v.labs, "proxy host")
-	if labs.Str("vault") != "labs" || labs.Str("mode") != "relevance" || tk.Get(labs, "match_count") != 1 {
+	if labs.Str("mode") != "relevance" || tk.Get(labs, "match_count") != 1 {
 		t.Fatalf("labs find: %v", jsonx.Compact(labs))
 	}
 	if got := tk.IDs(tk.Hits(labs, "hits")); !slices.Equal(got, []string{"rb-add-proxy-host"}) {
@@ -195,7 +200,7 @@ func TestFindTextNeverSearchesRestrictedBodies(t *testing.T) {
 	if tk.Get(findBy(v.edu, "secret body", "text"), "match_count") != 0 {
 		t.Fatal("restricted body searched")
 	}
-	hits := findBy(v.edu, "routing and bgp", "text")
+	hits := findWith(v.edu, "routing and bgp", core.FindArgs{By: "text", Fields: []string{"doc_id", "snippets"}})
 	if tk.Get(hits, "match_count") != 1 || tk.Get(hits, "hits.0.doc_id") != "course-cs6250" {
 		t.Fatal(jsonx.Compact(hits))
 	}
@@ -206,22 +211,22 @@ func TestFindTextNeverSearchesRestrictedBodies(t *testing.T) {
 
 func TestReadDocIsScopedToItsVault(t *testing.T) {
 	v := newTwoVaults(t)
-	found := core.ReadDoc(v.labs, "rb-add-proxy-host", "", false)
+	found := core.ReadDoc(v.labs, "rb-add-proxy-host", core.ReadArgs{})
 	if !found.Bool("found") || !found.Bool("body_released") || !strings.Contains(found.Str("body"), "Expose a service") {
 		t.Fatal(jsonx.Compact(found))
 	}
-	if core.ReadDoc(v.edu, "rb-add-proxy-host", "", false).Bool("found") {
+	if core.ReadDoc(v.edu, "rb-add-proxy-host", core.ReadArgs{}).Bool("found") {
 		t.Fatal("edu found a labs doc")
 	}
 }
 
 func TestRestrictedBodyStaysGatedPerVault(t *testing.T) {
 	v := newTwoVaults(t)
-	withheld := core.ReadDoc(v.edu, "res-exam-answers", "", false)
+	withheld := core.ReadDoc(v.edu, "res-exam-answers", core.ReadArgs{})
 	if withheld.Bool("body_released") || withheld.Has("body") || tk.Get(withheld, "unlock.result") != "not_requested" {
 		t.Fatal(jsonx.Compact(withheld))
 	}
-	requested := core.ReadDoc(v.edu, "res-exam-answers", "", true)
+	requested := core.ReadDoc(v.edu, "res-exam-answers", core.ReadArgs{IncludeRestricted: true})
 	if requested.Bool("body_released") || requested.Has("body") || tk.Get(requested, "unlock.result") != "unconfigured" {
 		t.Fatal(jsonx.Compact(requested))
 	}
@@ -251,7 +256,7 @@ func TestSetFrontmatterValidatesAgainstEachVaultsProfile(t *testing.T) {
 	if !created.Bool("ok") {
 		t.Fatal(jsonx.Compact(created))
 	}
-	if !core.ReadDoc(v.edu, "course-cs6200", "", false).Bool("found") {
+	if !core.ReadDoc(v.edu, "course-cs6200", core.ReadArgs{}).Bool("found") {
 		t.Fatal("created doc not found")
 	}
 }
@@ -273,7 +278,7 @@ func TestSetFrontmatterCreateMergesAddLists(t *testing.T) {
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
-	hit := tk.Hits(find(v.labs, "untagged"), "hits")[0]
+	hit := tk.Hits(findWith(v.labs, "untagged", core.FindArgs{Fields: []string{"tags"}}), "hits")[0]
 	if tags, _ := hit.Get("tags"); !slices.Equal(tags.([]string), []string{"one", "two"}) {
 		t.Fatal(tags)
 	}
@@ -317,26 +322,23 @@ func TestTasksStayInTheirVault(t *testing.T) {
 		t.Fatal(jsonx.Compact(added))
 	}
 	id := added.Str("doc_id")
-	if got := tk.IDs(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}), "tasks")); !slices.Equal(got, []string{id}) {
+	if got := tk.IDs(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}, core.BoardArgs{}), "tasks")); !slices.Equal(got, []string{id}) {
 		t.Fatal(got)
 	}
-	if len(tk.Hits(core.TaskBoard(v.labs, tasks.Filter{}), "tasks")) != 0 {
+	if len(tk.Hits(core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{}), "tasks")) != 0 {
 		t.Fatal("labs board saw an edu task")
 	}
 	if !core.TaskWrite(v.edu, core.TaskWriteArgs{Action: "status", DocID: id, Status: "done"}).Bool("ok") {
 		t.Fatal("status")
 	}
-	if len(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}), "tasks")) != 0 {
+	if len(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}, core.BoardArgs{}), "tasks")) != 0 {
 		t.Fatal("done task still on the board")
 	}
 }
 
 func TestTaskBoardListsTheProjectsTasksCanGoIn(t *testing.T) {
 	v := newTwoVaults(t)
-	var slugs []string
-	for _, p := range tk.Hits(core.TaskBoard(v.labs, tasks.Filter{}), "projects") {
-		slugs = append(slugs, p.Str("slug"))
-	}
+	slugs, _ := tk.Get(core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{}), "projects").([]string)
 	if !slices.Equal(slugs, []string{"homelab-apps"}) {
 		t.Fatal(slugs)
 	}
@@ -356,7 +358,7 @@ status: active
 sensitivity: internal
 `, "# Duplicate\n")
 	v := tk.Vault(root)
-	r := core.ReadDoc(v, "rb-add-nginx-proxy-host", "", false)
+	r := core.ReadDoc(v, "rb-add-nginx-proxy-host", core.ReadArgs{})
 	paths, _ := r.Get("paths")
 	sorted := slices.Sorted(slices.Values(paths.([]string)))
 	if r.Bool("found") || !r.Bool("ambiguous") || !slices.Equal(sorted, []string{"03 Runbooks/Add Nginx Proxy Host.md", "03 Runbooks/Duplicate.md"}) {
@@ -477,8 +479,7 @@ tags: [index, mcp, navigation]
 `, "# Example Operations Vault Quick Index\n\n| Intent | Command | Doc |\n|---|---|---|\n"+
 		"| Check AdGuard Home container status | `ssh homelab-server 'cd /opt/apps/adguard && docker compose ps'` | [[AdGuard Home Setup]] |\n")
 	r := find(tk.Vault(root), "how do i check the status of the adguard home container?")
-	if tk.Get(r, "hits.0.doc_id") != "infra-adguard-home" || tk.Get(r, "recommended.source") != "vault://labs/quick-index" ||
-		tk.Get(r, "recommended.target_doc_id") != "infra-adguard-home" || !strings.Contains(tk.Get(r, "recommended.command").(string), "docker compose ps") {
+	if tk.Get(r, "hits.0.doc_id") != "infra-adguard-home" || tk.Get(r, "recommended.target_doc_id") != "infra-adguard-home" || !strings.Contains(tk.Get(r, "recommended.command").(string), "docker compose ps") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -498,7 +499,7 @@ tags: [index, mcp, navigation]
 `, "# Example Operations Vault Quick Index\n\n| Intent | Command | Doc |\n|---|---|---|\n"+
 		"| Run Vault MCP tests | `cd repo && scripts/check.sh` | [[Generate Internal Service Certificate]] |\n"+
 		"| Check Vault MCP config index | `severino-vault-mcp doctor` | [[Generate Internal Service Certificate]] |\n")
-	r := find(tk.Vault(root), "restart vault mcp")
+	r := findFull(tk.Vault(root), "restart vault mcp", "relevance")
 	if tk.Get(r, "hits.0.doc_id") == "rb-generate-internal-cert" || !r.Has("quick_index_matches") || r.Has("recommended") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -509,7 +510,7 @@ func TestReadDocWithholdsRestrictedBody(t *testing.T) {
 	if tk.Get(find(v, "local pki"), "hits.0.doc_id") != "infra-local-pki" {
 		t.Fatal("hit")
 	}
-	r := core.ReadDoc(v, "infra-local-pki", "", false)
+	r := core.ReadDoc(v, "infra-local-pki", core.ReadArgs{})
 	if !r.Bool("found") || r.Bool("body_released") || r.Has("body") || !strings.Contains(strings.ToLower(r.Str("advisory")), "restricted") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -548,7 +549,7 @@ func unlockVault(t *testing.T, ref string) (*core.Vault, string) {
 func TestReadDocRestrictedNeedsAnUnlockRef(t *testing.T) {
 	calls := withApprove(t, nil)
 	v, audit := unlockVault(t, "")
-	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	r := core.ReadDoc(v, "infra-local-pki", core.ReadArgs{IncludeRestricted: true})
 	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "unconfigured" ||
 		!strings.Contains(tk.Get(r, "unlock.message").(string), "set restricted.unlock_ref") || *calls != 0 {
 		t.Fatal(jsonx.Compact(r), *calls)
@@ -561,7 +562,7 @@ func TestReadDocRestrictedNeedsAnUnlockRef(t *testing.T) {
 func TestReadDocReleasesRestrictedAfterApproval(t *testing.T) {
 	calls := withApprove(t, nil)
 	v, audit := unlockVault(t, unlockRef)
-	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	r := core.ReadDoc(v, "infra-local-pki", core.ReadArgs{IncludeRestricted: true})
 	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "CA private key") || !r.Bool("override_used") ||
 		tk.Get(r, "unlock.result") != "approved" || *calls != 1 {
 		t.Fatal(jsonx.Compact(r))
@@ -574,7 +575,7 @@ func TestReadDocReleasesRestrictedAfterApproval(t *testing.T) {
 func TestReadDocKeepsRestrictedLockedWhenApprovalFails(t *testing.T) {
 	withApprove(t, errors.New("op read failed: exit status 1"))
 	v, audit := unlockVault(t, unlockRef)
-	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	r := core.ReadDoc(v, "infra-local-pki", core.ReadArgs{IncludeRestricted: true})
 	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "withheld" ||
 		!strings.Contains(tk.Get(r, "unlock.message").(string), "exit status 1") {
 		t.Fatal(jsonx.Compact(r))
@@ -588,7 +589,7 @@ func TestReadDocRefusesUnlockUnderAServiceAccount(t *testing.T) {
 	calls := withApprove(t, nil)
 	t.Setenv(gate.ServiceAccountToken, "ops_x")
 	v, audit := unlockVault(t, unlockRef)
-	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	r := core.ReadDoc(v, "infra-local-pki", core.ReadArgs{IncludeRestricted: true})
 	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "service-account-refused" || *calls != 0 {
 		t.Fatal(jsonx.Compact(r), *calls)
 	}
@@ -598,21 +599,21 @@ func TestReadDocRefusesUnlockUnderAServiceAccount(t *testing.T) {
 }
 
 func TestReadDocReturnsBodyForInternal(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "rb-add-nginx-proxy-host", "", false)
+	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "rb-add-nginx-proxy-host", core.ReadArgs{})
 	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "## Goal") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
 
 func TestReadDocResolvesLocalAliases(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "https proxy", "", false)
+	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "https proxy", core.ReadArgs{})
 	if !r.Bool("found") || r.Str("doc_id") != "rb-add-nginx-proxy-host" || tk.Get(r, "resolved_from_alias.matched_alias") != "https proxy" || !r.Bool("body_released") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
 
 func TestReadDocAliasPreservesRestrictedGate(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "offline ca", "", false)
+	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "offline ca", core.ReadArgs{})
 	if !r.Bool("found") || r.Str("doc_id") != "infra-local-pki" || r.Bool("body_released") || r.Has("body") ||
 		tk.Get(r, "resolved_from_alias.target_doc_id") != "infra-local-pki" {
 		t.Fatal(jsonx.Compact(r))
@@ -620,7 +621,7 @@ func TestReadDocAliasPreservesRestrictedGate(t *testing.T) {
 }
 
 func TestReadDocMissingDocGuidesDiscovery(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "not a doc", "", false)
+	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "not a doc", core.ReadArgs{})
 	if r.Bool("found") || !strings.Contains(r.Str("guidance"), "`find`") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -645,7 +646,7 @@ func TestQuickIndexAndDocResources(t *testing.T) {
 func TestReadDocReleasesSensitiveWithAdvisory(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
 	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.Set{Sensitivity: new("sensitive")})
-	r := core.ReadDoc(v, "rb-add-nginx-proxy-host", "", false)
+	r := core.ReadDoc(v, "rb-add-nginx-proxy-host", core.ReadArgs{})
 	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "## Goal") || !strings.Contains(strings.ToLower(r.Str("advisory")), "sensitive") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -769,7 +770,7 @@ func TestFindTextAlwaysExcludesRestricted(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
 	// Words, a ripgrep pattern, and a word only the restricted body holds.
 	for _, q := range []string{"CA private key", "private.key", "offline"} {
-		r := findBy(v, q, "text")
+		r := findFull(v, q, "text")
 		if tk.Get(r, "excluded.restricted_skipped").(int) < 1 {
 			t.Fatal(jsonx.Compact(r))
 		}
@@ -786,7 +787,7 @@ func TestFindTextAlwaysExcludesRestricted(t *testing.T) {
 
 func TestFindTextMatchesEveryWordInAnyOrder(t *testing.T) {
 	v := tk.Vault(tk.FakeVault(t))
-	r := findBy(v, "npm https", "text")
+	r := findFull(v, "npm https", "text")
 	if tk.Get(r, "fallback") != nil || !slices.Contains(tk.IDs(tk.Hits(r, "hits")), "rb-add-nginx-proxy-host") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -829,7 +830,7 @@ func TestFindTextFallsBackToRelevanceOnZeroHits(t *testing.T) {
 
 func TestFindTextSkipsFrontmatterHits(t *testing.T) {
 	requireRG(t)
-	r := findBy(tk.Vault(tk.FakeVault(t)), "NPM", "text")
+	r := findFull(tk.Vault(tk.FakeVault(t)), "NPM", "text")
 	for _, h := range tk.Hits(r, "hits") {
 		if h.Str("doc_id") != "rb-add-nginx-proxy-host" {
 			continue
@@ -862,7 +863,7 @@ func TestSampleVaultIsReproducible(t *testing.T) {
 		t.Fatal("cert search")
 	}
 	for _, id := range []string{"infra-offline-ca", "Offline CA", "offline ca"} {
-		r := core.ReadDoc(v, id, "", false)
+		r := core.ReadDoc(v, id, core.ReadArgs{})
 		if !r.Bool("found") || r.Str("doc_id") != "infra-offline-ca" || r.Bool("body_released") || r.Has("body") {
 			t.Fatalf("%s: %s", id, jsonx.Compact(r))
 		}
@@ -873,7 +874,7 @@ func TestSampleVaultIsReproducible(t *testing.T) {
 }
 
 func TestReadDocDefaultReturnsWholeBodyUnchanged(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "rb-add-nginx-proxy-host", "", false)
+	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "rb-add-nginx-proxy-host", core.ReadArgs{})
 	if r.Has("body_scope") || r.Has("section") || !strings.HasPrefix(r.Str("body"), "## Goal") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -882,9 +883,10 @@ func TestReadDocDefaultReturnsWholeBodyUnchanged(t *testing.T) {
 func TestReadDocSectionReturnsOnlyThatSpan(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.MultisectionDoc(t, root)
-	r := core.ReadDoc(tk.Vault(root), "rb-backup-ops", "troubleshooting", false)
-	if r.Str("body_scope") != "section" || r.Str("section") != "troubleshooting" || !strings.Contains(r.Str("body"), "resolver logs") ||
-		strings.Contains(r.Str("body"), "Routine operations") {
+	r := core.ReadDoc(tk.Vault(root), "rb-backup-ops", core.ReadArgs{Sections: []string{"troubleshooting"}})
+	body, _ := tk.Get(r, "sections.0.body").(string)
+	if r.Has("body") || tk.Get(r, "sections.0.section") != "troubleshooting" || !strings.Contains(body, "resolver logs") ||
+		strings.Contains(body, "Routine operations") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -892,7 +894,7 @@ func TestReadDocSectionReturnsOnlyThatSpan(t *testing.T) {
 func TestReadDocUnknownSectionListsAvailable(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.MultisectionDoc(t, root)
-	r := core.ReadDoc(tk.Vault(root), "rb-backup-ops", "nope", false)
+	r := core.ReadDoc(tk.Vault(root), "rb-backup-ops", core.ReadArgs{Sections: []string{"nope"}})
 	var slugs []string
 	for _, s := range tk.Hits(r, "available_sections") {
 		slugs = append(slugs, s.Str("section"))
@@ -911,8 +913,8 @@ func TestFindHitCarriesSectionMenuAndReadReturnsIt(t *testing.T) {
 		t.Fatal(jsonx.Compact(top))
 	}
 	hit := tk.Hits(find(v, "resolver latency"), "hits")[0]
-	r := core.ReadDoc(v, hit.Str("doc_id"), hit.Str("section"), false)
-	if !strings.Contains(r.Str("body"), "resolver logs") || strings.Contains(r.Str("body"), "Routine operations") {
+	r := core.ReadDoc(v, hit.Str("doc_id"), core.ReadArgs{Sections: []string{hit.Str("section")}})
+	if body, _ := tk.Get(r, "sections.0.body").(string); !strings.Contains(body, "resolver logs") || strings.Contains(body, "Routine operations") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -923,7 +925,7 @@ func TestFindSectionsMatchesTheFindTool(t *testing.T) {
 	v := tk.Vault(root)
 	q := "resolver latency troubleshooting"
 	service := query.FindSections(v.Loader, q, 10, nil)
-	tool := find(v, q)
+	tool := findFull(v, q, "relevance")
 	sh, _ := service.Get("hits")
 	th, _ := tool.Get("hits")
 	if jsonx.Compact(sh) != jsonx.Compact(th) || tk.Get(service, "indexed_doc_count") != tk.Get(tool, "indexed_doc_count") {

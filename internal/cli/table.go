@@ -53,6 +53,12 @@ const (
 
 func pretty(help string) Arg { return Arg{Name: "--pretty", Help: help} }
 
+// fieldsArg is the field mask the MCP tools take as `fields`; given, it also
+// trims the result to the MCP's lean envelope.
+func fieldsArg(help string) Arg {
+	return Arg{Name: "--fields", Help: help, TakesValue: true, Multi: true}
+}
+
 // commands is the command surface, in --help and describe order.
 var commands []Command
 
@@ -75,15 +81,17 @@ func init() {
 			Args: []Arg{
 				{Name: "query", Help: "Natural-language query, e.g. 'renew the TLS cert'."},
 				{Name: "--limit", Help: "Maximum hits to return (default 5, capped at 25).", TakesValue: true, Int: true, Default: "5"},
+				fieldsArg("Hit fields to print, as dotted paths (e.g. doc_id title snippets.text); omit for every field."),
 				pretty(prettyHelp),
 			},
 			Run: runFind},
 		{Name: "read", Effect: "read",
-			Summary: "Read one vault doc by doc_id and print JSON. With --section, return just that H2 span (the token-minimal path); " +
+			Summary: "Read one vault doc by doc_id and print JSON. With --sections, return just those sections (the token-minimal path); " +
 				"without it, the whole body. Honors the sensitivity gate — restricted bodies are withheld (no interactive unlock on the CLI path).",
 			Args: []Arg{
 				{Name: "doc_id", Help: "Stable doc_id, e.g. 'rb-add-nginx-proxy-host'."},
-				{Name: "--section", Help: "Section slug or heading path from a `find` hit. Omit for the whole body.", TakesValue: true},
+				{Name: "--sections", Help: "Section slugs or heading paths from a `find` hit or the outline. Omit for the whole body.", TakesValue: true, Multi: true},
+				fieldsArg("Doc fields to print (e.g. outline for the section list without text); omit for every field."),
 				pretty(prettyHelp),
 			},
 			Run: runRead},
@@ -97,6 +105,8 @@ func init() {
 				{Name: "--stale-only", Help: "Only stale (open/active, untouched past the window)."},
 				{Name: "--all", Help: "Include parked/done/wontfix.", Dest: "include_all"},
 				{Name: "--stale-days", Help: "Stale window in days (default 14).", TakesValue: true, Int: true, Default: "14"},
+				{Name: "--limit", Help: "Most tasks to print, best first (default 0: all).", TakesValue: true, Int: true, Default: "0"},
+				fieldsArg("Task fields to print (e.g. doc_id title status); omit for the whole board."),
 				pretty(prettyHelp),
 			},
 			Run: runTaskList},

@@ -26,7 +26,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/mcpserver"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/query"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -433,19 +432,39 @@ func runBackfillAliases(c *Ctx, p Parsed) int {
 	return c.emit(write.BackfillAliases(c.labs()), p.Bool("pretty"))
 }
 
+// labsVault is the labs vault as the MCP tools see it, for the commands that
+// share their core function.
+func (c *Ctx) labsVault() *core.Vault {
+	return core.NewVault("labs", config.Load("", c.Env), schema.Labs)
+}
+
+// view is the CLI's field mask: the whole result unless --fields narrows it,
+// since scripts read these commands' JSON.
+func view(p Parsed) core.View { return core.View{Fields: p.List("fields"), Full: true} }
+
+// okUnlessRefused stamps ok on a result that only says so when it fails.
+func okUnlessRefused(o *jsonx.Obj, ok bool) *jsonx.Obj {
+	if o.Has("ok") {
+		return o
+	}
+	return jsonx.New("ok", ok).Merge(o)
+}
+
 func runFind(c *Ctx, p Parsed) int {
-	return c.emit(jsonx.New("ok", true).Merge(query.FindSections(c.labs(), p.Str("query"), p.Int("limit"), nil)), p.Bool("pretty"))
+	r := core.Find(c.labsVault(), p.Str("query"), core.FindArgs{By: core.FindModes[0], Limit: p.Int("limit"), View: view(p)})
+	return c.emit(okUnlessRefused(r, true), p.Bool("pretty"))
 }
 
 func runRead(c *Ctx, p Parsed) int {
-	return c.emit(query.ReadSection(c.labs(), p.Str("doc_id"), p.Str("section")), p.Bool("pretty"))
+	r := core.ReadDoc(c.labsVault(), p.Str("doc_id"), core.ReadArgs{Sections: p.List("sections"), View: view(p)})
+	return c.emit(okUnlessRefused(r, r.Bool("found") && !r.Has("section_error")), p.Bool("pretty"))
 }
 
 func runTaskList(c *Ctx, p Parsed) int {
-	return c.emit(tasks.List(c.labs(), tasks.Filter{
+	return c.emit(core.TaskBoard(c.labsVault(), tasks.Filter{
 		Status: p.Str("status"), Project: p.Str("project"), StaleOnly: p.Bool("stale_only"),
 		IncludeAll: p.Bool("include_all"), StaleDays: p.Int("stale_days"),
-	}), p.Bool("pretty"))
+	}, core.BoardArgs{Limit: p.Int("limit"), View: view(p)}), p.Bool("pretty"))
 }
 
 func runPromoteNote(c *Ctx, p Parsed) int {

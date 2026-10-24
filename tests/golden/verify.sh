@@ -9,6 +9,8 @@
 # Gates the source tree by default. Override to gate an installed binary:
 #   SVMC_CMD=severino-vault-mcp bash tests/golden/verify.sh
 set -uo pipefail
+# Agent and non-login shells may lack mise's shims; append them so go resolves.
+PATH="$PATH:$HOME/.local/share/mise/shims"
 
 read -r -a CLI <<< "${SVMC_CMD:-go run ./cmd/severino-vault-mcp}"
 GOLDEN="$(cd "$(dirname "$0")" && pwd)"

@@ -62,19 +62,22 @@ func LoadCases(path string) ([]Case, error) {
 }
 
 // Found is one find call's answer: the ranked doc_ids, best first ("" for a
-// result no doc_id names), and the size of what the agent would read.
+// result no doc_id names), the section each hit points at ("" when it names
+// none), and the size of what the agent would read.
 type Found struct {
-	IDs    []string
-	Tokens int
+	IDs      []string
+	Sections []string
+	Tokens   int
 }
 
 // Backend is a retriever under test. Find ranks docs for a query; Read
 // returns the token cost of reading one doc the way an agent using this
-// backend would.
+// backend would: the whole doc with no section, else just that section where
+// the backend can scope a read.
 type Backend interface {
 	Name() string
 	Find(query, mode string, limit int) (Found, error)
-	Read(docID string) (int, error)
+	Read(docID, section string) (int, error)
 }
 
 // Opener builds a backend over one vault's config.
@@ -109,7 +112,10 @@ type Outcome struct {
 	Top        string
 	Hits       int
 	FindTokens int
-	ReadTokens int // of the top hit; 0 with no hits
+	ReadTokens int // of the top hit, whole; 0 with no hits
+	// SectionTokens reads only the section the top hit names: the
+	// find-then-read-the-section path. Whole when the hit names none.
+	SectionTokens int
 }
 
 // Report is one backend's run.
@@ -126,6 +132,7 @@ type Metrics struct {
 	ZeroHitRate         float64
 	FindMedian, FindP90 int
 	ReadMedian, ReadP90 int
+	SectMedian, SectP90 int
 }
 
 // Run scores every case against b.
@@ -145,8 +152,14 @@ func Run(b Backend, cases []Case) (Report, error) {
 		}
 		if len(f.IDs) > 0 {
 			o.Top = f.IDs[0]
-			if o.ReadTokens, err = b.Read(o.Top); err != nil {
+			if o.ReadTokens, err = b.Read(o.Top, ""); err != nil {
 				return r, fmt.Errorf("%s: case %s: read %s: %w", b.Name(), c.ID, o.Top, err)
+			}
+			o.SectionTokens = o.ReadTokens
+			if len(f.Sections) > 0 && f.Sections[0] != "" {
+				if o.SectionTokens, err = b.Read(o.Top, f.Sections[0]); err != nil {
+					return r, fmt.Errorf("%s: case %s: read %s#%s: %w", b.Name(), c.ID, o.Top, f.Sections[0], err)
+				}
 			}
 		}
 		r.Outcomes = append(r.Outcomes, o)
@@ -161,7 +174,7 @@ func Summarize(outs []Outcome) Metrics {
 	if len(outs) == 0 {
 		return m
 	}
-	var find, read []int
+	var find, read, sect []int
 	var h1, h3, zero int
 	var rr float64
 	for _, o := range outs {
@@ -179,12 +192,14 @@ func Summarize(outs []Outcome) Metrics {
 			zero++
 		} else {
 			read = append(read, o.ReadTokens)
+			sect = append(sect, o.SectionTokens)
 		}
 	}
 	n := float64(len(outs))
 	m.HitAt1, m.HitAt3, m.MRR, m.ZeroHitRate = float64(h1)/n, float64(h3)/n, rr/n, float64(zero)/n
 	m.FindMedian, m.FindP90 = percentile(find, 50), percentile(find, 90)
 	m.ReadMedian, m.ReadP90 = percentile(read, 50), percentile(read, 90)
+	m.SectMedian, m.SectP90 = percentile(sect, 50), percentile(sect, 90)
 	return m
 }
 
@@ -203,11 +218,13 @@ func percentile(vals []int, p int) int {
 // when misses is set.
 func Table(reports []Report, misses bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-8s %5s %6s %6s %6s %6s %12s %12s\n", "backend", "cases", "hit@1", "hit@3", "MRR", "zero", "find p50/p90", "read p50/p90")
+	fmt.Fprintf(&b, "%-8s %5s %6s %6s %6s %6s %12s %12s %12s\n", "backend", "cases", "hit@1", "hit@3", "MRR", "zero",
+		"find p50/p90", "read p50/p90", "sect p50/p90")
 	for _, r := range reports {
 		m := r.Metrics
-		fmt.Fprintf(&b, "%-8s %5d %6.3f %6.3f %6.3f %6.3f %12s %12s\n", r.Backend, m.Cases, m.HitAt1, m.HitAt3, m.MRR,
-			m.ZeroHitRate, fmt.Sprintf("%d/%d", m.FindMedian, m.FindP90), fmt.Sprintf("%d/%d", m.ReadMedian, m.ReadP90))
+		fmt.Fprintf(&b, "%-8s %5d %6.3f %6.3f %6.3f %6.3f %12s %12s %12s\n", r.Backend, m.Cases, m.HitAt1, m.HitAt3, m.MRR,
+			m.ZeroHitRate, fmt.Sprintf("%d/%d", m.FindMedian, m.FindP90), fmt.Sprintf("%d/%d", m.ReadMedian, m.ReadP90),
+			fmt.Sprintf("%d/%d", m.SectMedian, m.SectP90))
 	}
 	if misses {
 		for _, r := range reports {
@@ -234,12 +251,14 @@ func JSON(reports []Report) *jsonx.Obj {
 		cases := []*jsonx.Obj{}
 		for _, o := range r.Outcomes {
 			cases = append(cases, jsonx.New("id", o.Case.ID, "mode", o.Case.Mode, "rank", o.Rank, "top", o.Top,
-				"hits", o.Hits, "find_tokens", o.FindTokens, "read_tokens", o.ReadTokens))
+				"hits", o.Hits, "find_tokens", o.FindTokens, "read_tokens", o.ReadTokens,
+				"section_tokens", o.SectionTokens))
 		}
 		out = append(out, jsonx.New("backend", r.Backend, "metrics", jsonx.New(
 			"cases", m.Cases, "hit_at_1", m.HitAt1, "hit_at_3", m.HitAt3, "mrr", m.MRR, "zero_hit_rate", m.ZeroHitRate,
 			"find_tokens_median", m.FindMedian, "find_tokens_p90", m.FindP90,
-			"read_tokens_median", m.ReadMedian, "read_tokens_p90", m.ReadP90), "cases", cases))
+			"read_tokens_median", m.ReadMedian, "read_tokens_p90", m.ReadP90,
+			"section_tokens_median", m.SectMedian, "section_tokens_p90", m.SectP90), "cases", cases))
 	}
 	return jsonx.New("ok", true, "limit", Limit, "reports", out)
 }

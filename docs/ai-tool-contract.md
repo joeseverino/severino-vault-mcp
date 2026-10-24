@@ -15,14 +15,14 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | User intent | First tool/resource | Then |
 |---|---|---|
 | Broad process question | `vault://labs/quick-index` | Read the target `vault://labs/doc/{doc_id}`. |
-| Specific runbook question | `find` | `read_doc` on the top hit (with its `section` when the hit names one); quote commands exactly. |
+| Specific runbook question | `find` | `read_doc` on the top hit with `sections=[<the hit's section>]`; the whole body when the section isn't enough. Quote commands exactly. |
 | Known doc ID | `read_doc` or `vault://{vault}/doc/{doc_id}` | Respect the sensitivity policy. |
 | System context | `find(query, system="...")` | Read the selected doc before summarizing. |
 | Docs for a project | `find(query, project="...")` | Read before summarizing. |
 | Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
 | New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
-| Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete. |
+| Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
 
 ## Sensitivity
@@ -43,7 +43,7 @@ The same retrieval as console subcommands, emitting the same `{ok, ...}` JSON:
 |---|---|
 | The command surface | `severino-vault-mcp describe` |
 | Ranked section menu | `severino-vault-mcp find <query>` |
-| One section or a whole body | `severino-vault-mcp read <doc_id> [--section <slug>]` |
+| Some sections or a whole body | `severino-vault-mcp read <doc_id> [--sections <slug> ...] [--fields outline]` |
 | The edu dataset | `severino-vault-mcp export education` |
 
 `describe` is generated from the CLI's command table and emits a
