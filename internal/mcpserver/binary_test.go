@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -101,8 +102,9 @@ func serveFront(t *testing.T, reg *vaults.Registry, opts *mcp.ClientSessionOptio
 }
 
 // A replacement that can't take the session over (here not a program at all)
-// leaves every tool answering from the running code, writes included, each
-// answer saying the new binary is not the one serving.
+// leaves every tool answering from the running code, writes included. The
+// first answer after the install says so once, with the fix; the rest answer
+// as before.
 func TestAReplacementThatCannotTakeOverLeavesTheSessionServing(t *testing.T) {
 	reg, root := labsOnly(t)
 	bin := fakeBinary(t)
@@ -115,15 +117,17 @@ func TestAReplacementThatCannotTakeOverLeavesTheSessionServing(t *testing.T) {
 		t.Fatalf("before the install: %s", jsonx.Compact(r))
 	}
 	installOver(t, bin, "not a program")
-	for _, text := range []string{"After the install", "Once more"} {
-		if r := add(text); !r.Bool("ok") || !strings.Contains(r.Str("warning"), "could not take over") {
-			t.Fatalf("after the install: %s", jsonx.Compact(r))
-		}
+	if r := add("After the install"); !r.Bool("ok") || !strings.Contains(r.Str("warning"), "could not take over") ||
+		!strings.Contains(r.Str("warning"), "/mcp, then Reconnect") {
+		t.Fatalf("after the install: %s", jsonx.Compact(r))
+	}
+	if r := add("Once more"); !r.Bool("ok") || r.Has("warning") {
+		t.Fatalf("a second write after the install: %s", jsonx.Compact(r))
 	}
 	if q := tk.Read(t, filepath.Join(root, "07 Backlog", "Queue.md")); !strings.Contains(q, "Once more") {
 		t.Fatal(q)
 	}
-	if r, _ := call(t, s, "find", map[string]any{"query": "backup"}); !strings.Contains(r.Str("warning"), "could not take over") {
+	if r, isErr := call(t, s, "find", map[string]any{"query": "backup"}); isErr || r.Has("warning") {
 		t.Fatalf("a read after the install: %s", jsonx.Compact(r))
 	}
 }
@@ -155,14 +159,16 @@ func TestTheHandoffCarriesTheInitializedSession(t *testing.T) {
 	}
 }
 
-// The handoff waits until every call either way has its answer.
+// The handoff waits until every call either way has its answer, but for the
+// listen streams the client holds open, which it carries as they were sent.
 func TestTheHandoffWaitsForEveryAnswer(t *testing.T) {
 	bin := fakeBinary(t)
 	w := watchBinary()
 	installOver(t, bin, readyScript)
 	tries := 0
+	var last handoff
 	f := newFront(nil, io.Discard, w, io.Discard)
-	f.takeOver = func(handoff) error { tries++; return errors.New("stay") }
+	f.takeOver = func(h handoff) error { tries++; last = h; return errors.New("stay") }
 	in := func(line string) { f.inbound([]byte(line + "\n")) }
 	out := func(line string) {
 		if _, err := f.Write([]byte(line + "\n")); err != nil {
@@ -197,15 +203,119 @@ func TestTheHandoffWaitsForEveryAnswer(t *testing.T) {
 	try(3, "a line the front can't follow")
 
 	f = newFront(nil, io.Discard, w, io.Discard)
-	f.takeOver = func(handoff) error { tries++; return errors.New("stay") }
-	meta := `"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`
-	in(`{"jsonrpc":"2.0","id":1,"method":"tools/list",` + meta + `}`)
+	f.takeOver = func(h handoff) error { tries++; last = h; return errors.New("stay") }
+	meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}`
+	in(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{` + meta + `}}`)
 	out(`{"jsonrpc":"2.0","id":1,"result":{}}`)
 	try(4, "a per-request client between calls")
-	in(`{"jsonrpc":"2.0","id":2,"method":"subscriptions/listen",` + meta + `}`)
-	f.maybeHandOver('{')
-	if tries != 4 || !strings.Contains(w.warning(), "subscriptions/listen") {
-		t.Fatalf("a parked listen stream: %d tries, warning %q", tries, w.warning())
+	listen := `{"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{` + meta + `,"notifications":{"toolsListChanged":true}}}`
+	in(listen)
+	try(5, "a listen stream open")
+	if len(last.Listens) != 1 || string(last.Listens[0]) != listen {
+		t.Fatalf("carried listens %q", last.Listens)
+	}
+	in(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{` + meta + `}}`)
+	try(5, "a call in flight beside the listen stream")
+	out(`{"jsonrpc":"2.0","id":3,"result":{}}`)
+	out(`{"jsonrpc":"2.0","id":2,"error":{"code":-32800,"message":"cancelled"}}`)
+	try(6, "the listen stream ended")
+	if len(last.Listens) != 0 {
+		t.Fatalf("an ended listen stream carried: %q", last.Listens)
+	}
+}
+
+// The process that takes a session over answers the client's open listen
+// stream under its id without a second acknowledgement, says on that stream
+// that the lists may have changed, and ends the stream when the client
+// cancels it, so a later handoff doesn't carry it.
+func TestAResumedSessionKeepsTheListenStream(t *testing.T) {
+	reg, _ := labsOnly(t)
+	serverIn, toServer := io.Pipe()
+	fromServer, serverOut := io.Pipe()
+	f := newFront(serverIn, serverOut, nil, io.Discard)
+	meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"c","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`
+	f.resume(handoff{
+		Listens: []json.RawMessage{json.RawMessage(`{"jsonrpc":"2.0","id":7,"method":"subscriptions/listen","params":{` + meta + `,"notifications":{"toolsListChanged":true,"resourcesListChanged":true}}}`)},
+		Next:    "{",
+	})
+	ss, err := newServer(reg, io.Discard, nil).Connect(context.Background(), f.transport(), &mcp.ServerSessionOptions{State: &f.state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { toServer.Close(); ss.Close() })
+	lines := make(chan string, 16)
+	go func() {
+		buf := make([]byte, 0, 1<<20)
+		for {
+			var one [1 << 16]byte
+			n, err := fromServer.Read(one[:])
+			buf = append(buf, one[:n]...)
+			for {
+				i := bytes.IndexByte(buf, '\n')
+				if i < 0 {
+					break
+				}
+				lines <- string(buf[:i])
+				buf = buf[i+1:]
+			}
+			if err != nil {
+				close(lines)
+				return
+			}
+		}
+	}()
+	next := func() map[string]any {
+		t.Helper()
+		select {
+		case l := <-lines:
+			var m map[string]any
+			if err := json.Unmarshal([]byte(l), &m); err != nil {
+				t.Fatalf("%v: %s", err, l)
+			}
+			return m
+		case <-time.After(10 * time.Second):
+			t.Fatal("no message from the server")
+		}
+		return nil
+	}
+	send := func(s string) {
+		if _, err := io.WriteString(toServer, s+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The rest of the message whose first byte the old process read.
+	send(`"jsonrpc":"2.0","id":8,"method":"tools/list","params":{` + meta + `}}`)
+	var changed []string
+	for range 3 {
+		m := next()
+		switch {
+		case m["method"] == "notifications/subscriptions/acknowledged":
+			t.Fatalf("a second acknowledgement: %v", m)
+		case m["id"] == float64(8):
+			if m["result"] == nil {
+				t.Fatalf("tools/list: %v", m)
+			}
+		default:
+			params, _ := m["params"].(map[string]any)
+			sub, _ := params["_meta"].(map[string]any)
+			if sub[mcp.MetaKeySubscriptionID] != float64(7) {
+				t.Fatalf("a notification off the stream: %v", m)
+			}
+			changed = append(changed, m["method"].(string))
+		}
+	}
+	slices.Sort(changed)
+	if !slices.Equal(changed, []string{"notifications/resources/list_changed", "notifications/tools/list_changed"}) {
+		t.Fatal(changed)
+	}
+	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}`)
+	if m := next(); m["id"] != float64(7) {
+		t.Fatalf("the cancelled stream's answer: %v", m)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.listens) != 0 || len(f.inflight) != 0 {
+		t.Fatalf("still open: %v %v", f.listens, f.inflight)
 	}
 }
 
@@ -266,10 +376,12 @@ func envList(env config.Env) []string {
 	return out
 }
 
-// A real client keeps its stdio session across an install, opened either
-// way: the call after the new binary lands is answered by that binary in the
-// same process, and a client that initialized is told to list the tools
-// again.
+// A real client keeps its stdio session across installs, opened either way:
+// with initialize, or as Claude Code does, with server/discover and a
+// subscriptions/listen stream it holds open for the tool list. The call after
+// each new binary lands is answered by that binary in the same process, and
+// the client is told to list the tools again, on its listen stream when it
+// has one.
 func TestAnInstalledBuildTakesOverARunningSession(t *testing.T) {
 	dir := tk.Dir(t)
 	old, next := build(t, dir, "e2e-old"), build(t, dir, "e2e-new")
@@ -285,18 +397,14 @@ func TestAnInstalledBuildTakesOverARunningSession(t *testing.T) {
 			stderr := &lockedBuffer{}
 			cmd.Stderr = stderr
 			relisted := make(chan struct{}, 1)
-			opts := &mcp.ClientOptions{}
-			if version != "" {
-				// On the per-request protocol this handler opens a listen
-				// stream, which keeps the session from moving.
-				opts.ToolListChangedHandler = func(context.Context, *mcp.ToolListChangedRequest) {
+			client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, &mcp.ClientOptions{
+				ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
 					select {
 					case relisted <- struct{}{}:
 					default:
 					}
-				}
-			}
-			client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, opts)
+				},
+			})
 			s, err := client.Connect(context.Background(), &mcp.CommandTransport{Command: cmd},
 				&mcp.ClientSessionOptions{ProtocolVersion: version})
 			if err != nil {
@@ -315,27 +423,33 @@ func TestAnInstalledBuildTakesOverARunningSession(t *testing.T) {
 				t.Fatalf("a takeover before the install:\n%s", stderr)
 			}
 
-			installOver(t, bin, tk.Read(t, next))
-			add("After the install")
-			if !strings.Contains(stderr.String(), "build e2e-new took over the session") {
-				t.Fatalf("the new build did not take over:\n%s", stderr)
-			}
-			if version != "" {
+			for i, build := range []string{next, old} {
+				label := filepath.Base(build)
+				installOver(t, bin, tk.Read(t, build))
+				add(fmt.Sprintf("After install %d", i+1))
+				if !strings.Contains(stderr.String(), "build "+label+" took over the session") {
+					t.Fatalf("%s did not take over:\n%s", label, stderr)
+				}
 				select {
 				case <-relisted:
 				case <-time.After(10 * time.Second):
-					t.Fatal("the client was not told to list the tools again")
+					t.Fatalf("after %s the client was not told to list the tools again", label)
+				}
+				if got := names(tools(t, s)); !slices.Equal(got, coreTools) {
+					t.Fatal(got)
+				}
+				if r, _ := call(t, s, "read_doc", map[string]any{"doc_id": "rb-backup-ops"}); r.Str("doc_id") != "rb-backup-ops" {
+					t.Fatalf("read_doc after %s took over: %s", label, jsonx.Compact(r))
 				}
 			}
-			if got := names(tools(t, s)); !slices.Equal(got, coreTools) {
-				t.Fatal(got)
-			}
-			if r, _ := call(t, s, "read_doc", map[string]any{"doc_id": "rb-backup-ops"}); r.Str("doc_id") != "rb-backup-ops" {
-				t.Fatalf("read_doc after the takeover: %s", jsonx.Compact(r))
+			if strings.Contains(stderr.String(), "could not take over") {
+				t.Fatalf("a refused takeover:\n%s", stderr)
 			}
 			q := tk.Read(t, filepath.Join(root, "07 Backlog", "Queue.md"))
-			if !strings.Contains(q, "Before the install") || !strings.Contains(q, "After the install") {
-				t.Fatal(q)
+			for _, text := range []string{"Before the install", "After install 1", "After install 2"} {
+				if !strings.Contains(q, text) {
+					t.Fatal(q)
+				}
 			}
 		})
 	}

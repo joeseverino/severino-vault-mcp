@@ -82,6 +82,9 @@ var outputSchemas = map[string]json.RawMessage{
 		"item", jsonx.New("$ref", "#/properties/items/items"), "no_op", ty("boolean"),
 		"owner", ty("string"), "count", ty("integer"), "items", records(core.QueueItemFields),
 		"skipped_restricted", textList(), "unparsed_lines", ty("integer"),
+		"results", jsonx.New("type", "array", "items", jsonx.New("type", "object", "properties", jsonx.New(
+			"ok", ty("boolean"), "id", ty("string"), "project", ty("string"), "status", ty("string"), "resolution", ty("string"),
+			"no_op", ty("boolean"), "warning", ty("string"), "error", ty("string"), "next_steps", textList()))),
 	)),
 	"set_frontmatter": outSchema(nil),
 	"write_doc":       outSchema(nil),

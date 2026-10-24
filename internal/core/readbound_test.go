@@ -3,6 +3,7 @@ package core_test
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -155,4 +156,72 @@ func strs(o *jsonx.Obj, k string) []string {
 		return out
 	}
 	return nil
+}
+
+// A heading that splits into hundreds of parts is one outline entry, every
+// part still reads by slug or position, and the whole bounded answer stays
+// inside its budget however many sections the doc has.
+func TestReadDocBoundedAnswerCollapsesPartsAndStaysInBudget(t *testing.T) {
+	root := tk.FakeVault(t)
+	var b strings.Builder
+	b.WriteString("Lead line.\n\n## Lessons\n\n")
+	for range 4000 {
+		b.WriteString("- lesson " + strings.Repeat("word ", 40) + "\n")
+	}
+	for i := range 400 {
+		b.WriteString("\n## Heading number " + strings.Repeat("x", 20) + strings.Repeat("y", i%7) + " " + strconv.Itoa(i) + "\n\nText.\n")
+	}
+	tk.Doc(t, filepath.Join(root, "03 Runbooks", "Many Parts.md"), `
+doc_id: rb-many-parts
+title: Many Parts
+doc_type: runbook
+system: Example
+environment: other
+status: active
+sensitivity: internal
+last_reviewed: 2026-05-01
+`, b.String())
+	v := tk.Vault(root)
+	full := tk.Hits(core.ReadDoc(v, "rb-many-parts", core.ReadArgs{Fields: []string{"outline"}}), "outline")
+	r := core.ReadDoc(v, "rb-many-parts", core.ReadArgs{})
+	if !r.Bool("truncated") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	outline := tk.Hits(r, "outline")
+	if len(outline) == 0 || len(outline) >= len(full) {
+		t.Fatalf("outline has %d entries of %d sections", len(outline), len(full))
+	}
+	raw, _ := r.Get("outline")
+	if got := len(r.Str("lead")) + len(jsonx.Compact(raw)); got > core.BoundedAnswerChars {
+		t.Fatalf("lead and outline take %d chars, budget %d", got, core.BoundedAnswerChars)
+	}
+	first := outline[1]
+	parts := 0
+	for _, e := range full {
+		if strings.HasPrefix(e.Str("section"), "lessons-part-") {
+			parts++
+		}
+	}
+	if parts < 100 || tk.Get(first, "parts") != parts || first.Str("first_part") != "lessons-part-1" ||
+		first.Str("last_part") != "lessons-part-"+strconv.Itoa(parts) {
+		t.Fatal(jsonx.Compact(first))
+	}
+	total := 0
+	for _, e := range full[:parts+1] {
+		if strings.HasPrefix(e.Str("section"), "lessons-part-") {
+			total += tk.Get(e, "chars").(int)
+		}
+	}
+	if tk.Get(first, "chars") != total {
+		t.Fatalf("collapsed chars %v, parts sum %d", tk.Get(first, "chars"), total)
+	}
+	for _, ref := range []string{first.Str("last_part"), strconv.Itoa(tk.Get(first, "last_position").(int))} {
+		s := core.ReadDoc(v, "rb-many-parts", core.ReadArgs{Sections: []string{ref}})
+		if tk.Get(s, "sections.0.section") != first.Str("last_part") {
+			t.Errorf("%s: %s", ref, jsonx.Compact(s)[:200])
+		}
+	}
+	if steps := strings.Join(strs(r, "next_steps"), "\n"); !strings.Contains(steps, "one part of a split heading") {
+		t.Fatal(steps)
+	}
 }

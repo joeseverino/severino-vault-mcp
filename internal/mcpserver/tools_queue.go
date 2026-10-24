@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -41,14 +42,22 @@ func (h *handlers) queue() coreTool {
 		"owns", strList("add, set: the paths the item's worker owns ([] clears them on set)."),
 		"status", optStr("set: open or returned. close: closed (default) or dropped. list: comma-separated statuses or all; default open,returned."),
 		"ready", boolean("list: only open next and follow-up items whose blocked_by are all closed or dropped."),
-		"contains", optStr("list: only items whose text contains this (case-insensitive)."),
+		"contains", optStr("list: only items whose id or text contains this (case-insensitive): \"163\" finds hq-163, \"hq-16\" hq-160 to hq-169."),
 		"limit", integer(queueLimit, "list: most items to return; 0 for all; `count` is all that matched."),
 		"claim", boolean("set: take the item for owner (and agent) only if no other owner or agent holds it and it is not done; it becomes open."),
 		"release", boolean("set: hand the item back to the queue: no agent or owner, kind next (from delegated), status open. With id, agent names the holder it must have."),
 		"resolution", optStr("close: one line: repo@sha (comma-separated for repos), a PR, a doc id, or why it was dropped."),
 		"partial", boolean("close: record these repo@sha landings, closing once every repo has one."),
+		"items", jsonx.New("type", []string{"array", "null"}, "items", jsonx.New("type", "object", "properties", jsonx.New(
+			"id", str("The item's id."),
+			"resolution", optStr("Its resolution; default the call's resolution."),
+			"status", optStr("closed or dropped; default the call's status, else closed."),
+		), "required", []string{"id"}, "additionalProperties", false),
+			"description", "close: several items in one call instead of id, each with its own resolution and status; "+
+				"each queue is rewritten once, and each item gets its own entry in results, so a refused one leaves the rest closed."),
 		"fields", strList("list: item fields to return. Default: id, kind, status, owner, text (and project, origin "+
-			"on include_origin); also links (or links.pr), blocked_by, body, agent, repos, base, owns, transcript, created, resolution."),
+			"on include_origin), with a long text cut to its first clause or about 100 characters and ending in …; "+
+			"name text here for it whole. Also links (or links.pr), blocked_by, body, agent, repos, base, owns, transcript, created, resolution."),
 	), nil)
 	return coreTool{"queue", descQueue, input, func(p *params) (*jsonx.Obj, error) {
 		v := h.vault(p)
@@ -91,7 +100,55 @@ func queueArgs(p *params) core.QueueArgs {
 	q.Owns, q.HasOwns = p.listGiven("owns")
 	q.Fields = p.list("fields")
 	q.Links = queueLinks(p)
+	q.Items = queueItems(p)
 	return q
+}
+
+// queueItems reads items, the close of several; nil when not given.
+func queueItems(p *params) []core.QueueClose {
+	raw, ok := p.value("items")
+	if !ok {
+		return nil
+	}
+	arr, isArr := raw.([]any)
+	if !isArr {
+		p.refuse("items", "a list of objects")
+		return nil
+	}
+	out := []core.QueueClose{}
+	for i, v := range arr {
+		o, isObj := v.(*jsonx.Obj)
+		if !isObj {
+			p.fail(argError{msg: fmt.Sprintf("items[%d]: input should be an object with id, resolution and status", i), arg: "items"})
+			return nil
+		}
+		var c core.QueueClose
+		for _, k := range o.Keys() {
+			val, _ := o.Get(k)
+			s, isStr := val.(string)
+			if val != nil && !isStr {
+				p.fail(argError{msg: fmt.Sprintf("items[%d].%s: input should be a valid string", i, k), arg: "items"})
+				return nil
+			}
+			switch k {
+			case "id":
+				c.ID = s
+			case "resolution":
+				c.Resolution = s
+			case "status":
+				c.Status = s
+			default:
+				p.fail(argError{msg: fmt.Sprintf("items[%d]: an item takes only id, resolution and status", i), arg: "items"})
+				return nil
+			}
+		}
+		if c.ID == "" {
+			p.fail(argError{msg: fmt.Sprintf("items[%d].id: field required", i), arg: "items", missing: true})
+			return nil
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // queueLinks reads links, one string (or null, for "") per link key.
@@ -145,7 +202,8 @@ set: id (or agent, when it holds one item) and what changes; claim=true
     back as unowned next work. A change to an item another agent holds
     goes through with a warning naming it.
 close: id (or agent) and resolution; status=dropped for work not done. An
-    item with repos closes once each has a repo@sha; partial=true adds some.`
+    item with repos closes once each has a repo@sha; partial=true adds some.
+    items closes several in one call, each with its own result.`
 
 // linkArgStep moves a link key given at the top level of a queue call into
 // links, the form the tool takes it in. It reports whether name was one.

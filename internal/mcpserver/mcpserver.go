@@ -195,7 +195,7 @@ func (h *handlers) add(s *mcp.Server, t coreTool) {
 		if err != nil {
 			return argFailure(tool, req.Params.Arguments, err), nil
 		}
-		if w := h.bin.warning(); w != "" {
+		if w := h.bin.takeWarning(); w != "" {
 			o.Set("warning", w)
 		}
 		return result(o), nil

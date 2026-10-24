@@ -113,11 +113,13 @@ adds the skill. Without one, the plugin's tools are
 `mcp__plugin_severino-vault-mcp_severino-vault-mcp__*`.
 
 A running session moves to an upgraded binary on its own: at its next call
-the server execs the new binary in place, on the same connection, and asks the
-client to list the tools again. Only a change to the arguments of `find` or
-`read_doc`, which load upfront (`anthropic/alwaysLoad`), waits for a new
-session. When the new binary can't take the session over, every answer
-carries a `warning` saying so.
+the server execs the new binary in place, on the same connection, keeps the
+client's `subscriptions/listen` stream open, and asks the client to list the
+tools again. Only a change to the arguments of `find` or `read_doc`, which
+load upfront (`anthropic/alwaysLoad`), waits for a new session. When the new
+binary can't take the session over, the old one keeps serving and the next
+answer carries a `warning` saying so once; `/mcp`, then Reconnect, moves
+Claude Code to the new binary.
 
 Check a vault before wiring it:
 

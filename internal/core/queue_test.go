@@ -547,6 +547,61 @@ func TestListAllSpansEveryQueueAndMasksFields(t *testing.T) {
 	}
 }
 
+// The default list cuts a long text to its first clause or about 100
+// characters, marked with an ellipsis; asking for text, or the CLI's whole
+// result, gives it as written.
+func TestTheDefaultListCutsALongTextAndFieldsGiveItWhole(t *testing.T) {
+	_, v := queueVault(t)
+	short := "Ship the store"
+	clause := "Move the store behind one interface for every reader; then retire the old reader, the shim and the flag"
+	words := strings.Repeat("ünïcode word ", 12)
+	for _, s := range []string{short, clause, words} {
+		add(t, v, "Example Tracker", "next", s)
+	}
+	texts := func(r *jsonx.Obj) []string {
+		var out []string
+		for i := range 3 {
+			out = append(out, tk.Get(r, fmt.Sprintf("items.%d.text", i)).(string))
+		}
+		return out
+	}
+	lean := texts(mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker"})))
+	if lean[0] != short || lean[1] != "Move the store behind one interface for every reader…" {
+		t.Fatalf("%q", lean)
+	}
+	if n := len([]rune(lean[2])); !strings.HasSuffix(lean[2], "…") || !strings.HasPrefix(words, strings.TrimSuffix(lean[2], "…")+" ") || n > 101 || n < 80 {
+		t.Fatalf("%q (%d characters)", lean[2], n)
+	}
+	want := []string{short, clause, strings.TrimSpace(words)}
+	for _, view := range []core.View{{Fields: []string{"id", "text"}}, {Full: true}} {
+		if got := texts(mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", View: view}))); !slices.Equal(got, want) {
+			t.Fatalf("%+v: %q", view, got)
+		}
+	}
+}
+
+// contains finds an item by a piece of its id as well as of its text.
+func TestContainsMatchesAnItemsIDAsWellAsItsText(t *testing.T) {
+	_, v := queueVault(t)
+	for i := range 12 {
+		add(t, v, "Example Tracker", "next", fmt.Sprintf("Item number %d", i+1))
+	}
+	add(t, v, "example-site", "next", "Mentions ex-1 in its text")
+	for _, c := range []struct {
+		contains string
+		want     []string
+	}{
+		{"EX-1", []string{"ex-1", "ex-10", "ex-11", "ex-12", "example-site-1"}},
+		{"12", []string{"ex-12"}},
+		{"number 7", []string{"ex-7"}},
+	} {
+		r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", All: true, Contains: c.contains, Fields: []string{"id"}}))
+		if !slices.Equal(ids(r), c.want) {
+			t.Errorf("contains %q: %v, want %v", c.contains, ids(r), c.want)
+		}
+	}
+}
+
 // A hook that knows only a worktree's branch finds its item in whichever
 // queue holds it, by the exact branch and never a prefix of it.
 func TestListByBranchFindsTheItemAcrossQueues(t *testing.T) {

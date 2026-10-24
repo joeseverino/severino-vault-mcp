@@ -180,7 +180,10 @@ grammar and its tests; `Parse(Format(item)) == item`.
   box ticked in Obsidian, say) is kept as written. A ticked item is closed
   without a resolution until `close` records one and files it under
   `## Closed`. A closed or dropped item is not reopened: `set` with a status
-  or a claim refuses it and names `add` for the work as a new item.
+  or a claim refuses it and names `add` for the work as a new item. `set` with
+`resolution` alone corrects a closed or dropped item's resolution in place;
+with a status, claim, release, agent or kind it is refused, and on an open
+item `close` is the way to record one.
 
 ```
 - [/] Build the store ([[Store Design|notes]]) #queue/delegated #owner/worker  [agent:: a1b2]  [branch:: pass/store]  [commit:: abc1234,def5678]  [id:: ex-4]
@@ -220,8 +223,12 @@ tool's function against the labs vault and prints one line of compact JSON
 (see [Failures](#failures)), 2 on a usage error (stderr). Pass a value that
 starts with a dash as `--flag=value`. Items carry `id, project, kind,
 status, owner, text, links`, plus `blocked_by, body, agent, origin, repos,
-base, owns, transcript, created, resolution` when set; `--fields` narrows
-them. `describe` lists every flag.
+base, owns, transcript, created, resolution` when set, with `text` whole;
+`--fields` narrows them. The MCP tool's default `list` carries `id, kind,
+status, owner, text` instead, a text over 100 characters cut to its first
+`; ` clause or its words up to 100 and ending in `…`; `fields` naming
+`text` gives it whole. `--contains` matches a piece of an item's id or
+text, ignoring case (`163` finds `hq-163`). `describe` lists every flag.
 
 - A hook that records an agent type as the owner passes the part after its
   last `:` (`worker` for `plugin:worker`).
@@ -242,6 +249,14 @@ them. `describe` lists every flag.
   item. It takes no `--claim`, `--owner`, `--status` or `--kind`.
 - A `set` or `close` that changes an item another agent holds goes
   through, with `warning`: `<id> was held by agent <agent>`.
+- `queue close --items <id>=<resolution> <id> ...` (the MCP tool's `items`,
+  a list of `{id, resolution, status}`) closes several items in one call; a
+  bare id takes `--resolution`, and `--status` applies to all. Each queue
+  note is rewritten once, under its lock. `results` holds one entry per item
+  in the order given: `{ok, id, project, status, resolution}` (with `no_op`
+  or `warning` as for one close), or a failure envelope with its `id`. The
+  call's `ok` is true only when every item closed; otherwise it is a failure
+  naming the refused ids, and the items that could close are closed.
 
 ## Frontmatter fields
 
@@ -340,7 +355,13 @@ The CLI's `read` prints the whole body.
 
 The `outline` (also `fields=["outline"]`) lists each section in order:
 `section` (its slug), `heading_path`, and `chars`, the size of what reading
-that entry returns.
+that entry returns. The outline of a bounded (`truncated`) answer is
+condensed: a run of consecutive parts of one heading is one entry with
+`parts`, `first_part`, `last_part`, `first_position`, `last_position` and the
+run's total `chars`; each part still reads by its slug or position. Lead and
+outline together stay within `core.BoundedAnswerChars` (8,000 characters of
+compact JSON); sections past it are left out and `next_steps` names
+`fields=["outline"]`, the full outline.
 
 `sections` takes, for each entry, one of:
 

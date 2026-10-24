@@ -211,3 +211,39 @@ func TestADoneItemIsNotReopenedByStatusOrClaim(t *testing.T) {
 		}
 	}
 }
+
+// A closed or dropped item's resolution is corrected by set, which accepts
+// nothing else a done item refuses, and an open item has no resolution to set.
+func TestSetCorrectsADoneItemsResolution(t *testing.T) {
+	_, v := queueVault(t)
+	closed := add(t, v, "Example Tracker", "next", "Finished")
+	dropped := add(t, v, "Example Tracker", "next", "Abandoned")
+	open := add(t, v, "Example Tracker", "next", "Still going")
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", ID: closed, Resolution: "example-tracker@abc1234"}))
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", ID: dropped, Status: "dropped", Resolution: "not needed"}))
+	want := map[string]string{closed: "example-tracker@def5678", dropped: "superseded by another item"}
+	for id, res := range want {
+		mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: id, Resolution: res}))
+	}
+	listed := jsonx.Compact(mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "Example Tracker", Status: "all", Full: true})))
+	for _, res := range want {
+		if !strings.Contains(listed, res) {
+			t.Fatal(listed)
+		}
+	}
+	if strings.Contains(listed, "abc1234") || strings.Contains(listed, "not needed") {
+		t.Fatal(listed)
+	}
+	for _, a := range []core.QueueArgs{
+		{Action: "set", ID: closed, Resolution: "x", Status: "open"},
+		{Action: "set", ID: closed, Resolution: "x", Claim: true, Owner: new("worker")},
+		{Action: "set", ID: closed, Resolution: "x", Agent: "a1"},
+		{Action: "set", ID: closed, Resolution: "x", Kind: "delegated"},
+		{Action: "set", ID: open, Resolution: "x"},
+		{Action: "set", ID: closed, Resolution: "two\nlines"},
+	} {
+		if r := core.Queue(v, a); r.Bool("ok") || !r.Has("next_steps") {
+			t.Fatal(jsonx.Compact(r))
+		}
+	}
+}

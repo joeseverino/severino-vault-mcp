@@ -533,6 +533,13 @@ func runQueue(c *Ctx, p Parsed) int {
 		Contains: p.Str("contains"), Limit: p.Int("limit"), Claim: p.Bool("claim"), Release: p.Bool("release"), Resolution: p.Str("resolution"),
 		View: view(p),
 	}
+	if p.Has("items") {
+		q.Items = []core.QueueClose{}
+		for _, v := range p.List("items") {
+			id, resolution, _ := strings.Cut(v, "=")
+			q.Items = append(q.Items, core.QueueClose{ID: id, Resolution: resolution})
+		}
+	}
 	for _, k := range queue.LinkKeys {
 		if p.Has(k) {
 			if q.Links == nil {
