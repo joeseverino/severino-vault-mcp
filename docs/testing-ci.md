@@ -2,40 +2,10 @@
 
 The tests live next to the code (`internal/*/*_test.go`). They exercise the
 engine packages directly, drive the MCP server through a real in-memory client,
-and run the CLI end to end. Every test builds its own throwaway vault through
-`internal/testkit`, and `testkit.Env` points edu at a missing config and declares no
-providers, so nothing reads this machine's real vaults.
-
-## Local Commands
-
-The gate CI runs:
-
-```bash
-scripts/check.sh
-```
-
-Run one check by id (the rerun line in a failure report):
-
-```bash
-scripts/check.sh --only go-test
-```
-
-Directly:
-
-```bash
-gofmt -l .
-go vet ./...
-go test -race ./...
-go tool govulncheck ./...
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
-mise run golden
-```
-
-`govulncheck` and `deadcode` are `tool` directives in `go.mod`
-(`go tool deadcode -test ./...` lists unreachable functions). Lint rules live
-in `.golangci.yml`: errorlint, exhaustive, gocritic, gosec, modernize and
-staticcheck, with gosec's file-permission and subprocess rules relaxed for test
-files only.
+and run the CLI end to end. The commands that run them, and the test idioms,
+are in [`AGENTS.md`](../AGENTS.md#verify). `govulncheck` and `deadcode` are
+`tool` directives in `go.mod` (`go tool deadcode -test ./...` lists unreachable
+functions).
 
 ## Fuzzing and Benchmarks
 
@@ -54,20 +24,13 @@ go test ./internal/vault -run '^$' -bench IndexBuild
 
 `find(by="text")` tests need `rg` on `PATH`.
 
-## Golden Contracts
-
-`tests/golden/` freezes the surfaces other repos bind to: `schema --json` (HQ),
-`describe` (Cordon), and the MCP tool names (Claude Code). `verify.sh` re-emits
-each and diffs it; the gate runs it as the `golden` check.
-
 ## GitHub Actions
 
 ### `ci.yml`: the cordon gate
 
 Runs on pushes to `main` and pull requests. It calls cordon's reusable gate
-(`cordon-gate.yml@v2`), which runs the commands in `cordon.checks.json`
-(gofmt, vet, test with the race detector, govulncheck, golangci-lint, golden) with cordon's repo invariants.
-`scripts/check.sh` runs the same engine locally. `go.mod` pins the Go
+(`cordon-gate.yml@v2`), which runs the commands in `cordon.checks.json` with cordon's repo invariants.
+`mise run check` runs the same engine locally. `go.mod` pins the Go
 toolchain, so the runner fetches it if its own Go is older.
 
 ### `codeql.yml`: SAST

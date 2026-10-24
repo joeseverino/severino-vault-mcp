@@ -8,7 +8,7 @@ published: true
 ---
 
 This is an example page. In a real vault, `06 Pages/<page>/index.md` is the
-source for a route on the public site (`/about/` here) — the same markdown
+source for a route on the public site (`/about/` here): the same markdown
 Obsidian renders, published unchanged to the edge.
 
 Pages use a lighter, site-facing frontmatter (`title`, `description`, `intro`,

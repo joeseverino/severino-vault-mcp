@@ -96,6 +96,8 @@ func TestRetiredStructureIsFlaggedOnlyInLivingText(t *testing.T) {
 	}
 	tk.Doc(t, filepath.Join(root, "02 Infrastructure", "Lessons.md"), strings.Replace(driftFront, "rb-drift", "infra-lessons", 1),
 		"# Lessons\n\n- Moved the tasks/ folder. → fixed: queue it\n- Still writing to tasks/ by hand.\n")
+	tk.Doc(t, filepath.Join(root, "02 Infrastructure", "Queue History.md"), strings.Replace(driftFront, "rb-drift", "infra-queue-history", 1),
+		"# Queue\n\n- [x] Moved the tasks/ folder #queue/next  [id:: qh-1]\n- [-] Dropped writing to tasks/ #queue/next  [id:: qh-2]\n")
 	var warned []string
 	for _, f := range findings(root) {
 		if f.Severity == "warning" {

@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/clock"
@@ -29,11 +28,10 @@ import (
 // grammar). Every change rewrites the note through write.EditNoteUnindexed,
 // so it runs under the note's lock and re-reads the note before replacing
 // it; ids are allocated and claims checked inside that locked edit, which
-// refuses a note this binary does not fully read (queueBody.writable) and
-// stamps the line format it wrote (queue_format).
+// refuses a note holding an item line it cannot parse (queueBody.writable).
 
 // QueueActions are the queue tool's actions; the first is the default.
-var QueueActions = []string{"list", "add", "set", "close", "reformat"}
+var QueueActions = []string{"list", "add", "set", "close"}
 
 // Queue note layout.
 const (
@@ -50,14 +48,13 @@ const (
 var defaultStatuses = []string{"open", "returned"}
 
 // QueueArgs are the queue tool's arguments. Nil pointers and a nil Links are
-// "not given"; a link, alias or body given as "" is removed by set. ID names
-// an item by its id or its alias.
+// "not given"; a link or body given as "" is removed by set.
 type QueueArgs struct {
 	Action             string
 	Project, Repo, Cwd string
 	All                bool
 	ID, Agent          string
-	Alias, Body        *string
+	Body               *string
 	Origin             string
 	IncludeOrigin      bool
 	Kind               string
@@ -78,17 +75,16 @@ type QueueArgs struct {
 	Limit              int
 	Claim, Release     bool
 	Resolution         string
-	DropAliases        bool
 	View
 }
 
 // QueueItemFields are the fields a queue item carries. owner is null when
 // nobody holds the item; links holds the typed links given; blocked_by,
-// body, alias, agent, origin, repos, base, owns, created and resolution
+// body, agent, origin, repos, base, owns, created and resolution
 // appear only when set.
 var QueueItemFields = append(typed("id", tStr, "project", tStr, "kind", tStr, "status", tStr, "owner", tOptStr, "text", tStr),
 	Field{Name: "links", Type: "object", Inner: typed("pr", tStr, "branch", tStr, "commit", tStr, "slug", tStr)},
-	Field{Name: "blocked_by", Type: tList}, Field{Name: "body", Type: tStr}, Field{Name: "alias", Type: tStr},
+	Field{Name: "blocked_by", Type: tList}, Field{Name: "body", Type: tStr},
 	Field{Name: "agent", Type: tStr}, Field{Name: "origin", Type: tStr}, Field{Name: "repos", Type: tList},
 	Field{Name: "base", Type: tStr}, Field{Name: "owns", Type: tList}, Field{Name: "transcript", Type: tStr}, Field{Name: "created", Type: tStr}, Field{Name: "resolution", Type: tStr})
 
@@ -120,8 +116,6 @@ func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
 		return s.set(a)
 	case "close":
 		return s.close(a)
-	case "reformat":
-		return s.reformat(a)
 	}
 	return failNext(fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(QueueActions, ", ")),
 		qcall("action", "list", "all", true))
@@ -165,15 +159,12 @@ func openQueues(v *Vault) (*queueStore, error) {
 	}
 	s := &queueStore{v: v, root: root, docs: map[string]queueDoc{},
 		links: newNoteLinks(func() *vault.Index { return v.Loader.Index(false) })}
-	entries, _ := os.ReadDir(filepath.Join(v.Config.VaultPath, tasks.ProjectsDir))
-	for _, e := range entries {
-		dir := path.Join(tasks.ProjectsDir, e.Name())
-		if strings.HasPrefix(e.Name(), ".") || !root.IsDir(dir) {
-			continue
+	for _, name := range vault.ProjectFolders(v.Config.VaultPath) {
+		// The root check keeps a folder whose symlink leaves the vault out.
+		if dir := path.Join(tasks.ProjectsDir, name); root.IsDir(dir) {
+			s.projects = append(s.projects, s.readProject(name, dir))
 		}
-		s.projects = append(s.projects, s.readProject(e.Name(), dir))
 	}
-	slices.SortFunc(s.projects, func(a, b queueProject) int { return strings.Compare(a.name, b.name) })
 	s.projects = append(s.projects, s.readProject(backlogProject, tasks.BacklogDir))
 	return s, nil
 }
@@ -210,12 +201,19 @@ func (s *queueStore) readProject(name, dir string) queueProject {
 	return p
 }
 
-func (s *queueStore) names() []string {
-	out := make([]string, 0, len(s.projects))
-	for _, p := range s.projects {
+// projectNames are the folder names of ps, in order.
+func projectNames(ps []queueProject) []string {
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
 		out = append(out, p.name)
 	}
 	return out
+}
+
+// ambiguous refuses a call that two or more projects in hits answer: each
+// is what they all hold, and fix the one-line repair.
+func ambiguous(hits []queueProject, each, fix string) *jsonx.Obj {
+	return jsonx.Fail(fmt.Sprintf("projects %s each %s; %s", pystr.ReprList(projectNames(hits)), each, fix))
 }
 
 func (s *queueStore) backlog() queueProject { return s.projects[len(s.projects)-1] }
@@ -274,12 +272,8 @@ func (s *queueStore) locate(id string) (queueProject, queue.Item, *jsonx.Obj) {
 		return queueProject{}, item, failNext(fmt.Sprintf("no queue holds an item %s", pystr.Repr(id)),
 			qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" to find the item's id")
 	}
-	var names []string
-	for _, p := range hits {
-		names = append(names, p.name)
-	}
-	return queueProject{}, item, jsonx.Fail(fmt.Sprintf("projects %s each hold an item %s; give one a distinct queue_prefix in its index.md and renumber the other by hand",
-		pystr.ReprList(names), pystr.Repr(id)))
+	return queueProject{}, item, ambiguous(hits, "hold an item "+pystr.Repr(id),
+		"give one a distinct queue_prefix in its index.md and renumber the other by hand")
 }
 
 // cmpBool orders false before true.
@@ -335,11 +329,12 @@ func (s *queueStore) resolve(a QueueArgs) (p queueProject, fallback string, fail
 				return s.projects[i], "", nil
 			}
 		}
-		return p, "", failNext(fmt.Sprintf("no project %s; one of %s", pystr.Repr(a.Project), pystr.ReprList(s.names())), listAll)
+		return p, "", failNext(fmt.Sprintf("no project %s; one of %s", pystr.Repr(a.Project), pystr.ReprList(projectNames(s.projects))), listAll)
 	case a.Repo != "":
 		return s.byRepo(a, []string{a.Repo}, a.Repo, "repo "+pystr.Repr(a.Repo))
 	case a.Cwd != "":
-		return s.byRepo(a, repoCandidates(a.Cwd), repoName(a.Cwd), "cwd "+pystr.Repr(a.Cwd))
+		names, _ := repoCandidates(a.Cwd)
+		return s.byRepo(a, names, repoName(a.Cwd), "cwd "+pystr.Repr(a.Cwd))
 	}
 	return p, "", failNext("name the queue: give project, repo or cwd", qcall("action", a.Action, "cwd", "<the session's working directory>"))
 }
@@ -361,11 +356,7 @@ func (s *queueStore) byRepo(a QueueArgs, candidates []string, repo, what string)
 		case 1:
 			return hits[0], "", nil
 		}
-		var names []string
-		for _, p := range hits {
-			names = append(names, p.name)
-		}
-		return queueProject{}, "", jsonx.Fail(fmt.Sprintf("projects %s all list repo %s; keep it in one index.md's repos", pystr.ReprList(names), pystr.Repr(repo)))
+		return queueProject{}, "", ambiguous(hits, "list repo "+pystr.Repr(repo), "keep it in one index.md's repos")
 	}
 	unmapped := fmt.Sprintf("no project's index.md lists %s under repos", what)
 	mapIt := Call("set_frontmatter", "relative_path", path.Join(tasks.ProjectsDir, "<project>", "index.md"), "add_repos", []string{repo}) +
@@ -377,26 +368,12 @@ func (s *queueStore) byRepo(a QueueArgs, candidates []string, repo, what string)
 		qcall("action", a.Action, "project", backlogProject)+" only for work no project owns")
 }
 
-// repoName is the repository cwd belongs to: the main checkout's folder for a
-// git worktree, the folder holding .git for a checkout, or cwd's own folder
-// when no .git is found above it.
+// repoName is the repository cwd belongs to: the nearest folder holding
+// .git (its main checkout's folder for a git worktree), or cwd's own folder
+// when none is found above it.
 func repoName(cwd string) string {
-	dir := filepath.Clean(cwd)
-	for {
-		if raw, err := os.ReadFile(filepath.Join(dir, ".git")); err == nil { //nolint:gosec // a caller's working tree, read only
-			if main, ok := worktreeMain(raw); ok {
-				return main
-			}
-			return filepath.Base(dir)
-		} else if fsx.IsDir(filepath.Join(dir, ".git")) {
-			return filepath.Base(dir)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return filepath.Base(filepath.Clean(cwd))
-		}
-		dir = parent
-	}
+	names, root := repoCandidates(cwd)
+	return names[max(root, 0)]
 }
 
 // worktreeMain is the main checkout's folder name a worktree's .git file
@@ -413,20 +390,27 @@ func worktreeMain(gitFile []byte) (string, bool) {
 // repoCandidates are the repository names cwd may belong to, nearest first:
 // each folder from cwd up, and for a git worktree (whose .git is a file
 // naming <repo>/.git/worktrees/<name>) its main checkout's folder, so a
-// worker's worktree maps to the repository it was cut from.
-func repoCandidates(cwd string) []string {
-	var out []string
+// worker's worktree maps to the repository it was cut from. root is the
+// index of the nearest checkout's name, -1 when no folder holds .git.
+func repoCandidates(cwd string) (names []string, root int) {
+	root = -1
 	dir := filepath.Clean(cwd)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
 	for {
-		if raw, err := os.ReadFile(filepath.Join(dir, ".git")); err == nil { //nolint:gosec // a caller's working tree, read only
-			if main, ok := worktreeMain(raw); ok {
-				out = append(out, main)
-			}
+		git := filepath.Join(dir, ".git")
+		raw, err := os.ReadFile(git) //nolint:gosec // a caller's working tree, read only
+		if root < 0 && (err == nil || fsx.IsDir(git)) {
+			root = len(names)
 		}
-		out = append(out, filepath.Base(dir))
+		if main, ok := worktreeMain(raw); err == nil && ok {
+			names = append(names, main)
+		}
+		names = append(names, filepath.Base(dir))
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return out
+			return names, root
 		}
 		dir = parent
 	}
@@ -565,24 +549,16 @@ func (b *queueBody) put(i int, it queue.Item) {
 	b.appendTo(section, line)
 }
 
-// skewStep is the next step for a note written in a format this server does
-// not read in full.
-const skewStep = "this server may be older than the note's format: reconnect it (/mcp) or upgrade the binary"
-
-// writable refuses a write to a note this binary does not fully understand:
-// a queue_format newer than it knows, or an item-shaped line under ## Open or
-// ## Closed that it cannot parse. Writing past either would rewrite lines it
-// misread, and count ids from items it cannot see.
-func (b *queueBody) writable(rel, format string) *jsonx.Obj {
-	if err := queue.CheckVersion(format); err != nil {
-		return failNext(rel+": "+err.Error()+"; nothing was written", skewStep)
-	}
+// writable refuses a write to a note holding an item-shaped line under
+// ## Open or ## Closed that does not parse: writing past it would count ids
+// from items it cannot see.
+func (b *queueBody) writable(rel string) *jsonx.Obj {
 	for _, at := range b.unparsed {
 		if s := b.queueSection(at); !queue.ItemShaped(b.Lines[at]) || s != queueOpen && s != queueClosed {
 			continue
 		}
-		return failNext(fmt.Sprintf("%s: the item line %s does not parse in queue format %d; nothing was written", rel, pystr.Repr(b.Lines[at]), queue.Version),
-			skewStep, "if the line was typed by hand, fix or remove it in the note, then retry")
+		return failNext(fmt.Sprintf("%s: the item line %s does not parse; nothing was written", rel, pystr.Repr(b.Lines[at])),
+			"fix or remove the line in the note, then retry")
 	}
 	return nil
 }
@@ -636,8 +612,6 @@ type queueDoc struct {
 	p          queueProject
 	exists     bool
 	restricted bool
-	format     string // queue_format as written, "" when absent
-	fm         *jsonx.Obj
 	body       *queueBody
 }
 
@@ -654,8 +628,6 @@ func (s *queueStore) read(p queueProject) (queueDoc, error) {
 	if note.FM != nil {
 		sens, _ := note.FM.Get("sensitivity")
 		d.restricted = !gate.Releasable(gate.Parse(pystr.Str(sens)))
-		d.format = note.FM.Text(schema.QueueFormatField)
-		d.fm = note.FM
 	}
 	d.body = parseBody(note.Text[note.Offset:], s.links)
 	return d, nil
@@ -678,29 +650,18 @@ func (s *queueStore) readWritable(p queueProject) (queueDoc, *jsonx.Obj) {
 	return d, nil
 }
 
-// currentFormat is queue_format as this binary writes it.
-var currentFormat = strconv.Itoa(queue.Version)
-
 // change rewrites p's queue under its lock. edit gets the body as it is on
 // disk at that moment and may run more than once; it returns a failure, or
 // nil once it has changed the body. A note this binary does not fully read
 // is refused before edit runs, a body that would carry an id twice is
-// refused after, and the note is stamped with the format it was written in.
+// refused after.
 func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) *jsonx.Obj {
-	return s.changeNote(p, func(_ *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj) { return nil, edit(b) })
-}
-
-// changeNote is change with an edit that also reads the note's frontmatter
-// and returns the head fields to set or drop.
-func (s *queueStore) changeNote(p queueProject, edit func(fm *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj)) *jsonx.Obj {
-	out := write.EditNoteUnindexed(s.v.Loader, p.rel(), s.v.Profile, func(fm *jsonx.Obj, body, _ string) (string, []write.HeadField, *jsonx.Obj) {
+	out := write.EditNoteUnindexed(s.v.Loader, p.rel(), s.v.Profile, func(_ *jsonx.Obj, body, _ string) (string, []write.HeadField, *jsonx.Obj) {
 		b := parseBody(body, s.links)
-		format := fm.Text(schema.QueueFormatField)
-		if f := b.writable(p.rel(), format); f != nil {
+		if f := b.writable(p.rel()); f != nil {
 			return "", nil, f
 		}
-		head, f := edit(fm, b)
-		if f != nil {
+		if f := edit(b); f != nil {
 			return "", nil, f
 		}
 		if id := b.duplicateID(); id != "" {
@@ -708,10 +669,7 @@ func (s *queueStore) changeNote(p queueProject, edit func(fm *jsonx.Obj, b *queu
 				"give one of those lines a new id by hand in the note, then retry; "+
 					qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "project", "text"})+" shows the ids in use")
 		}
-		if format != currentFormat {
-			head = append(head, write.HeadField{Key: schema.QueueFormatField, Value: currentFormat})
-		}
-		return b.String(), head, nil
+		return b.String(), nil, nil
 	})
 	if !out.Failed() {
 		return nil
@@ -743,72 +701,8 @@ func queueTitle(name string) string {
 func (s *queueStore) create(p queueProject) *jsonx.Obj {
 	r := write.CreateNote(s.v.Loader, p.rel(), "## "+queueOpen+"\n\n## "+queueClosed+"\n", write.With(
 		"doc_id", p.docID(), "title", queueTitle(p.name), "doc_type", schema.QueueDocType, "system", p.name,
-		schema.QueueFormatField, queue.Version,
 	), s.v.Profile)
 	return guide(r, s.v.createSteps(p.rel(), p.docID()))
-}
-
-// surplusQueueKeys are fields a queue note does not need, each with the
-// values that say nothing the note's type and folder don't: reformat drops
-// a key holding one of them, or nothing, and keeps any other value. A list
-// value is matched as its items joined by ",", "{system}" standing for the
-// note's system.
-var surplusQueueKeys = []struct {
-	key    string
-	values []string
-}{
-	{"environment", []string{"other"}},
-	{"sensitivity", []string{"internal"}},
-	{"related_projects", []string{"{system}"}},
-	{"related_assets", nil},
-	{"tags", []string{"queue"}},
-}
-
-// surplusHead are the surplusQueueKeys fm carries with a value that says
-// nothing.
-func surplusHead(fm *jsonx.Obj) []string {
-	var out []string
-	for _, r := range surplusQueueKeys {
-		v, has := fm.Get(r.key)
-		if !has {
-			continue
-		}
-		text := pystr.Str(v)
-		if _, isList := v.([]any); isList || v == nil {
-			text = strings.Join(vault.CoerceList(v), ",")
-		}
-		if text == "" || slices.ContainsFunc(r.values, func(want string) bool {
-			return text == strings.ReplaceAll(want, "{system}", fm.Text("system"))
-		}) {
-			out = append(out, r.key)
-		}
-	}
-	return out
-}
-
-// titleH1 is the line of b's H1 when it is the note's first heading and
-// repeats its title; -1 otherwise.
-func (b *queueBody) titleH1(title string) int {
-	hs := b.Headings()
-	if title == "" || len(hs) == 0 || hs[0].Level != 1 || hs[0].Text != title {
-		return -1
-	}
-	return hs[0].Line
-}
-
-// dropTitleH1 removes the title H1 titleH1 finds, and the blank line it
-// leaves at the top of the body; false when there is none.
-func (b *queueBody) dropTitleH1(title string) bool {
-	at := b.titleH1(title)
-	if at < 0 {
-		return false
-	}
-	b.Remove(at)
-	if at == 0 && len(b.Lines) > 1 && strings.TrimSpace(b.Lines[0]) == "" {
-		b.Lines = b.Lines[1:]
-	}
-	b.scan()
-	return true
 }
 
 // ----- items ---------------------------------------------------------------
@@ -828,7 +722,7 @@ func itemObj(it queue.Item, project string) *jsonx.Obj {
 	if len(it.BlockedBy) > 0 {
 		o.Set("blocked_by", slices.Clone(it.BlockedBy))
 	}
-	for _, f := range [][2]string{{"body", it.Body}, {"alias", it.Alias}, {"agent", it.Agent}, {"origin", it.Origin}} {
+	for _, f := range [][2]string{{"body", it.Body}, {"agent", it.Agent}, {"origin", it.Origin}} {
 		if f[1] != "" {
 			o.Set(f[0], f[1])
 		}
@@ -855,10 +749,10 @@ func itemObj(it queue.Item, project string) *jsonx.Obj {
 }
 
 // originRepo is the repository an origin argument names: a value with a path
-// separator is a working directory, resolved as cwd is.
+// separator, or "." or "..", is a working directory, resolved as cwd is.
 func originRepo(s string) string {
 	s = pystr.Strip(s)
-	if strings.ContainsAny(s, `/\`) {
+	if strings.ContainsAny(s, `/\`) || s == "." || s == ".." {
 		return repoName(s)
 	}
 	return s
@@ -890,18 +784,13 @@ func checkInput(a QueueArgs) error {
 		}
 	}
 	for _, ref := range a.BlockedBy {
-		if !queue.ValidToken(ref) {
-			return fmt.Errorf("blocked_by %s is not an item id such as example-3, or an item's alias", pystr.Repr(ref))
+		if _, _, ok := queue.SplitID(ref); !ok {
+			return fmt.Errorf("blocked_by %s is not an item id such as example-3", pystr.Repr(ref))
 		}
 	}
-	for _, f := range []struct {
-		name string
-		v    *string
-	}{{"alias", a.Alias}, {"body", a.Body}} {
-		if f.v != nil && a.Action != "list" {
-			if v := pystr.Strip(*f.v); v != "" && !queue.ValidToken(v) {
-				return fmt.Errorf("%s %s must be %s", f.name, pystr.Repr(v), queue.TokenRule)
-			}
+	if a.Body != nil && a.Action != "list" {
+		if v := pystr.Strip(*a.Body); v != "" && !queue.ValidToken(v) {
+			return fmt.Errorf("body %s must be %s", pystr.Repr(v), queue.TokenRule)
 		}
 	}
 	for _, r := range commaList(a.Repos) {
@@ -970,99 +859,8 @@ func commaList(given []string) []string {
 	return out
 }
 
-// byAlias is the item whose alias is alias. ok is false when none has it; a
-// failure means several do.
-func (s *queueStore) byAlias(alias string) (p queueProject, id string, ok bool, failure *jsonx.Obj) {
-	var ids []string
-	for _, q := range s.projects {
-		d := s.cached(q)
-		if !d.readable() {
-			continue
-		}
-		for _, x := range d.body.items {
-			if x.it.Alias == alias {
-				if len(ids) == 0 {
-					p, id = q, x.it.ID
-				}
-				ids = append(ids, x.it.ID)
-			}
-		}
-	}
-	if len(ids) > 1 {
-		return queueProject{}, "", false, failNext(fmt.Sprintf("items %s each carry alias %s; give the id", pystr.ReprList(ids), pystr.Repr(alias)),
-			qcall("action", "list", "all", true, "alias", alias, "status", "all"))
-	}
-	return p, id, len(ids) == 1, nil
-}
-
-// lookup is the item ref names: the item with that id, or else the one
-// with that alias.
-func (s *queueStore) lookup(ref string) (queueProject, string, *jsonx.Obj) {
-	_, _, isID := queue.SplitID(ref)
-	var byID *jsonx.Obj
-	if isID {
-		p, _, f := s.locate(ref)
-		if f == nil {
-			return p, ref, nil
-		}
-		byID = f
-	}
-	p, id, ok, f := s.byAlias(ref)
-	switch {
-	case f != nil:
-		return queueProject{}, "", f
-	case ok:
-		return p, id, nil
-	case byID != nil:
-		return queueProject{}, "", byID
-	}
-	return queueProject{}, "", failNext(fmt.Sprintf("no queue holds an item with id or alias %s", pystr.Repr(ref)),
-		qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "alias", "project", "text"})+" to find the item's id")
-}
-
-// blockers are the item ids refs name, each an id or an alias; an id no
-// queue holds stays as given.
-func (s *queueStore) blockers(refs []string) ([]string, *jsonx.Obj) {
-	var out []string
-	for _, ref := range refs {
-		_, _, isID := queue.SplitID(ref)
-		if isID {
-			if _, _, f := s.locate(ref); f == nil {
-				out = append(out, ref)
-				continue
-			}
-		}
-		_, id, ok, f := s.byAlias(ref)
-		switch {
-		case f != nil:
-			return nil, f
-		case ok:
-			out = append(out, id)
-		case isID:
-			out = append(out, ref)
-		default:
-			return nil, failNext(fmt.Sprintf("blocked_by %s is neither an item id nor any item's alias", pystr.Repr(ref)),
-				qcall("action", "list", "all", true, "status", "all", "fields", []string{"id", "alias", "text"})+" to find the blocker's id")
-		}
-	}
-	return out, nil
-}
-
-// checkRefs refuses an alias another item already answers to, as its id or
-// its alias, and a body that names no doc; self is the item being changed.
-func (s *queueStore) checkRefs(a QueueArgs, self string) error {
-	if a.Alias != nil {
-		if alias := pystr.Strip(*a.Alias); alias != "" {
-			if _, id, ok, _ := s.byAlias(alias); ok && id != self {
-				return fmt.Errorf("alias %s is already %s's", pystr.Repr(alias), id)
-			}
-			if _, _, isID := queue.SplitID(alias); isID && alias != self {
-				if _, _, f := s.locate(alias); f == nil {
-					return fmt.Errorf("alias %s is another item's id", pystr.Repr(alias))
-				}
-			}
-		}
-	}
+// checkBody refuses a body that names no doc.
+func (s *queueStore) checkBody(a QueueArgs) error {
 	if a.Body != nil {
 		if body := pystr.Strip(*a.Body); body != "" {
 			if errs := s.v.Profile.DocRefProblems("body", body, s.v.Loader.Index(false).Has); len(errs) > 0 {
@@ -1073,12 +871,9 @@ func (s *queueStore) checkRefs(a QueueArgs, self string) error {
 	return nil
 }
 
-// setRefs applies a given alias and body to it; "" removes one. A body is
-// written as a link to its note.
-func (s *queueStore) setRefs(it *queue.Item, a QueueArgs) {
-	if a.Alias != nil {
-		it.Alias = pystr.Strip(*a.Alias)
-	}
+// setBody applies a given body to it, written as a link to its note; ""
+// removes it.
+func (s *queueStore) setBody(it *queue.Item, a QueueArgs) {
 	if a.Body != nil {
 		it.Body = pystr.Strip(*a.Body)
 		it.BodyLink = s.links.name(it.Body)
@@ -1109,11 +904,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 	if f != nil {
 		return f
 	}
-	blockedBy, f := s.blockers(a.BlockedBy)
-	if f != nil {
-		return f
-	}
-	if err := s.checkRefs(a, ""); err != nil {
+	if err := s.checkBody(a); err != nil {
 		return failNext(err.Error(), retry("with what the error names fixed"))
 	}
 	created := false
@@ -1142,7 +933,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 			}
 		}
 		item = queue.Item{ID: fmt.Sprintf("%s-%d", p.prefix, top+1), Kind: a.Kind, Status: "open",
-			Text: pystr.Strip(*a.Text), BlockedBy: blockedBy, Agent: a.Agent, Origin: originRepo(a.Origin),
+			Text: pystr.Strip(*a.Text), BlockedBy: a.BlockedBy, Agent: a.Agent, Origin: originRepo(a.Origin),
 			Repos: commaList(a.Repos), Owns: commaList(a.Owns), Created: clock.TodayISO()}
 		if a.Base != nil {
 			item.Base = pystr.Strip(*a.Base)
@@ -1154,7 +945,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 			item.Owner = owner(*a.Owner)
 		}
 		applyLinks(&item, a.Links)
-		s.setRefs(&item, a)
+		s.setBody(&item, a)
 		if err := item.Validate(); err != nil {
 			return failNext(err.Error(), retry("with what the error names fixed"))
 		}
@@ -1181,10 +972,11 @@ func (s *queueStore) target(a QueueArgs) (queueProject, string, *jsonx.Obj) {
 		return queueProject{}, "", failNext(a.Action+" names one item: give id, or agent for a worker's item", findIt)
 	}
 	if a.ID != "" {
-		if !queue.ValidToken(a.ID) {
-			return queueProject{}, "", failNext(fmt.Sprintf("id %s is not <prefix>-<number>, such as example-3, or an item's alias", pystr.Repr(a.ID)), findIt)
+		if _, _, ok := queue.SplitID(a.ID); !ok {
+			return queueProject{}, "", failNext(fmt.Sprintf("id %s is not <prefix>-<number>, such as example-3", pystr.Repr(a.ID)), findIt)
 		}
-		return s.lookup(a.ID)
+		p, _, f := s.locate(a.ID)
+		return p, a.ID, f
 	}
 	type hit struct {
 		p  queueProject
@@ -1298,11 +1090,7 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 	if f != nil {
 		return f
 	}
-	blockedBy, f := s.blockers(a.BlockedBy)
-	if f != nil {
-		return f
-	}
-	if err := s.checkRefs(a, id); err != nil {
+	if err := s.checkBody(a); err != nil {
 		return failNext(err.Error(), qcall("action", "set", "id", id)+" with what the error names fixed")
 	}
 	held := ""
@@ -1356,9 +1144,9 @@ func (s *queueStore) set(a QueueArgs) *jsonx.Obj {
 			it.Text = pystr.Strip(*a.Text)
 		}
 		applyLinks(it, a.Links)
-		s.setRefs(it, a)
+		s.setBody(it, a)
 		if a.HasBlockedBy {
-			it.BlockedBy = blockedBy
+			it.BlockedBy = a.BlockedBy
 		}
 		if a.HasRepos {
 			it.Repos = commaList(a.Repos)
@@ -1513,115 +1301,6 @@ func recorded(resolution, given string) bool {
 	return !slices.ContainsFunc(queue.SplitList(given), func(e string) bool { return !slices.Contains(have, e) })
 }
 
-// lineEdit is one item line a reformat rewrites.
-type lineEdit struct {
-	at   int
-	line string
-}
-
-// reformatted are the item lines of b that Format writes differently,
-// without their aliases when drop is set. A line that does not parse is left
-// as it is.
-func (b *queueBody) reformatted(drop bool) (edits []lineEdit, aliases int) {
-	for _, x := range b.items {
-		it := x.it
-		if drop && it.Alias != "" {
-			it.Alias = ""
-			aliases++
-		}
-		if line := queue.Format(it); line != b.Lines[x.at] {
-			edits = append(edits, lineEdit{x.at, line})
-		}
-	}
-	return edits, aliases
-}
-
-// reformat rewrites every item line of the queues named (by project, repo or
-// cwd, or all) in the current format, through the locked write path, stamps
-// it with that format, and drops the fields and H1 a queue note does not
-// need (surplusHead, titleH1), all in one write; a note already in that
-// shape is not written at all.
-func (s *queueStore) reformat(a QueueArgs) *jsonx.Obj {
-	scoped := a.Project != "" || a.Repo != "" || a.Cwd != ""
-	var targets []queueProject
-	switch {
-	case a.All && scoped:
-		return failNext("give all, or one of project, repo or cwd", qcall("action", "reformat", "all", true))
-	case a.All:
-		targets = s.projects
-	case !scoped:
-		return failNext("name the queue: give project, repo or cwd, or all=true", qcall("action", "reformat", "all", true))
-	default:
-		p, _, f := s.resolve(a)
-		if f != nil {
-			return f
-		}
-		targets = []queueProject{p}
-	}
-	changed, skipped := []*jsonx.Obj{}, []string{}
-	unparsed, dropped := 0, 0
-	for _, p := range targets {
-		d := s.cached(p)
-		if d.restricted {
-			skipped = append(skipped, p.docID())
-		}
-		if !d.readable() {
-			continue
-		}
-		// A note with nothing to rewrite is still refused when this binary
-		// does not fully read it, so its lines are never reported current.
-		if f := d.body.writable(p.rel(), d.format); f != nil {
-			return f.Set("changed", changed)
-		}
-		if edits, _ := d.body.reformatted(a.DropAliases); len(edits) == 0 && d.format == currentFormat &&
-			len(surplusHead(d.fm)) == 0 && d.body.titleH1(d.fm.Text("title")) < 0 {
-			unparsed += len(d.body.unparsed)
-			continue
-		}
-		lines, aliases, left := 0, 0, 0
-		var fields []string
-		h1 := false
-		if f := s.changeNote(p, func(fm *jsonx.Obj, b *queueBody) ([]write.HeadField, *jsonx.Obj) {
-			var edits []lineEdit
-			edits, aliases = b.reformatted(a.DropAliases)
-			for _, e := range edits {
-				b.Lines[e.at] = e.line
-			}
-			var head []write.HeadField
-			fields = surplusHead(fm)
-			for _, k := range fields {
-				head = append(head, write.HeadField{Key: k, Drop: true})
-			}
-			h1 = b.dropTitleH1(fm.Text("title"))
-			lines, left = len(edits), len(b.unparsed)
-			return head, nil
-		}); f != nil {
-			return f.Set("changed", changed)
-		}
-		unparsed += left
-		dropped += aliases
-		entry := jsonx.New("project", p.name, "relative_path", p.rel(), "lines", lines)
-		if len(fields) > 0 {
-			entry.Set("fields_dropped", fields)
-		}
-		if h1 {
-			entry.Set("h1_dropped", true)
-		}
-		changed = append(changed, entry)
-	}
-	out := jsonx.New("ok", true, "count", len(changed), "changed", changed)
-	if a.DropAliases {
-		out.Set("aliases_dropped", dropped)
-	}
-	if len(skipped) > 0 {
-		out.Set("skipped_restricted", skipped)
-	}
-	if unparsed > 0 {
-		out.Set("unparsed_lines", unparsed)
-	}
-	return out
-}
-
 // boardQueue is the open and returned items of every queue, or of project's
 // when it names one, as task_board shows them.
 func boardQueue(v *Vault, project string) []*jsonx.Obj {
@@ -1682,10 +1361,6 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 		}
 	}
 	scoped := a.Project != "" || a.Repo != "" || a.Cwd != ""
-	alias := ""
-	if a.Alias != nil {
-		alias = pystr.Strip(*a.Alias)
-	}
 	var targets []queueProject
 	fallback := ""
 	switch {
@@ -1694,7 +1369,7 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 			qcall("action", "list", "cwd", "<the session's working directory>", "include_origin", true))
 	case a.All && scoped:
 		return failNext("give all, or one of project, repo or cwd", qcall("action", "list", "all", true))
-	case a.All || (!scoped && (a.Agent != "" || a.Origin != "" || alias != "" || len(a.Links) > 0)):
+	case a.All || (!scoped && (a.Agent != "" || a.Origin != "" || len(a.Links) > 0)):
 		targets = s.projects
 	case !scoped:
 		return failNext("name the queue: give project, repo or cwd, or all=true",
@@ -1750,7 +1425,6 @@ func (s *queueStore) list(a QueueArgs) *jsonx.Obj {
 				!slices.Contains(statuses, it.Status),
 				a.Kind != "" && it.Kind != a.Kind,
 				a.Agent != "" && it.Agent != a.Agent,
-				alias != "" && it.Alias != alias,
 				!linksMatch(it.Links, a.Links),
 				a.Owner != nil && it.Owner != owner(*a.Owner),
 				a.Contains != "" && !containsFold(it.Text, a.Contains):

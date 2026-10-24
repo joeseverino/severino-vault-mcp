@@ -160,40 +160,21 @@ func TestALaunchClaimsAQueuedItemThenLandingClosesIt(t *testing.T) {
 	}
 }
 
-// An import writes each old task as an item that keeps its doc_id as alias
-// and its doc as body, then names the item by that alias.
-func TestAnImportWritesAliasAndBodyThroughTheCLI(t *testing.T) {
+// A body names the doc holding an item's detail, and --body= removes it.
+func TestABodyIsSetAndRemovedThroughTheCLI(t *testing.T) {
 	root := tk.Dir(t)
 	tk.Doc(t, filepath.Join(root, "01 Projects/Example Tracker/index.md"),
 		"doc_id: project-example-tracker\ntitle: Example Tracker\ndoc_type: architecture_note\nsystem: Example\n"+
 			"environment: other\nstatus: active\nsensitivity: internal\nqueue_prefix: ex", "# Example Tracker\n")
-	exit, out, _ := run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "next", "--text", "Imported",
-		"--alias=task-old-slug", "--body=project-example-tracker")
-	if r := decode(t, out); exit != 0 || tk.Get(r, "item.alias") != "task-old-slug" || tk.Get(r, "item.body") != "project-example-tracker" {
+	exit, out, _ := run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "next", "--text", "Detailed", "--body=project-example-tracker")
+	if r := decode(t, out); exit != 0 || tk.Get(r, "item.body") != "project-example-tracker" {
 		t.Fatal(exit, out)
 	}
-	exit, out, _ = run(t, root, "", "queue", "list", "--alias", "task-old-slug", "--fields", "id", "alias")
-	if exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1","alias":"task-old-slug"}]`) {
-		t.Fatal(exit, out)
-	}
-	exit, out, _ = run(t, root, "", "queue", "set", "task-old-slug", "--body=")
+	exit, out, _ = run(t, root, "", "queue", "set", "ex-1", "--body=")
 	if r := decode(t, out); exit != 0 || r.Str("id") != "ex-1" || tk.Has(r, "item.body") || strings.Contains(out, `"body"`) {
 		t.Fatal(exit, out)
 	}
-	if exit, out, _ = run(t, root, "", "queue", "close", "task-old-slug", "--resolution", "merged (#213)"); exit != 0 || tk.Get(decode(t, out), "item.resolution") != "merged (#213)" {
-		t.Fatal(exit, out)
-	}
-
-	// Once the import is done, reformat drops the aliases; the line was
-	// written in the current grammar, so nothing else changes.
-	if exit, out, _ = run(t, root, "", "queue", "reformat", "--all"); exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "0" {
-		t.Fatal(exit, out)
-	}
-	exit, out, _ = run(t, root, "", "queue", "reformat", "--project", "Example Tracker", "--drop-aliases")
-	if r := decode(t, out); exit != 0 || jsonx.Compact(tk.Get(r, "aliases_dropped")) != "1" || jsonx.Compact(tk.Get(r, "changed.0.lines")) != "1" {
-		t.Fatal(exit, out)
-	}
-	if exit, out, _ = run(t, root, "", "queue", "list", "--alias", "task-old-slug"); exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "count")) != "0" {
+	if exit, out, _ = run(t, root, "", "queue", "close", "ex-1", "--resolution", "merged (#213)"); exit != 0 || tk.Get(decode(t, out), "item.resolution") != "merged (#213)" {
 		t.Fatal(exit, out)
 	}
 }

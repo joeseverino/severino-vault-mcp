@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
@@ -129,7 +130,7 @@ func TestBackfillAliasesSetsTitleAliasIdempotently(t *testing.T) {
 func TestTouchReviewedIsANoOpWhenAlreadyToday(t *testing.T) {
 	root := tk.Dir(t)
 	p := filepath.Join(root, "03 Runbooks", "x.md")
-	tk.Write(t, p, "---\ndoc_id: rb-x\nlast_reviewed: "+write.Today()+"\n---\n\nbody\n")
+	tk.Write(t, p, "---\ndoc_id: rb-x\nlast_reviewed: "+clock.TodayISO()+"\n---\n\nbody\n")
 	if r := write.TouchReviewed(tk.Loader(root), "03 Runbooks/x.md"); !r.Bool("no_op") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -183,7 +184,6 @@ func TestAnUpdateRefusesEveryProblemItIntroduces(t *testing.T) {
 		{"kind on a runbook", runbook, write.With(schema.ReportKindField, "audit"), "kind only applies to doc_type ['report']"},
 		{"a report without its kind", "03 Runbooks/Reports/Example.md", write.With("doc_type", schema.ReportDocType), "missing required field: kind"},
 		{"a report outside a Reports folder", runbook, write.With("doc_type", schema.ReportDocType, schema.ReportKindField, "audit"), "lives in a 'Reports' folder"},
-		{"a queue note without its format", runbook, write.With("doc_type", schema.QueueDocType), "missing required field: " + schema.QueueFormatField},
 	} {
 		full := filepath.Join(root, c.rel)
 		if c.rel != runbook {

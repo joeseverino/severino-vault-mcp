@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
@@ -46,7 +47,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 	idx := v.Loader.Index(true)
 	var docs []*vault.Doc
 	for _, d := range idx.WithArchived() {
-		if under(d.RelativePath, from) {
+		if config.Under(d.RelativePath, from) {
 			docs = append(docs, d)
 		}
 	}
@@ -104,7 +105,7 @@ func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
 func countUnder(files []string, dir string) int {
 	n := 0
 	for _, f := range files {
-		if under(f, dir) {
+		if config.Under(f, dir) {
 			n++
 		}
 	}
@@ -120,7 +121,7 @@ func folderTarget(v *Vault, a FolderArgs) (from, to, msg string, steps []string)
 	homes := v.destinations()
 	home := func(rel string) string {
 		for _, d := range homes {
-			if under(rel, d) {
+			if config.Under(rel, d) {
 				return d
 			}
 		}
@@ -149,7 +150,7 @@ func folderTarget(v *Vault, a FolderArgs) (from, to, msg string, steps []string)
 		return "", "", fmt.Sprintf("to must be a folder inside one of %s: %s", pystr.ReprList(homes), to), []string{retry(path.Join(homes[0], path.Base(from)))}
 	case to == from:
 		return "", "", from + " is already there", []string{retry(exampleTo)}
-	case under(to, from):
+	case config.Under(to, from):
 		return "", "", to + " is inside " + from + "; a folder cannot move into itself", []string{retry(path.Join(path.Dir(from), path.Base(to)))}
 	case v.exists(to):
 		return "", "", "destination exists: " + to, []string{retry(to + " (moved)")}

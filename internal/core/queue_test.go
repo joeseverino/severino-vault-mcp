@@ -85,7 +85,7 @@ func TestTheFirstAddCreatesAQueueThatValidates(t *testing.T) {
 	// The note carries only what a queue note needs, and no H1: its file
 	// name and breadcrumb name it.
 	n := frontmatter.NewNote(note)
-	if got := n.FM.Keys(); !slices.Equal(slices.Sorted(slices.Values(got)), []string{"doc_id", "doc_type", "last_reviewed", "queue_format", "status", "system", "title"}) {
+	if got := n.FM.Keys(); !slices.Equal(slices.Sorted(slices.Values(got)), []string{"doc_id", "doc_type", "last_reviewed", "status", "system", "title"}) {
 		t.Fatalf("queue note fields %v", got)
 	}
 	if !strings.HasPrefix(note[n.Offset:], "## Open\n") && !strings.HasPrefix(note[n.Offset:], "\n## Open\n") {
@@ -293,6 +293,38 @@ func TestACwdResolvesThroughItsRepoToTheProject(t *testing.T) {
 	}
 	if !strings.Contains(tk.Read(t, filepath.Join(root, "07 Backlog/Queue.md")), "- [ ] Nowhere #queue/next  [id:: backlog-1]") {
 		t.Fatal("the backlog queue was not written")
+	}
+}
+
+// A relative cwd or origin ("." from inside a repo) resolves to the same
+// repository as its absolute path.
+func TestARelativeCwdOrOriginResolvesAgainstTheProcessDirectory(t *testing.T) {
+	_, v := queueVault(t)
+	repo := filepath.Join(tk.Dir(t), "example-tracker-ext")
+	tk.Write(t, filepath.Join(repo, "internal", "x.go"), "package x\n")
+	tk.Write(t, filepath.Join(repo, ".git", "HEAD"), "ref: refs/heads/main\n")
+	t.Chdir(filepath.Join(repo, "internal"))
+	for _, cwd := range []string{".", "..", "../internal"} {
+		r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Cwd: cwd}))
+		if r.Str("project") != "Example Tracker" || r.Has("fallback") {
+			t.Fatal(cwd, jsonx.Compact(r))
+		}
+	}
+	r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "add", Project: "Example Tracker", Kind: "delegated", Agent: "o1", Origin: "..", Text: new("From a repo")}))
+	if got := tk.Get(r, "item.origin"); got != "example-tracker-ext" {
+		t.Fatal(got, jsonx.Compact(r))
+	}
+}
+
+// A repo two projects list names no queue: the call is refused naming both.
+func TestARepoTwoProjectsListIsRefusedNamingBoth(t *testing.T) {
+	root, v := queueVault(t)
+	tk.Doc(t, filepath.Join(root, "01 Projects/example-docs/index.md"),
+		"doc_id: project-example-docs\ntitle: Example Docs\ndoc_type: architecture_note\nsystem: Example\n"+
+			"environment: other\nstatus: active\nsensitivity: internal\nrepos: [example-site]", "# Example Docs\n")
+	r := core.Queue(v, core.QueueArgs{Action: "add", Repo: "example-site", Kind: "next", Text: new("Where?")})
+	if r.Bool("ok") || r.Str("error") != "projects ['example-docs', 'example-site'] each list repo 'example-site'; keep it in one index.md's repos" {
+		t.Fatal(jsonx.Compact(r))
 	}
 }
 
@@ -545,7 +577,7 @@ func TestListByBranchFindsTheItemAcrossQueues(t *testing.T) {
 func TestQueueRefusesARestrictedQueue(t *testing.T) {
 	root, v := queueVault(t)
 	tk.Doc(t, filepath.Join(root, trackerQueue), "doc_id: queue-example-tracker\ntitle: Q\ndoc_type: architecture_note\nsystem: x\n"+
-		"environment: other\nstatus: active\nsensitivity: restricted", "# Q\n\n## Open\n\n- [ ] Secret  [kind:: next]  [id:: ex-1]\n\n## Closed\n")
+		"environment: other\nstatus: active\nsensitivity: restricted", "# Q\n\n## Open\n\n- [ ] Secret #queue/next  [id:: ex-1]\n\n## Closed\n")
 	if r := core.Queue(v, core.QueueArgs{Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x")}); r.Bool("ok") || !strings.Contains(r.Str("error"), "restricted") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -555,54 +587,30 @@ func TestQueueRefusesARestrictedQueue(t *testing.T) {
 	}
 }
 
-// An item imported from an older tracker keeps its old id as alias and
-// points at the doc holding its detail; the alias then names the item
-// wherever an id does.
-func TestAnAliasNamesTheItemAndABodyNamesADoc(t *testing.T) {
+// An item's body names the doc holding its detail, written as a link to it;
+// "" removes it.
+func TestABodyNamesADoc(t *testing.T) {
 	root, v := queueVault(t)
-	blocker := add(t, v, "Example Tracker", "next", "Imported", func(a *core.QueueArgs) {
-		a.Alias, a.Body = new("task-old-slug"), new("project-example-tracker")
-	})
+	blocker := add(t, v, "Example Tracker", "next", "Detailed", func(a *core.QueueArgs) { a.Body = new("project-example-tracker") })
 	note := tk.Read(t, filepath.Join(root, trackerQueue))
-	if !strings.Contains(note, "- [ ] Imported ([[01 Projects/Example Tracker/index|notes]]) #queue/next  [alias:: task-old-slug]  [id:: "+blocker+"]") {
+	if !strings.Contains(note, "- [ ] Detailed ([[01 Projects/Example Tracker/index|notes]]) #queue/next  [id:: "+blocker+"]") {
 		t.Fatal(note)
 	}
-	got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Alias: new("task-old-slug"), Full: true}))
-	if !slices.Equal(ids(got), []string{blocker}) || tk.Get(got, "items.0.body") != "project-example-tracker" || tk.Get(got, "items.0.alias") != "task-old-slug" {
+	got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", All: true, Full: true}))
+	if tk.Get(got, "items.0.body") != "project-example-tracker" {
 		t.Fatal(jsonx.Compact(got))
 	}
-
-	after := add(t, v, "example-site", "next", "After the import", func(a *core.QueueArgs) { a.BlockedBy = []string{"task-old-slug"} })
-	if got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", All: true, Full: true, Contains: "After"})); tk.Get(got, "items.0.blocked_by.0") != blocker {
-		t.Fatalf("blocked_by kept the alias: %s", jsonx.Compact(got))
-	}
-	ready := func() []string {
-		return ids(mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", Project: "example-site", Ready: true})))
-	}
-	if got := ready(); len(got) != 0 {
-		t.Fatal(got)
-	}
-	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: "task-old-slug", Owner: new("worker")}))
-	if r := mustOK(t, core.Queue(v, core.QueueArgs{Action: "close", ID: "task-old-slug", Resolution: "landed (b668469b)"})); r.Str("id") != blocker {
-		t.Fatal(jsonx.Compact(r))
-	}
-	if got := ready(); !slices.Equal(got, []string{after}) {
-		t.Fatal(got)
-	}
-
-	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: after, Alias: new("task-other"), Body: new("project-example-site")}))
-	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: "task-other", Alias: new(""), Body: new("")}))
-	if got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", All: true, Contains: "After", Full: true})); tk.Get(got, "items.0").(*jsonx.Obj).Has("alias") {
-		t.Fatalf("an empty alias stayed: %s", jsonx.Compact(got))
+	mustOK(t, core.Queue(v, core.QueueArgs{Action: "set", ID: blocker, Body: new("")}))
+	if got := mustOK(t, core.Queue(v, core.QueueArgs{Action: "list", All: true, Full: true})); tk.Has(got, "items.0.body") {
+		t.Fatalf("an empty body stayed: %s", jsonx.Compact(got))
 	}
 
 	for want, a := range map[string]core.QueueArgs{
 		"body 'note-missing' names no doc in the vault": {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("note-missing")},
 		"body 'nope' must start with one of":            {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Body: new("nope")},
-		"alias 'task-old-slug' is already " + blocker:   {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), Alias: new("task-old-slug")},
-		"alias '" + blocker + "' is another item's id":  {Action: "set", ID: after, Alias: new(blocker)},
-		"neither an item id nor any item's alias":       {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), BlockedBy: []string{"task-unknown"}},
-		"no queue holds an item with id or alias":       {Action: "close", ID: "task-unknown", Resolution: "x"},
+		"blocked_by 'task-unknown' is not an item id":   {Action: "add", Project: "Example Tracker", Kind: "next", Text: new("x"), BlockedBy: []string{"task-unknown"}},
+		"id 'task-unknown' is not <prefix>-<number>":    {Action: "close", ID: "task-unknown", Resolution: "x"},
+		"no queue holds an item 'ex-99'":                {Action: "close", ID: "ex-99", Resolution: "x"},
 	} {
 		r := core.Queue(v, a)
 		if r.Bool("ok") || !strings.Contains(r.Str("error"), want) || !r.Has("next_steps") {

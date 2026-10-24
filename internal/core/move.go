@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/links"
@@ -218,7 +219,7 @@ func (v *Vault) movable(d *vault.Doc, from string) string {
 func siblingNotes(v *Vault, dir, from string) []string {
 	var out []string
 	for _, rel := range vault.Notes(v.Config.VaultPath) {
-		if rel != from && strings.HasPrefix(rel, dir+"/") {
+		if rel != from && config.Under(rel, dir) {
 			out = append(out, rel)
 		}
 	}

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
 )
 
 // source is one non-test Go file of the server, parsed.
@@ -91,7 +93,7 @@ func parseTree(t *testing.T, tests bool) []source {
 // in reports whether rel lies in one of the package directories.
 func in(rel string, dirs ...string) bool {
 	for _, d := range dirs {
-		if strings.HasPrefix(rel, d+"/") {
+		if config.Under(rel, d) {
 			return true
 		}
 	}

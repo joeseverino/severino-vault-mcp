@@ -708,7 +708,8 @@ func (p *Profile) DocRefProblems(name, docID string, known func(docID string) bo
 // Sorted returns a sorted copy.
 func Sorted(v []string) []string { return slices.Sorted(slices.Values(v)) }
 
-// AsDict is the legacy HQ wire shape: sets sorted, ordered fields as declared.
+// AsDict is the shape schema --json prints and HQ commits: sets sorted,
+// ordered fields as declared.
 func (p *Profile) AsDict() *jsonx.Obj {
 	return jsonx.New(
 		"doc_types", Sorted(p.DocTypes),
@@ -903,8 +904,6 @@ var Labs = &Profile{
 		{Name: "queue_prefix", Kind: KindString, Scope: projectIndex, Unique: true, Pattern: `[a-z][a-z0-9]{0,11}`,
 			Shape: "lowercase letters and digits, starting with a letter, at most 12 characters", Reserved: []string{"backlog"},
 			Example: "hq", Help: "The id prefix of this project's work queue items."},
-		{Name: QueueFormatField, Kind: KindInteger, Minimum: new(1), Example: "1",
-			Help: "The item line format a work queue note is written in; the queue tool writes it and refuses to write a note whose format is newer than it knows."},
 		{Name: "superseded_by", Kind: KindString, DocRef: true, Example: "report-example-audit-2026-10-01",
 			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
 		{Name: ReportKindField, Kind: KindEnum, Choices: ReportKinds, DocTypes: []string{ReportDocType}, Example: "audit",
@@ -916,7 +915,7 @@ var Labs = &Profile{
 		// environment, sensitivity or relation lists.
 		QueueDocType: {
 			Fields:         map[string]Field{"doc_id": {Kind: KindString, Required: true, Prefixes: []string{QueueDocIDPrefix}}},
-			RequiredFields: []string{"doc_id", "title", "doc_type", "system", "status", QueueFormatField},
+			RequiredFields: []string{"doc_id", "title", "doc_type", "system", "status"},
 		},
 		// A dated record of one run, written once and superseded by the
 		// next in its series.
@@ -935,11 +934,10 @@ var Labs = &Profile{
 }
 
 // QueueDocType and QueueDocIDPrefix mark a work queue note in the labs
-// profile; QueueFormatField is the note's line format version.
+// profile.
 const (
 	QueueDocType     = "queue"
 	QueueDocIDPrefix = "queue-"
-	QueueFormatField = "queue_format"
 )
 
 // ReportDocType marks a report in the labs profile: a dated record of one

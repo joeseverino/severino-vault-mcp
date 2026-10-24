@@ -14,6 +14,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/links"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/queue"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -131,6 +132,11 @@ func living(body string, fm *jsonx.Obj) string {
 	for _, e := range sections.Entries(body, 1) {
 		if e.Closed {
 			b.Lines[e.Index] = ""
+		}
+	}
+	for i, l := range b.Lines {
+		if it, ok := queue.Parse(l); ok && queue.Done(it.Status) {
+			b.Lines[i] = ""
 		}
 	}
 	return b.String()

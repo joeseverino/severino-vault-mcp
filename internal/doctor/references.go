@@ -191,10 +191,9 @@ func (rs *references) checkout(name string) *checkout {
 func (rs *references) repo(name string) *checkout {
 	if rs.byRepo == nil {
 		rs.byRepo = map[string]*checkout{}
-		entries, _ := os.ReadDir(filepath.Join(rs.vault, tasks.ProjectsDir))
-		for _, e := range entries {
-			if c := rs.checkout(e.Name()); c.present {
-				for _, n := range append([]string{e.Name(), filepath.Base(c.root)}, c.repos...) {
+		for _, name := range vault.ProjectFolders(rs.vault) {
+			if c := rs.checkout(name); c.present {
+				for _, n := range append([]string{name, filepath.Base(c.root)}, c.repos...) {
 					if _, taken := rs.byRepo[n]; !taken && n != "" {
 						rs.byRepo[n] = c
 					}

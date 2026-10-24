@@ -17,9 +17,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
-// mcpText is the text an MCP client receives for a tool result.
-func mcpText(o *jsonx.Obj) string { return core.Text(o) }
-
 // ours is core.Find and core.ReadDoc, as the MCP server calls them.
 type ours struct{ v *core.Vault }
 
@@ -36,7 +33,7 @@ func (b ours) Find(query, mode string, fl Filter, limit int) (Found, error) {
 		return Found{}, errors.New(msg)
 	}
 	hits, _ := resp.Get("hits")
-	f := Found{Tokens: Tokens(mcpText(resp))}
+	f := Found{Tokens: Tokens(core.Text(resp))}
 	for _, h := range hits.([]*jsonx.Obj) {
 		f.IDs = append(f.IDs, h.Str("doc_id"))
 		f.Sections = append(f.Sections, h.Str("section"))
@@ -53,7 +50,7 @@ func (b ours) Read(docID, section string) (int, error) {
 	if msg := r.Str("section_error"); msg != "" {
 		return 0, errors.New(msg)
 	}
-	return Tokens(mcpText(r)), nil
+	return Tokens(core.Text(r)), nil
 }
 
 // grep is what an agent with only Grep and Read gets: every markdown file in

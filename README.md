@@ -175,7 +175,7 @@ can still read the file. See [`docs/ai-safety-security.md`](docs/ai-safety-secur
 
 ## Docs
 
-[`QUICKSTART.md`](QUICKSTART.md) · [`STRUCTURE.md`](STRUCTURE.md) ·
+[`QUICKSTART.md`](QUICKSTART.md) · [`AGENTS.md`](AGENTS.md) ·
 [`docs/architecture.md`](docs/architecture.md) ·
 [`docs/ai-tool-contract.md`](docs/ai-tool-contract.md) ·
 [`docs/migration-guide.md`](docs/migration-guide.md) ·

@@ -1,7 +1,7 @@
 # Sample Vault
 
 A small, fully sanitized operations vault that mirrors the structure of a real
-`severino-vault-mcp` vault — and shows that a real vault is a *typed knowledge
+`severino-vault-mcp` vault, and shows that a real vault is a *typed knowledge
 base*, not a pile of loose notes. Everything here is fictional
 (`*.internal.example` hosts, placeholder commands); no real infrastructure,
 secrets, or hostnames appear.
@@ -34,7 +34,7 @@ The folders mirror a real vault's top-level shape:
 02 Infrastructure/  system-of-record notes (one folder/system) │
 03 Runbooks/        the procedures + the Quick Index hub        ├─ indexed + validated
 04 Reference/       background primers                          ┘
-05 Writeups/        public articles — the site's CMS (separate frontmatter) ┐ read-only
+05 Writeups/        public articles, the site's CMS (separate frontmatter) ┐ read-only
 06 Pages/           static-site pages sourced from the vault                ┘
 99 Archive/         superseded docs, kept for history
 .svmc/aliases.toml  query → doc_id aliases for fuzzy lookups
@@ -55,13 +55,13 @@ without a `doc_id` is known as `writeup-<slug>` or `page-<slug>`. The templates
 | Navigate by a Quick Index | `report-quick-index-navigation` | a decision record (under `02 Infrastructure/00 Reporting/`) |
 | Client Edge DNS | `project-client-edge-dns` | a project index linking related docs |
 | AdGuard Home | `infra-adguard-home` | an infrastructure system-of-record note |
-| Offline CA | `infra-offline-ca` | a `restricted` doc — body withheld by the sensitivity gate |
+| Offline CA | `infra-offline-ca` | a `restricted` doc, its body withheld by the sensitivity gate |
 | Add Nginx Proxy Host | `rb-add-nginx-proxy-host` | a runbook |
 | Generate Internal Service Certificate | `rb-generate-internal-cert` | a runbook with `related_projects` |
 
 ## The data model
 
-Every operational doc carries YAML frontmatter — this is the data model, not
+Every operational doc carries YAML frontmatter, and this is the data model, not
 decoration. The required fields are `doc_id`, `title`, `doc_type`, `system`,
 `environment`, `status`, and `sensitivity`; docs also carry `last_reviewed`,
 `related_projects`, `related_assets`, and `tags`. A stable `doc_id` (prefixed
@@ -69,7 +69,7 @@ decoration. The required fields are `doc_id`, `title`, `doc_type`, `system`,
 other docs and the Quick Index link by, so titles can change without breaking
 references. Each doc is created from a skeleton in `00 Templates/`.
 
-The field enums are owned by one source — the MCP's schema. Don't copy them;
+The field enums are owned by one source, the MCP's schema. Don't copy them;
 emit them:
 
 ```bash
@@ -93,11 +93,10 @@ pipeline rather than the runbook index.
 - **A document lifecycle.** Capture in `00 Inbox`, promote from a template into
   the indexed dirs, retire to `99 Archive` (`status: archived`) when superseded.
 - **The vault is also the CMS.** `05 Writeups` and `06 Pages` are the same
-  markdown the public site publishes — content lives with operations, gated by
+  markdown the public site publishes, so content lives with operations, gated by
   `published`.
 - **Aliases.** `.svmc/aliases.toml` maps natural phrases (`"cert generation"`)
   onto a `doc_id`, so fuzzy lookups still land on the right doc.
 
 For the repo's own structure and the frontmatter contract in depth, see
-[`../../STRUCTURE.md`](../../STRUCTURE.md) and
 [`../../AGENTS.md`](../../AGENTS.md).

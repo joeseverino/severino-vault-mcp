@@ -48,7 +48,7 @@ func Advisory(s Sensitivity, overrideUsed bool) string {
 	switch {
 	case s == Sensitive:
 		return "Doc is labeled `sensitive`. Body returned because the MCP runs " +
-			"locally, but treat this content as private — don't paste it into " +
+			"locally, but treat this content as private: don't paste it into " +
 			"untrusted contexts."
 	case s == Restricted && !overrideUsed:
 		return "Body withheld: sensitivity=restricted. This doc is near " +
@@ -57,7 +57,7 @@ func Advisory(s Sensitivity, overrideUsed bool) string {
 			"through 1Password."
 	case s == Restricted && overrideUsed:
 		return "Body released after explicit request plus a Touch ID unlock. " +
-			"This doc is labeled restricted — be deliberate about what you " +
+			"This doc is labeled restricted, so be deliberate about what you " +
 			"do with the content."
 	}
 	return ""
@@ -114,7 +114,8 @@ func runTimeout(d time.Duration, name string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// isoNow is Python's datetime.now(UTC).isoformat().
+// isoNow is the current UTC time in ISO 8601, with microseconds only when
+// nonzero and the offset written +00:00.
 func isoNow() string {
 	now := time.Now().UTC()
 	base := now.Format("2006-01-02T15:04:05")

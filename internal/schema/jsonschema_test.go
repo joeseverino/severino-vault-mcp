@@ -99,7 +99,7 @@ func brokenBlocks() []block {
 	// lean is a queue note with only the fields its doc_type requires.
 	lean := func(extra ...any) *jsonx.Obj {
 		fm := jsonx.New("doc_id", "queue-example", "title", "Example Queue", "doc_type", "queue", "system", "example",
-			"status", "active", schema.QueueFormatField, "1")
+			"status", "active")
 		for i := 0; i+1 < len(extra); i += 2 {
 			fm.Set(extra[i].(string), extra[i+1])
 		}
@@ -129,10 +129,10 @@ func brokenBlocks() []block {
 		{"project keys", index, doc("doc_id", "project-example", "doc_type", "architecture_note", "project_path", "~/Code/Projects/example",
 			"repos", []any{"example-repo"}, "queue_prefix", "ex")},
 		{"lean queue note", queue, lean()},
-		{"queue note without its format", queue, lean(schema.QueueFormatField, nil)},
+		{"queue note without its status", queue, lean("status", nil)},
 		{"queue note with a bad environment", queue, lean("environment", "moon")},
 		{"queue note with a doc prefix", queue, lean("doc_id", "note-example")},
-		{"runbook without an environment", at, doc("environment", nil, schema.QueueFormatField, "1")},
+		{"runbook without an environment", at, doc("environment", nil)},
 		{"relative project path", index, doc("doc_id", "project-example", "project_path", "Code/example")},
 		{"repo with an owner", index, doc("doc_id", "project-example", "repos", []any{"owner/example"})},
 		{"reserved queue prefix", index, doc("doc_id", "project-example", "queue_prefix", "backlog")},

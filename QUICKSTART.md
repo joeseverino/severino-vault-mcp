@@ -241,7 +241,7 @@ Read:
 
 - `README.md` for full project overview.
 - `CONTRIBUTING.md` for development workflow.
-- `STRUCTURE.md` for the repository map.
+- `AGENTS.md` for the repository map and how to verify a change.
 - `docs/demo.md` for a sample assistant transcript.
 - `docs/architecture.md` for runtime shape and extension pattern.
 - `docs/ai-tool-contract.md` for model-facing tool-selection rules.

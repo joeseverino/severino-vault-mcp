@@ -75,8 +75,11 @@ func (c Config) Archived(rel string) bool {
 		return false
 	}
 	rel = filepath.ToSlash(filepath.Clean(rel))
-	return strings.HasPrefix(rel, c.ArchiveDir+"/")
+	return Under(rel, c.ArchiveDir)
 }
+
+// Under reports whether rel, a slash path, lies inside the folder dir.
+func Under(rel, dir string) bool { return strings.HasPrefix(rel, dir+"/") }
 
 // SearchDirs is every folder the index reads: the indexed dirs, then the
 // read-only ones.
@@ -97,7 +100,7 @@ func (c Config) ReadOnlyDir(rel string) string {
 		if slices.Contains(c.IndexedDirs, d) {
 			continue
 		}
-		if strings.HasPrefix(rel, filepath.ToSlash(filepath.Clean(d))+"/") {
+		if Under(rel, filepath.ToSlash(filepath.Clean(d))) {
 			return d
 		}
 	}

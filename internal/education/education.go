@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/sections"
@@ -73,7 +74,7 @@ func Dataset(l *vault.Loader, statuses []string) *jsonx.Obj {
 		}
 		var courses []course
 		for _, c := range docs {
-			if c.DocType != "course" || !strings.HasPrefix(c.RelativePath, folder+"/") {
+			if c.DocType != "course" || !config.Under(c.RelativePath, folder) {
 				continue
 			}
 			var missing []string
