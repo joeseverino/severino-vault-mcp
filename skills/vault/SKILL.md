@@ -25,6 +25,9 @@ adds. Every shared tool takes `vault` (default labs).
 4. `find(by=...)`: relevance (default) or text (body search: all words, any
    order). `system` and `project` narrow either mode to docs whose `system`
    field, or one of whose `related_projects` entries, contains the value.
+   Queue notes (`doc_type: queue`) stay out of `find` unless you pass
+   `doc_type="queue"`; `task_board(include_queue=true)` adds the open queue
+   items.
 5. Outputs are lean by default. `fields=[...]` (dotted paths, e.g. `tags`,
    `snippets.text`) asks `find`, `read_doc` or `task_board` for more; an
    unknown name is refused with the valid ones.
@@ -38,8 +41,8 @@ user's Touch ID approval through 1Password, from the main session only.
 
 ## When a call fails
 
-A failure is `{"ok": false, "error": ...}` with `next_steps`: the calls that
-recover from it, each naming a tool. A `find` with no hits carries them too.
+Every `ok: false` result is an MCP tool error (`isError`) with `error` and
+`next_steps`: the calls that recover from it, each naming a tool. A `find` with no hits carries them too.
 Take one of them before guessing.
 After the server binary is upgraded, restart Claude Code sessions (`/mcp`
 alone is not enough): `find` and `read_doc` load upfront and keep the schema
@@ -48,8 +51,8 @@ they started with.
 ## Writes
 
 - `set_frontmatter` creates or updates a doc's frontmatter against that
-  vault's schema. It takes every field the vault's profile declares (its
-  description lists them), so no frontmatter is ever edited by hand. On a
+  vault's schema. It takes every field the vault's profile declares (they are
+  its arguments), so no frontmatter is ever edited by hand. On a
   project's `index.md` that includes `project_path` and the work queue keys
   `repos` / `add_repos` / `remove_repos` and `queue_prefix`.
 - `write_doc` creates a registered doc, or replaces or appends to one section
@@ -93,8 +96,20 @@ queue note; name it with `cwd` (your working directory), `repo` or `project`.
   nobody holds it; `status="returned"` marks a delegated item handed back;
   `links={...}` records a pr, branch, commit or slug.
 - `queue(action="close", id=..., resolution="repo@sha")` closes it
-  (`status="dropped"` with the reason as the resolution for work not done);
-  `action="promote"` gives an item that needs prose a body doc.
+  (`status="dropped"` with the reason as the resolution for work not done).
+- A repo no project maps is refused on `add`; make the `set_frontmatter`
+  call its `next_steps` name (`add_repos`) and retry. Only work no project
+  owns goes to `project="backlog"`.
+- A worker sent to another repo is added with `cwd` its worktree and
+  `origin` your repo; `list` with `cwd` and `include_origin=true` shows
+  your queue plus every worker you sent, wherever it is filed.
+- One worker spanning repos: add it in your queue with `repos=[...]`; close
+  each landing with `partial=true, resolution="repo@sha"`, and it closes
+  when every repo has landed. Several workers: one item each in its repo,
+  and a parent in yours with `blocked_by` their ids.
+- Moving an old task into a queue: `add` with `alias` its doc_id and
+  `body` the doc holding its detail; the alias then works as `id` and in
+  `blocked_by`.
 
 `log_entries` stays the tool for append-only log notes such as lessons.
 

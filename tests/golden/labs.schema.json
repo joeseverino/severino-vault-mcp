@@ -50,6 +50,7 @@
             "decision_record",
             "deployment_guide",
             "public_article_draft",
+            "queue",
             "recovery_procedure",
             "runbook",
             "task",
@@ -431,5 +432,48 @@
         }
       }
     ]
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "doc_type": {
+            "const": "queue"
+          }
+        },
+        "required": [
+          "doc_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "doc_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/absent"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?:queue-)"
+              }
+            ]
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "allOf": [
+          {
+            "properties": {
+              "doc_id": {
+                "not": {
+                  "$ref": "#/$defs/absent"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
 }

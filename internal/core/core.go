@@ -181,9 +181,9 @@ func quickIndexMatches(idx *vault.Index, q string, limit int) []*jsonx.Obj {
 	return out
 }
 
-func findRelevance(v *Vault, q string, limit int, keep query.Keep) *jsonx.Obj {
+func findRelevance(v *Vault, q string, limit int, keep query.Keep, filtered bool) *jsonx.Obj {
 	resp := query.FindSections(v.Loader, q, limit, keep)
-	if keep != nil {
+	if filtered {
 		// The quick index points across the whole vault, so it has nothing
 		// to add to a filtered search.
 		return resp
@@ -208,7 +208,10 @@ var FindModes = []string{"relevance", "text"}
 
 // FindArgs are find's options. System and Project, when set, narrow either
 // mode to docs whose `system` field, or one of whose `related_projects`
-// entries, contains them, case-insensitively.
+// entries, contains them, case-insensitively. DocType narrows to one
+// doc_type. Work queue notes are left out unless DocType names their type:
+// their items belong to the queue tool, and a search for prose should not
+// land on them.
 type FindArgs struct {
 	By            string
 	Limit         int
@@ -216,6 +219,7 @@ type FindArgs struct {
 	CaseSensitive bool
 	System        string
 	Project       string
+	DocType       string
 	View
 }
 
@@ -241,10 +245,11 @@ var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match
 func (a FindArgs) Keep() query.Keep {
 	system := strings.ToLower(pystr.Strip(a.System))
 	project := strings.ToLower(pystr.Strip(a.Project))
-	if system == "" && project == "" {
-		return nil
-	}
+	docType := pystr.Strip(a.DocType)
 	return func(d *vault.Doc) bool {
+		if docType != "" && d.DocType != docType || docType == "" && d.DocType == schema.QueueDocType {
+			return false
+		}
 		if system != "" && !containsFold(d.System, system) {
 			return false
 		}
@@ -263,6 +268,9 @@ func (a FindArgs) filters() *jsonx.Obj {
 	if p := pystr.Strip(a.Project); p != "" {
 		o.Set("project", p)
 	}
+	if dt := pystr.Strip(a.DocType); dt != "" {
+		o.Set("doc_type", dt)
+	}
 	return o
 }
 
@@ -272,11 +280,11 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 	if err != nil {
 		return failNext(err.Error(), withoutFields("find", "query", q))
 	}
-	keep := a.Keep()
+	keep, filtered := a.Keep(), len(a.filters().Keys()) > 0
 	var resp *jsonx.Obj
 	switch a.By {
 	case "relevance":
-		resp = findRelevance(v, q, a.Limit, keep)
+		resp = findRelevance(v, q, a.Limit, keep, filtered)
 		hits, _ := resp.Get("hits")
 		resp.Set("match_count", len(hits.([]*jsonx.Obj)))
 	case "text":
@@ -303,7 +311,7 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 			resp = renamed
 			if count == 0 {
 				excluded, _ := resp.Get("excluded")
-				resp = jsonx.New("fallback", "relevance").Merge(findRelevance(v, q, a.Limit, keep))
+				resp = jsonx.New("fallback", "relevance").Merge(findRelevance(v, q, a.Limit, keep, filtered))
 				hits, _ := resp.Get("hits")
 				resp.Set("match_count", len(hits.([]*jsonx.Obj)))
 				resp.Set("excluded", excluded)
@@ -706,8 +714,11 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 
 // BoardArgs are task_board's options beyond the filter. Limit caps the tasks
 // returned, after ranking; count still says how many matched.
+// IncludeQueue adds the open and returned work queue items (every queue, or
+// the filter's project's) under queue; by default the board is tasks only.
 type BoardArgs struct {
-	Limit int
+	Limit        int
+	IncludeQueue bool
 	View
 }
 
@@ -733,6 +744,9 @@ func TaskBoard(v *Vault, f tasks.Filter, a BoardArgs) *jsonx.Obj {
 	if all, _ := board.Get("tasks"); a.Limit > 0 && len(all.([]*jsonx.Obj)) > a.Limit {
 		board.Set("tasks", all.([]*jsonx.Obj)[:a.Limit])
 	}
+	if a.IncludeQueue {
+		board.Set("queue", boardQueue(v, f.Project))
+	}
 	projects, _ := tasks.Projects(v.Loader).Get("projects")
 	if m == nil {
 		return board.Set("projects", projects)
@@ -741,7 +755,7 @@ func TaskBoard(v *Vault, f tasks.Filter, a BoardArgs) *jsonx.Obj {
 	for _, p := range projects.([]*jsonx.Obj) {
 		slugs = append(slugs, p.Str("slug"))
 	}
-	board = keepOnly(board, "ok", "count", "total", "tasks", "shipped").Set("projects", slugs)
+	board = keepOnly(board, "ok", "count", "total", "tasks", "shipped", "queue").Set("projects", slugs)
 	cutEach(board, "tasks", m)
 	cutEach(board, "shipped", m)
 	return board

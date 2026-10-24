@@ -34,9 +34,18 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 	tk.Write(t, filepath.Join(worktree, ".git"), "gitdir: "+filepath.Join(code, "example-tracker", ".git", "worktrees", "agent-a1")+"\n")
 
 	exit, out, _ := run(t, root, "", "queue", "add", "--cwd", worktree, "--kind", "delegated", "--agent", "a1",
-		"--text=-dash-led goal: build the store", "--branch", "pass/store", "--owner", "worker")
+		"--text=-dash-led goal: build the store", "--branch", "pass/store", "--owner", "worker", "--origin", "example-launcher")
 	r := decode(t, out)
 	if exit != 0 || r.Str("id") != "ex-1" || r.Str("project") != "Example Tracker" || tk.Get(r, "item.links.branch") != "pass/store" {
+		t.Fatal(exit, out)
+	}
+	launcher := filepath.Join(code, "example-launcher")
+	tk.Write(t, filepath.Join(launcher, ".git", "HEAD"), "ref: refs/heads/main\n")
+	exit, out, _ = run(t, root, "", "queue", "list", "--cwd", launcher, "--include-origin", "--fields", "id", "project")
+	if r := decode(t, out); exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1","project":"Example Tracker"}]`) || r.Str("warning") == "" {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "add", "--cwd", launcher, "--kind", "next", "--text", "x"); exit != 1 || !strings.Contains(out, "add_repos") {
 		t.Fatal(exit, out)
 	}
 	exit, out, _ = run(t, root, "", "queue", "set", "--agent", "a1", "--status", "returned", "--commit", "abc1234,def5678")
@@ -59,5 +68,45 @@ func TestAHookTracksAWorkerThroughTheCLI(t *testing.T) {
 	}
 	if exit, _, errb := run(t, root, "", "queue", "finish", "ex-1"); exit != 2 || !strings.Contains(errb, "invalid choice") {
 		t.Fatal(exit, errb)
+	}
+
+	// One worker across two repos: land-worker records each landing.
+	exit, out, _ = run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "delegated", "--agent", "a2",
+		"--text", "Span two repos", "--repos", "example-tracker,example-other")
+	if exit != 0 || jsonx.Compact(tk.Get(decode(t, out), "item.repos")) != `["example-tracker","example-other"]` {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a2", "--partial", "--resolution", "example-tracker@abc1234")
+	if exit != 0 || tk.Get(decode(t, out), "item.status") != "open" {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "close", "--agent", "a2", "--partial", "--resolution", "example-other@def5678")
+	if exit != 0 || tk.Get(decode(t, out), "item.status") != "closed" {
+		t.Fatal(exit, out)
+	}
+}
+
+// An import writes each old task as an item that keeps its doc_id as alias
+// and its doc as body, then names the item by that alias.
+func TestAnImportWritesAliasAndBodyThroughTheCLI(t *testing.T) {
+	root := tk.Dir(t)
+	tk.Doc(t, filepath.Join(root, "01 Projects/Example Tracker/index.md"),
+		"doc_id: project-example-tracker\ntitle: Example Tracker\ndoc_type: architecture_note\nsystem: Example\n"+
+			"environment: other\nstatus: active\nsensitivity: internal\nqueue_prefix: ex", "# Example Tracker\n")
+	exit, out, _ := run(t, root, "", "queue", "add", "--project", "Example Tracker", "--kind", "next", "--text", "Imported",
+		"--alias=task-old-slug", "--body=project-example-tracker")
+	if r := decode(t, out); exit != 0 || tk.Get(r, "item.alias") != "task-old-slug" || tk.Get(r, "item.body") != "project-example-tracker" {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "list", "--alias", "task-old-slug", "--fields", "id", "alias")
+	if exit != 0 || !strings.Contains(out, `"items":[{"id":"ex-1","alias":"task-old-slug"}]`) {
+		t.Fatal(exit, out)
+	}
+	exit, out, _ = run(t, root, "", "queue", "set", "task-old-slug", "--body=")
+	if r := decode(t, out); exit != 0 || r.Str("id") != "ex-1" || r.Has("item.body") || strings.Contains(out, `"body"`) {
+		t.Fatal(exit, out)
+	}
+	if exit, out, _ = run(t, root, "", "queue", "close", "task-old-slug", "--resolution", "merged (#213)"); exit != 0 || tk.Get(decode(t, out), "item.resolution") != "merged (#213)" {
+		t.Fatal(exit, out)
 	}
 }

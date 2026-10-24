@@ -79,6 +79,11 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		{"queue", map[string]any{"action": "close", "id": "backlog-1", "resolution": "example-repo@abc1234"}},
 		{"queue", map[string]any{"action": "list", "project": "backlog", "status": "all", "fields": []string{"resolution", "links.branch"}}},
 		{"queue", map[string]any{"action": "list"}},
+		{"queue", map[string]any{"action": "add", "project": "backlog", "kind": "delegated", "text": "Span", "agent": "a2",
+			"origin": "example-site", "repos": []string{"example-a", "example-b"}}},
+		{"queue", map[string]any{"action": "close", "agent": "a2", "partial": true, "resolution": "example-a@abc1234"}},
+		{"queue", map[string]any{"action": "list", "cwd": root, "include_origin": true, "fields": []string{"id", "project", "origin", "repos", "resolution"}}},
+		{"queue", map[string]any{"action": "add", "cwd": root, "kind": "next", "text": "Unmapped"}},
 	}
 	resolved := map[string]*jsonschema.Resolved{}
 	for _, name := range coreTools {

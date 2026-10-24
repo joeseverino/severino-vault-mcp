@@ -454,9 +454,26 @@ func (p *Profile) RefProblems(fm *jsonx.Obj, known func(docID string) bool) []st
 			case own != nil && id == pystr.Str(own):
 				errs = append(errs, fmt.Sprintf("%s %s names the doc itself", f.Name, pystr.Repr(id)))
 			case !known(id):
-				errs = append(errs, fmt.Sprintf("%s %s names no doc in the vault", f.Name, pystr.Repr(id)))
+				errs = append(errs, NoDoc(f.Name, id))
 			}
 		}
+	}
+	return errs
+}
+
+// NoDoc is the one wording of a doc reference that names no doc.
+func NoDoc(name, docID string) string {
+	return fmt.Sprintf("%s %s names no doc in the vault", name, pystr.Repr(docID))
+}
+
+// DocRefProblems checks one doc reference outside a frontmatter block (a
+// queue item's body, say) the way RefProblems and Check check a DocRef
+// field: it starts with one of the profile's doc_id prefixes and names a doc
+// that known holds.
+func (p *Profile) DocRefProblems(name, docID string, known func(docID string) bool) []string {
+	errs := Field{Kind: KindString, Prefixes: p.DocIDPrefixes}.Validate(name, docID)
+	if len(errs) == 0 && !known(docID) {
+		errs = append(errs, NoDoc(name, docID))
 	}
 	return errs
 }
@@ -620,11 +637,11 @@ const projectIndex = "01 Projects/*/index.md"
 var Labs = &Profile{
 	Name: "labs",
 	DocTypes: []string{"runbook", "architecture_note", "deployment_guide", "troubleshooting_guide",
-		"recovery_procedure", "public_article_draft", "decision_record", "task"},
+		"recovery_procedure", "public_article_draft", "decision_record", "task", "queue"},
 	Environments:       []string{"homelab", "vps", "wordpress", "cloudflare", "tailscale", "adguard", "unifi", "local_mac", "other"},
 	Statuses:           []string{"draft", "active", "deprecated", "archived"},
 	Sensitivities:      []string{"public", "internal", "sensitive", "restricted"},
-	DocIDPrefixes:      []string{"rb-", "infra-", "report-", "project-", "note-", "task-", "queue-"},
+	DocIDPrefixes:      []string{"rb-", "infra-", "report-", "project-", "note-", "task-", QueueDocIDPrefix},
 	RequiredFields:     []string{"doc_id", "title", "doc_type", "system", "environment", "status", "sensitivity"},
 	TaskStatuses:       universalTaskStatuses,
 	TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"},
@@ -641,8 +658,17 @@ var Labs = &Profile{
 		{Name: "superseded_by", Kind: KindString, DocRef: true, Example: "report-example-audit-2026-10-01",
 			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
 	},
-	DocumentSchemas: map[string]DocumentSchema{},
+	DocumentSchemas: map[string]DocumentSchema{
+		// A project's work queue note (the queue tool's Queue.md).
+		QueueDocType: {Fields: map[string]Field{"doc_id": {Kind: KindString, Required: true, Prefixes: []string{QueueDocIDPrefix}}}},
+	},
 }
+
+// QueueDocType and QueueDocIDPrefix mark a work queue note in the labs profile.
+const (
+	QueueDocType     = "queue"
+	QueueDocIDPrefix = "queue-"
+)
 
 // Education is the coursework profile.
 var Education = &Profile{

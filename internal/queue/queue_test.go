@@ -18,6 +18,12 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		{ID: "b-5", Kind: "next", Status: "dropped", Text: "x (pr:: 1)", Resolution: "superseded by b-6", Links: map[string]string{"pr": "9"}},
 		{ID: "b-6", Kind: "next", Status: "open", Text: "looks done ✅ 2026-10-22"},
 		{ID: "b-7", Kind: "next", Status: "closed", Text: "Ticked in Obsidian", Extra: []string{"[note:: kept]", "[completion:: 2026-10-22]", "✅ 2026-10-22"}},
+		{ID: "b-8", Kind: "next", Status: "open", Text: "Call f(x) (see [docs]) and std::vec (later)"},
+		{ID: "b-9", Kind: "next", Status: "open", Text: "ends in parens (for now)"},
+		{ID: "b-10", Kind: "next", Status: "open", Text: "note:: leading key [x (y) k:: v] ✅2026-10-22"},
+		{ID: "b-11", Kind: "next", Status: "open", Text: "(a) [b]"},
+		{ID: "b-12", Kind: "delegated", Status: "returned", Text: "Spans repos", Agent: "a1", Origin: "example-site",
+			Repos: []string{"example-a", "example-b"}, Resolution: "example-a@abc1234"},
 	}
 	for _, it := range items {
 		if err := it.Validate(); err != nil {
@@ -31,6 +37,63 @@ func TestEveryItemRoundTripsThroughItsLine(t *testing.T) {
 		if Format(got) != line {
 			t.Errorf("format(parse(line)) changed %s", line)
 		}
+	}
+}
+
+// Only what a parser would read as a field or a date is escaped; ordinary
+// brackets and parentheses read in Obsidian as typed.
+func TestTextEscapesOnlyWhatAParserWouldRead(t *testing.T) {
+	for text, want := range map[string]string{
+		"Call f(x) (see [docs])":   "Call f(x) (see [docs])",
+		"ends in parens (for now)": "ends in parens (for now)",
+		"std::vec (later)":         `std\::vec (later)`,
+		"(see) std::vec":           "(see) std::vec",
+		"a [kind:: decision]":      `a \[kind:: decision]`,
+		"x (pr:: 1)":               `x \(pr:: 1)`,
+		"[x (y) k:: v]":            `\[x (y) k:: v]`,
+		"looks done ✅ 2026-10-22":  `looks done \✅ 2026-10-22`,
+		"a ✅ mark":                 "a ✅ mark",
+		`a \ backslash`:            `a \\ backslash`,
+		"note:: a leading field":   `note\:: a leading field`,
+	} {
+		if got := Escape(text); got != want {
+			t.Errorf("Escape(%q) = %q, want %q", text, got, want)
+		}
+		if Unescape(Escape(text)) != text {
+			t.Errorf("%q does not unescape to itself", text)
+		}
+	}
+}
+
+// Inside a [key:: value] field only what ends it is escaped: ] and the
+// backslash. Parentheses and [ stay as typed.
+func TestAResolutionEscapesOnlyWhatEndsItsField(t *testing.T) {
+	for resolution, want := range map[string]string{
+		"merged (#213)":            "[resolution:: merged (#213)]",
+		"landed (b668469b)":        "[resolution:: landed (b668469b)]",
+		"see [docs (v2)":           "[resolution:: see [docs (v2)]",
+		"a [k:: v] b":              `[resolution:: a [k:: v\] b]`,
+		`ends in \`:                `[resolution:: ends in \\]`,
+		"(paren at the start)":     "[resolution:: (paren at the start)]",
+		"x) unbalanced ( and ] ok": `[resolution:: x) unbalanced ( and \] ok]`,
+	} {
+		it := Item{ID: "hq-1", Kind: "next", Status: "closed", Text: "t", Resolution: resolution}
+		line := Format(it)
+		if !strings.Contains(line, "  "+want+"  [id:: hq-1]") {
+			t.Errorf("%q writes %s", resolution, line)
+		}
+		if got, ok := Parse(line); !ok || got.Resolution != resolution {
+			t.Errorf("%q reads back as %q (%v)", resolution, got.Resolution, ok)
+		}
+	}
+}
+
+// A note written when every bracket and parenthesis in a value was escaped
+// still reads as typed.
+func TestAResolutionWithTheOldEscapingStillReads(t *testing.T) {
+	line := `- [x] t  [kind:: next]  [resolution:: merged \(#213\) after \[review\]]  [id:: hq-1]`
+	if it, ok := Parse(line); !ok || it.Resolution != "merged (#213) after [review]" {
+		t.Fatalf("%+v %v", it, ok)
 	}
 }
 
@@ -51,6 +114,11 @@ func TestTheLineReadsAsDocumented(t *testing.T) {
 	it := Item{ID: "hq-17", Kind: "delegated", Status: "open", Owner: "worker", Text: "Build the store",
 		Links: map[string]string{"branch": "pass/queue"}, BlockedBy: []string{"hq-12"}, Agent: "a1b2"}
 	if got := Format(it); got != "- [ ] Build the store  [kind:: delegated]  [owner:: worker]  [agent:: a1b2]  [branch:: pass/queue]  [id:: hq-17]  [dependsOn:: hq-12]" {
+		t.Fatal(got)
+	}
+	withOrigin := it
+	withOrigin.Origin, withOrigin.Repos = "example-site", []string{"example-a", "example-b"}
+	if got := Format(withOrigin); !strings.Contains(got, "[agent:: a1b2]  [origin:: example-site]  [repos:: example-a,example-b]  [branch:: pass/queue]") {
 		t.Fatal(got)
 	}
 	it.Status, it.Resolution = "closed", "example-repo@abc1234"
@@ -129,7 +197,7 @@ func TestIDsSplitAtTheLastDash(t *testing.T) {
 }
 
 func FuzzTextRoundTrips(f *testing.F) {
-	for _, s := range []string{"a", `\`, "→", "{x}", "a · b", `\→`, "[k:: v]", "(k:: v)", "x ✅ 2026-10-22", `a\]`} {
+	for _, s := range []string{"a", `\`, "→", "{x}", "a · b", `\→`, "[k:: v]", "(k:: v)", "x ✅ 2026-10-22", `a\]`, "f(x) (y)", "[a] (b)", "k:: v", "[x (y) k:: v]", "x ✅2026-10-22", "merged (#213)", "landed (b668469b)", "a [k:: v", "a [k:: v] b"} {
 		f.Add(s, s)
 	}
 	f.Fuzz(func(t *testing.T, text, resolution string) {

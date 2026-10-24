@@ -25,7 +25,7 @@ TOML parser; nothing else.
   `sections.Body` splits a body and finds and edits its sections:
   `TestOneBodySplitter`; `fsx.Vault.ReadNote`/`frontmatter.ReadFile` read and
   split a note: `TestOneNoteReader`; field and value coercions live on
-  `jsonx.Obj`, `jsonx.Strings` and `fsx.IsDir`: `TestOneCoercion`).
+  `jsonx.Obj`, `jsonx.Strings`, `vault.CoerceList` and `fsx.IsDir`: `TestOneCoercion`).
 
 ## Shape
 

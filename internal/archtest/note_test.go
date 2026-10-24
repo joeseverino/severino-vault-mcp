@@ -49,7 +49,7 @@ func TestOneNoteReader(t *testing.T) {
 }
 
 // The value coercions have one home each: jsonx.Obj's Text, Int and Str for a
-// field, jsonx.Strings for a JSON string list, fsx.IsDir for a folder check,
+// field, jsonx.Strings for a JSON string list, vault.CoerceList for a value read as a list, fsx.IsDir for a folder check,
 // core's containsFold for a case-blind match.
 func TestOneCoercion(t *testing.T) {
 	for _, s := range sources(t) {
@@ -63,6 +63,9 @@ func TestOneCoercion(t *testing.T) {
 			}
 			if !in(s.rel, "internal/jsonx") && jsonxName != "" && fieldGetter(fn, jsonxName) {
 				t.Errorf("%s:%d: %s reads a field as a string; use (*jsonx.Obj).Text or Str", s.rel, s.line(fn), fn.Name.Name)
+			}
+			if fn.Name.Name != "CoerceList" && listCoercion(fn) {
+				t.Errorf("%s:%d: %s turns a value into a []string by hand; use vault.CoerceList", s.rel, s.line(fn), fn.Name.Name)
 			}
 			stats, isDir := false, false
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -89,6 +92,37 @@ func TestOneCoercion(t *testing.T) {
 			}
 		}
 	}
+}
+
+// listCoercion matches a function returning []string whose body type-switches
+// on []any: a value-to-list coercion.
+func listCoercion(fn *ast.FuncDecl) bool {
+	if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
+		return false
+	}
+	arr, ok := fn.Type.Results.List[0].Type.(*ast.ArrayType)
+	if !ok {
+		return false
+	}
+	if id, ok := arr.Elt.(*ast.Ident); !ok || id.Name != "string" {
+		return false
+	}
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		cc, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		for _, e := range cc.List {
+			if a, ok := e.(*ast.ArrayType); ok && a.Len == nil {
+				if id, ok := a.Elt.(*ast.Ident); ok && id.Name == "any" {
+					found = true
+				}
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func isPkgCall(call *ast.CallExpr, pkg, name string) bool {
