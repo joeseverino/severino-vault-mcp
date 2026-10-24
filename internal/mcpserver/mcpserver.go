@@ -333,8 +333,10 @@ func (a args) choice(name string, choices []string, def string) (string, error) 
 
 // ----- results ------------------------------------------------------------------
 
+// result is a tool's answer. A failure envelope is also an MCP tool error
+// (isError), the standard signal a client acts on without reading ok.
 func result(o *jsonx.Obj) *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: core.Text(o)}}, StructuredContent: o}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: core.Text(o)}}, StructuredContent: o, IsError: o.Failed()}
 }
 
 // ----- core tools ------------------------------------------------------------------

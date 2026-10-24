@@ -198,5 +198,3 @@ func Text(o *jsonx.Obj) string {
 	b, _ := jsonx.Encode(o, jsonx.Options{})
 	return string(b)
 }
-
-func fail(msg string) *jsonx.Obj { return jsonx.New("ok", false, "error", msg) }

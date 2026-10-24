@@ -86,7 +86,7 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 	if noteDate != "" {
 		t, err := clock.ParseDate(noteDate)
 		if err != nil {
-			return fsx.Fail(fmt.Sprintf("invalid date %s (want YYYY-MM-DD)", pystr.Repr(noteDate)))
+			return jsonx.Fail(fmt.Sprintf("invalid date %s (want YYYY-MM-DD)", pystr.Repr(noteDate)))
 		}
 		day = t
 	}
@@ -97,10 +97,10 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 	}
 	v, err := fsx.OpenVault(cfg.VaultPath)
 	if err != nil {
-		return fsx.Fail("daily note write failed: " + err.Error())
+		return jsonx.Fail("daily note write failed: " + err.Error())
 	}
 	defer v.Close()
-	writeFailed := func(err error) *jsonx.Obj { return fsx.Fail("daily note write failed: " + err.Error()) }
+	writeFailed := func(err error) *jsonx.Obj { return jsonx.Fail("daily note write failed: " + err.Error()) }
 	// A note that appears between the failed update and the create is
 	// updated on the second pass.
 	for range 2 {

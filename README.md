@@ -54,17 +54,19 @@ repo's `site` CLI. The HQ docs manifest stays here until HQ owns it.
 
 Shared, each taking `vault`:
 
+<!-- tools:begin, generated from the registered tools by TestReadmeToolsTable -->
 | Tool | Does |
 |---|---|
-| `find` | Search one vault. `by`: `relevance` (ranked sections, default) or `text` (body search; restricted docs never searched). `system` and `project` narrow either mode to docs whose `system` field, or a `related_projects` entry, contains the value. Hits carry doc_id, title, heading_path, section, section_summary and score; `fields` asks for others. |
-| `read_doc` | A doc's body, `sections=[...]` for just those sections, or `fields=["outline"]` for its section list without text. Restricted bodies need `include_restricted=True` plus a Touch ID approval through 1Password. |
-| `set_frontmatter` | Create a frontmatter block, or update one in place. `doc_id` never changes. |
-| `write_doc` | Create a registered doc, or replace or append one section of its body. |
-| `move_doc` | Move or rename a registered doc, keeping its doc_id and frontmatter. Refuses a destination that exists and a file name another note already has; `with_folder` moves a report folder with its evidence files; lists the links that named the old location. |
-| `task_board` | Open tasks, best first (`limit`, default 25; `status`, `project` and `fields`), with the projects tasks can be filed in. |
-| `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`; `items=[...]` applies several in one call and reports each. |
-| `log_entries` | An append-only log note, one bullet per entry. `action="list"`: the open entries as `{line, text}` (`contains`, `limit`, `open_only`, `fields`). `action="close"`: append ` → <resolution>` to the one open entry `match` names. |
-| `queue` | A project's work queue (`01 Projects/<project>/Queue.md`, or `07 Backlog/Queue.md`), named by `project`, `repo` or `cwd`. `action`: `list` (open and returned; `all`, `kind`, `status`, `owner`, `agent`, `ready`, `contains`, `fields`), `add` (kind, text; returns the id), `set` (status, owner, text, links, blocked_by; `claim=true` takes an unowned item), `close` (resolution; `status=dropped` for work not done), `promote` (a body doc). Every write holds the note's lock. |
+| `find` | Find docs in a vault. Use this first for any question the vault may answer. |
+| `log_entries` | Work an append-only log note: one top-level bullet per entry, closed once its line carries " → " and a resolution. |
+| `move_doc` | Move or rename a registered doc; its doc_id and frontmatter stay as they are. |
+| `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), parked, closed, dropped; a box ticked in Obsidian reads as closed. |
+| `read_doc` | Read a vault doc's markdown body, gated by its sensitivity. |
+| `set_frontmatter` | Create or update a doc's frontmatter, validated against the vault's schema. |
+| `task_board` | A vault's task board: open work, counts, recently shipped, and the projects tasks can go in. |
+| `task_write` | Change a vault's tasks. |
+| `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's schema. |
+<!-- tools:end -->
 
 A failure is `{"ok": false, "error": ...}` plus `next_steps`, the calls that
 recover from it, each naming one of these tools; a `find` with no hits carries

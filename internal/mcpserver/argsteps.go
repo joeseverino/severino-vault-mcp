@@ -23,13 +23,13 @@ import (
 // doesn't hold it to the tool's output schema, and carries the failure as
 // structured content too.
 func argFailure(tool *mcp.Tool, raw json.RawMessage, err error) *mcp.CallToolResult {
-	o := jsonx.New("ok", false, "error", err.Error())
+	o := jsonx.Fail(err.Error())
 	if ae, ok := errors.AsType[argError](err); ok {
 		if steps := argSteps(tool, raw, ae); len(steps) > 0 {
 			o.Set("next_steps", steps)
 		}
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: core.Text(o)}}, StructuredContent: o, IsError: true}
+	return result(o)
 }
 
 // prop is the part of an argument's schema a step needs.

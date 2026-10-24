@@ -6,16 +6,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/queue"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
@@ -33,8 +32,9 @@ var QueueActions = []string{"list", "add", "set", "close", "promote"}
 // Queue note layout.
 const (
 	queueFile      = "Queue.md"
-	queueOpen      = "## Open"
-	queueClosed    = "## Closed"
+	queueLevel     = 2 // Open and Closed are ## sections
+	queueOpen      = "Open"
+	queueClosed    = "Closed"
 	backlogProject = "backlog"
 	queueLimit     = 50
 )
@@ -84,7 +84,7 @@ func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
 	}
 	s, err := openQueues(v)
 	if err != nil {
-		return fail("read failed: " + err.Error())
+		return jsonx.Fail("read failed: " + err.Error())
 	}
 	defer s.root.Close()
 	switch a.Action {
@@ -114,7 +114,7 @@ type queueProject struct {
 }
 
 func (p queueProject) rel() string   { return path.Join(p.dir, queueFile) }
-func (p queueProject) docID() string { return "queue-" + queue.Slug(p.name) }
+func (p queueProject) docID() string { return "queue-" + sections.Slugify(p.name) }
 
 type queueStore struct {
 	v        *Vault
@@ -143,12 +143,12 @@ func openQueues(v *Vault) (*queueStore, error) {
 
 // readProject reads the queue_prefix and repos keys of dir/index.md.
 func (s *queueStore) readProject(name, dir string) queueProject {
-	p := queueProject{name: name, dir: dir, prefix: queue.Slug(name)}
-	text, err := s.root.ReadText(path.Join(dir, "index.md"))
+	p := queueProject{name: name, dir: dir, prefix: sections.Slugify(name)}
+	note, err := s.root.ReadNote(path.Join(dir, "index.md"))
 	if err != nil {
 		return p
 	}
-	fm, _, _ := frontmatter.Split(text)
+	fm := note.FM
 	if fm == nil {
 		return p
 	}
@@ -199,7 +199,7 @@ func (s *queueStore) byPrefix(prefix string) (queueProject, *jsonx.Obj) {
 	for _, p := range hits {
 		names = append(names, p.name)
 	}
-	return queueProject{}, fail(fmt.Sprintf("projects %s share the id prefix %s; give one a distinct queue_prefix in its index.md",
+	return queueProject{}, jsonx.Fail(fmt.Sprintf("projects %s share the id prefix %s; give one a distinct queue_prefix in its index.md",
 		pystr.ReprList(names), pystr.Repr(prefix)))
 }
 
@@ -220,7 +220,7 @@ func (s *queueStore) resolve(a QueueArgs) (p queueProject, fallback string, fail
 		for _, match := range []func(queueProject) bool{
 			func(q queueProject) bool { return q.name == a.Project },
 			func(q queueProject) bool {
-				return strings.EqualFold(q.name, a.Project) || queue.Slug(q.name) == queue.Slug(a.Project)
+				return strings.EqualFold(q.name, a.Project) || sections.Slugify(q.name) == sections.Slugify(a.Project)
 			},
 		} {
 			if i := slices.IndexFunc(s.projects, match); i >= 0 {
@@ -256,7 +256,7 @@ func (s *queueStore) byRepo(candidates []string, what string) (queueProject, str
 		for _, p := range hits {
 			names = append(names, p.name)
 		}
-		return queueProject{}, "", fail(fmt.Sprintf("projects %s all list repo %s; keep it in one index.md's repos", pystr.ReprList(names), pystr.Repr(repo)))
+		return queueProject{}, "", jsonx.Fail(fmt.Sprintf("projects %s all list repo %s; keep it in one index.md's repos", pystr.ReprList(names), pystr.Repr(repo)))
 	}
 	b := s.backlog()
 	return b, fmt.Sprintf("no project's index.md lists %s under repos; using the backlog queue %s", what, b.rel()), nil
@@ -288,9 +288,9 @@ func repoCandidates(cwd string) []string {
 
 // ----- the note ------------------------------------------------------------
 
-// queueBody is a queue note's body as lines, with the item lines parsed.
+// queueBody is a queue note's body, with the item lines parsed.
 type queueBody struct {
-	lines    []string
+	*sections.Body
 	items    []bodyItem
 	unparsed int
 }
@@ -300,17 +300,15 @@ type bodyItem struct {
 	it queue.Item
 }
 
-var headingRe = regexp.MustCompile(`^#{1,6}(\s|$)`)
-
 func parseBody(body string) *queueBody {
-	b := &queueBody{lines: strings.Split(body, "\n")}
+	b := &queueBody{Body: sections.NewBody(body)}
 	b.scan()
 	return b
 }
 
 func (b *queueBody) scan() {
 	b.items, b.unparsed = nil, 0
-	for i, l := range b.lines {
+	for i, l := range b.Lines {
 		if !strings.HasPrefix(l, "- [") {
 			continue
 		}
@@ -322,59 +320,20 @@ func (b *queueBody) scan() {
 	}
 }
 
-func (b *queueBody) String() string { return strings.Join(b.lines, "\n") }
-
 func (b *queueBody) find(id string) int {
 	return slices.IndexFunc(b.items, func(x bodyItem) bool { return x.it.ID == id })
 }
 
-func (b *queueBody) heading(h string) int {
-	return slices.IndexFunc(b.lines, func(l string) bool { return strings.TrimRight(l, " \t\r") == h })
-}
-
-func blank(l string) bool { return strings.TrimSpace(l) == "" }
-
-// appendTo adds line at the end of section h, creating the section at the
-// end of the body when it is missing.
-func (b *queueBody) appendTo(h, line string) {
-	at := b.heading(h)
-	if at < 0 {
-		n := len(b.lines)
-		for n > 0 && blank(b.lines[n-1]) {
-			n--
-		}
-		b.lines = append(b.lines[:n], "", h, "")
-		at = n + 1
-	}
-	end := len(b.lines)
-	for i := at + 1; i < len(b.lines); i++ {
-		if headingRe.MatchString(b.lines[i]) {
-			end = i
-			break
-		}
-	}
-	pos := end
-	for pos > at+1 && blank(b.lines[pos-1]) {
-		pos--
-	}
-	var ins []string
-	if pos == at+1 {
-		ins = append(ins, "")
-	}
-	ins = append(ins, line)
-	if pos == end {
-		ins = append(ins, "")
-	}
-	b.lines = slices.Insert(b.lines, pos, ins...)
+// appendTo adds line at the end of the ## section, creating the section at
+// the end of the body when it is missing.
+func (b *queueBody) appendTo(section, line string) {
+	b.AppendTo(queueLevel, section, line)
 	b.scan()
 }
 
 // remove deletes the line at, and a blank line it leaves doubled.
 func (b *queueBody) remove(at int) {
-	b.lines = slices.Delete(b.lines, at, at+1)
-	if at > 0 && at < len(b.lines) && blank(b.lines[at-1]) && blank(b.lines[at]) {
-		b.lines = slices.Delete(b.lines, at, at+1)
-	}
+	b.Remove(at)
 	b.scan()
 }
 
@@ -389,7 +348,7 @@ func (b *queueBody) put(i int, it queue.Item) {
 		section = queueClosed
 	}
 	if b.sectionOf(at) == section {
-		b.lines[at] = line
+		b.Lines[at] = line
 		b.scan()
 		return
 	}
@@ -397,12 +356,10 @@ func (b *queueBody) put(i int, it queue.Item) {
 	b.appendTo(section, line)
 }
 
-// sectionOf is the heading line at sits under, or "".
+// sectionOf is the text of the ## heading line at sits directly under, or "".
 func (b *queueBody) sectionOf(at int) string {
-	for i := at - 1; i >= 0; i-- {
-		if headingRe.MatchString(b.lines[i]) {
-			return strings.TrimRight(b.lines[i], " \t\r")
-		}
+	if h, ok := b.Under(at); ok && h.Level == queueLevel {
+		return h.Text
 	}
 	return ""
 }
@@ -417,7 +374,7 @@ type queueDoc struct {
 
 func (s *queueStore) read(p queueProject) (queueDoc, error) {
 	d := queueDoc{p: p, body: parseBody("")}
-	text, err := s.root.ReadText(p.rel())
+	note, err := s.root.ReadNote(p.rel())
 	if os.IsNotExist(err) {
 		return d, nil
 	}
@@ -425,12 +382,11 @@ func (s *queueStore) read(p queueProject) (queueDoc, error) {
 		return d, err
 	}
 	d.exists = true
-	fm, _, _ := frontmatter.Split(text)
-	if fm != nil {
-		sens, _ := fm.Get("sensitivity")
+	if note.FM != nil {
+		sens, _ := note.FM.Get("sensitivity")
 		d.restricted = !gate.Releasable(gate.Parse(pystr.Str(sens)))
 	}
-	d.body = parseBody(text[frontmatter.BodyOffset(text):])
+	d.body = parseBody(note.Text[note.Offset:])
 	return d, nil
 }
 
@@ -438,11 +394,11 @@ func (s *queueStore) read(p queueProject) (queueDoc, error) {
 // or is restricted.
 func (s *queueStore) readWritable(p queueProject) (queueDoc, *jsonx.Obj) {
 	if p.problem != "" {
-		return queueDoc{}, fail(p.problem)
+		return queueDoc{}, jsonx.Fail(p.problem)
 	}
 	d, err := s.read(p)
 	if err != nil {
-		return d, fail("read failed: " + err.Error())
+		return d, jsonx.Fail("read failed: " + err.Error())
 	}
 	if d.restricted {
 		return d, failNext(p.docID()+" is restricted; the queue tool does not read or write restricted notes",
@@ -462,7 +418,7 @@ func (s *queueStore) change(p queueProject, edit func(b *queueBody) *jsonx.Obj) 
 		}
 		return b.String(), nil
 	})
-	if !failed(out) {
+	if !out.Failed() {
 		return nil
 	}
 	return guide(out, func(msg string) []string {
@@ -488,7 +444,7 @@ func (s *queueStore) create(p queueProject) *jsonx.Obj {
 	if p.name != backlogProject {
 		related = []string{p.name}
 	}
-	r := write.CreateDoc(s.v.Loader, p.rel(), "# "+title+"\n\n"+queueOpen+"\n\n"+queueClosed+"\n", write.With(
+	r := write.CreateDoc(s.v.Loader, p.rel(), "# "+title+"\n\n## "+queueOpen+"\n\n## "+queueClosed+"\n", write.With(
 		"doc_id", p.docID(), "title", title, "doc_type", "architecture_note", "system", p.name,
 		"tags", []string{"queue"}, "related_projects", related,
 	), s.v.Profile)
@@ -612,7 +568,7 @@ func (s *queueStore) add(a QueueArgs) *jsonx.Obj {
 	}
 	created := false
 	if !d.exists {
-		if r := s.create(p); failed(r) {
+		if r := s.create(p); r.Failed() {
 			// A concurrent first add may have created it; anything else stands.
 			if again, err := s.read(p); err != nil || !again.exists {
 				return r
@@ -864,7 +820,7 @@ func (s *queueStore) promote(a QueueArgs) *jsonx.Obj {
 	r := write.CreateDoc(s.v.Loader, rel, content+"\n", write.With(
 		"doc_id", docID, "title", it.Text, "doc_type", "architecture_note", "system", p.name, "tags", []string{"queue"},
 	), s.v.Profile)
-	if failed(r) {
+	if r.Failed() {
 		return guide(r, s.v.createSteps(rel, docID))
 	}
 	out := s.edit(p, id, a, func(it *queue.Item) *jsonx.Obj {
@@ -874,7 +830,7 @@ func (s *queueStore) promote(a QueueArgs) *jsonx.Obj {
 		it.Body = docID
 		return nil
 	})
-	if failed(out) {
+	if out.Failed() {
 		return out
 	}
 	return out.Set("body", docID).Set("relative_path", rel)

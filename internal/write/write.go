@@ -23,14 +23,7 @@ func Today() string { return clock.TodayISO() }
 
 const nextStep = "run any downstream vault metadata sync if your workflow uses one"
 
-func fail(msg string) *jsonx.Obj { return fsx.Fail(msg) }
-
-func writeFailed(err error) *jsonx.Obj { return fail("write failed: " + err.Error()) }
-
-func failed(o *jsonx.Obj) bool {
-	ok, has := o.Get("ok")
-	return has && ok == false
-}
+func writeFailed(err error) *jsonx.Obj { return jsonx.Fail("write failed: " + err.Error()) }
 
 // readOnly refuses a write into a read-only folder, or returns nil.
 func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
@@ -38,7 +31,7 @@ func readOnly(l *vault.Loader, relativePath string) *jsonx.Obj {
 	if dir == "" {
 		return nil
 	}
-	return fail(fmt.Sprintf("%s is in %s, and %s are read-only: find and read_doc serve them, "+
+	return jsonx.Fail(fmt.Sprintf("%s is in %s, and %s are read-only: find and read_doc serve them, "+
 		"but their notes keep their own frontmatter (inbox captures, site content), so set_frontmatter and write_doc leave them alone",
 		relativePath, pystr.Repr(dir), pystr.ReprList(l.Config.ReadOnlyDirs)))
 }
@@ -49,14 +42,6 @@ func indexedPath(l *vault.Loader, relativePath string) (*fsx.Vault, string, *jso
 		return nil, "", refused
 	}
 	return fsx.IndexedPath(l.Config, relativePath)
-}
-
-func strList(v []string) []any {
-	out := make([]any, len(v))
-	for i, s := range v {
-		out[i] = s
-	}
-	return out
 }
 
 // createNeeds are the fields a new block has no default for.
@@ -83,7 +68,7 @@ func newFrontmatter(c Changes) *jsonx.Obj {
 		}
 		return fallback
 	}
-	list := func(name string) []any { return strList(c.Lists[name].created()) }
+	list := func(name string) []any { return jsonx.Strings(c.Lists[name].created()) }
 	reviewed := def("last_reviewed", Today())
 	if slices.Contains(c.Touch, "last_reviewed") {
 		reviewed = Today()
@@ -99,7 +84,7 @@ func newFrontmatter(c Changes) *jsonx.Obj {
 			"doc_id", c.Str("doc_id"), "title", c.Str("title"), "doc_type", "task", "status", def("status", "active"),
 			"related_projects", list("related_projects"),
 			"effort", def("effort", "S"), "priority", def("priority", "med"), "created", def("created", reviewed),
-			"tags", strList(tags),
+			"tags", jsonx.Strings(tags),
 		)
 	} else {
 		fm = jsonx.New(
@@ -183,7 +168,7 @@ func valueList(v any) []string {
 // unset.
 func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.Profile) *jsonx.Obj {
 	if msg := c.undeclared(p); msg != "" {
-		return fail(msg)
+		return jsonx.Fail(msg)
 	}
 	v, full, perr := indexedPath(l, relativePath)
 	if perr != nil {
@@ -237,13 +222,13 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 		case c.Lists[name].given():
 			current := valueList(cur)
 			if next := applyListOp(current, c.Lists[name]); !slices.Equal(next, current) {
-				fm.Set(name, strList(next))
+				fm.Set(name, jsonx.Strings(next))
 				changed = append(changed, name)
 			}
 		default:
 			value := c.Values[name]
 			if f.Immutable && pystr.Truthy(cur) && pystr.Str(cur) != pystr.Str(value) {
-				return text, fail(fmt.Sprintf("%s is immutable (file has %s, got %s)", name, pystr.Repr(pystr.Str(cur)), pystr.Repr(pystr.Str(value))))
+				return text, jsonx.Fail(fmt.Sprintf("%s is immutable (file has %s, got %s)", name, pystr.Repr(pystr.Str(cur)), pystr.Repr(pystr.Str(value))))
 			}
 			set(name, value)
 		}
@@ -279,7 +264,7 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 		errs = append(errs, p.RefProblems(refs, idx.Has)...)
 	}
 	if len(errs) > 0 {
-		return text, fail(strings.Join(errs, "; "))
+		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
 	slices.Sort(changed)
 	return frontmatter.Serialize(fm) + body, jsonx.New("ok", true, "doc_id", docID, "relative_path", rel,
@@ -289,19 +274,19 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 // createBlock prepends the block c builds to a file that has none.
 func createBlock(text, rel string, c Changes, p *schema.Profile, idx *vault.Index) (string, *jsonx.Obj) {
 	if strings.HasPrefix(pystr.LStrip(text), "---") {
-		return text, fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
+		return text, jsonx.Fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
 	}
 	if absent := absentForCreate(c); len(absent) > 0 {
-		return text, fail("no frontmatter yet; creating one needs " + strings.Join(absent, ", "))
+		return text, jsonx.Fail("no frontmatter yet; creating one needs " + strings.Join(absent, ", "))
 	}
 	for _, op := range c.Lists {
 		if len(op.Remove) > 0 {
-			return text, fail("no frontmatter yet; remove_* lists only apply to an update")
+			return text, jsonx.Fail("no frontmatter yet; remove_* lists only apply to an update")
 		}
 	}
 	fm := newFrontmatter(c)
 	if errs := checkNew(fm, rel, p, idx); len(errs) > 0 {
-		return text, fail(strings.Join(errs, "; "))
+		return text, jsonx.Fail(strings.Join(errs, "; "))
 	}
 	out := frontmatter.Serialize(fm) + text
 	return out, jsonx.New("ok", true, "doc_id", c.Str("doc_id"), "relative_path", rel, "wrote_bytes", len(out), "next_step", nextStep)
@@ -339,7 +324,7 @@ func TouchReviewed(l *vault.Loader, relativePath string) *jsonx.Obj {
 	_, err := v.Update(full, func(text string) string {
 		fm, body, _ := frontmatter.Split(text)
 		if fm == nil {
-			out = fail("file has no frontmatter; add a block first.")
+			out = jsonx.Fail("file has no frontmatter; add a block first.")
 			return text
 		}
 		reviewed := Today()
@@ -366,7 +351,7 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 	root := fsx.Resolve(l.Config.VaultPath)
 	v, err := fsx.OpenVault(l.Config.VaultPath)
 	if err != nil {
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	defer v.Close()
 	updated := []string{}
@@ -377,7 +362,7 @@ func BackfillAliases(l *vault.Loader) *jsonx.Obj {
 		}
 		wrote, err := v.Update(filepath.Join(root, d.RelativePath), withTitleAlias)
 		if err != nil {
-			return fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
+			return jsonx.Fail(fmt.Sprintf("write failed for %s: %s", d.RelativePath, err))
 		}
 		if !wrote {
 			skipped++

@@ -4,6 +4,7 @@
 package vault
 
 import (
+	"cmp"
 	"context"
 	"io/fs"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
@@ -140,7 +142,7 @@ func MarkdownFiles(vaultPath string, indexedDirs []string) []string {
 			continue
 		}
 		root := filepath.Join(vaultPath, sub)
-		if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		if !fsx.IsDir(root) {
 			continue
 		}
 		for _, p := range walkMD(root) {
@@ -249,14 +251,6 @@ func NormalizeAlias(v string) string {
 	return strings.Join(strings.FieldsFunc(strings.ToLower(pystr.Strip(v)), pystr.IsSpace), " ")
 }
 
-func strOr(fm *jsonx.Obj, key, def string) string {
-	v, _ := fm.Get(key)
-	if pystr.Truthy(v) {
-		return pystr.Str(v)
-	}
-	return def
-}
-
 // Index is a built vault index.
 type Index struct {
 	Docs            []*Doc
@@ -336,11 +330,11 @@ func siteContentID(rel string) string {
 func (l *Loader) build() *Index {
 	idx := newIndex()
 	for _, p := range MarkdownFiles(l.Config.VaultPath, l.Config.SearchDirs()) {
-		text, err := pystr.ReadText(p)
+		note, err := frontmatter.ReadFile(p)
 		if err != nil {
 			continue
 		}
-		fm, body, start := frontmatter.Split(text)
+		fm, body, start := note.FM, note.Body, note.StartLine
 		if fm == nil || fm.Len() == 0 {
 			continue
 		}
@@ -440,11 +434,11 @@ func (l *Loader) makeDoc(p, rel string, fm *jsonx.Obj, body string, start int) *
 	ra, _ := fm.Get("related_assets")
 	return &Doc{
 		DocID:           docID,
-		Title:           strOr(fm, "title", fileTitle(rel)),
-		DocType:         strOr(fm, "doc_type", "runbook"),
-		System:          strOr(fm, "system", ""),
-		Environment:     strOr(fm, "environment", "other"),
-		Status:          strOr(fm, "status", "active"),
+		Title:           cmp.Or(fm.Text("title"), fileTitle(rel)),
+		DocType:         cmp.Or(fm.Text("doc_type"), "runbook"),
+		System:          cmp.Or(fm.Text("system"), ""),
+		Environment:     cmp.Or(fm.Text("environment"), "other"),
+		Status:          cmp.Or(fm.Text("status"), "active"),
 		Sensitivity:     gate.Parse(sens),
 		LastReviewed:    map[bool]string{true: pystr.Str(lr), false: ""}[pystr.Truthy(lr)],
 		HasLastReviewed: pystr.Truthy(lr),

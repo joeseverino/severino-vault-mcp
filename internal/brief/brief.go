@@ -3,11 +3,11 @@
 package brief
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/clock"
+	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/query"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
@@ -60,7 +60,7 @@ func Vault(l *vault.Loader, days, reviewAfterDays, recentLimit int) *jsonx.Obj {
 
 	inbox := 0
 	if matches, err := filepath.Glob(filepath.Join(l.Config.VaultPath, "00 Inbox", "*.md")); err == nil {
-		if info, err := os.Stat(filepath.Join(l.Config.VaultPath, "00 Inbox")); err == nil && info.IsDir() {
+		if fsx.IsDir(filepath.Join(l.Config.VaultPath, "00 Inbox")) {
 			inbox = len(matches)
 		}
 	}

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -63,7 +63,7 @@ func (e logEntry) obj() *jsonx.Obj {
 // parseEntries reads a log body whose first line is line first of the file.
 func parseEntries(body string, first int) []logEntry {
 	var out []logEntry
-	for i, raw := range strings.Split(body, "\n") {
+	for i, raw := range sections.Lines(body) {
 		rest, ok := strings.CutPrefix(raw, "- ")
 		if !ok {
 			rest, ok = strings.CutPrefix(raw, "* ")
@@ -153,15 +153,15 @@ func LogEntries(v *Vault, docID string, a LogArgs) *jsonx.Obj {
 func (v *Vault) splitLog(d *vault.Doc) (head int, body string, found bool, failure *jsonx.Obj) {
 	root, err := fsx.OpenVault(v.Config.VaultPath)
 	if err != nil {
-		return 0, "", false, fail("read failed: " + err.Error())
+		return 0, "", false, jsonx.Fail("read failed: " + err.Error())
 	}
 	defer root.Close()
-	text, err := root.ReadText(d.RelativePath)
+	note, err := root.ReadNote(d.RelativePath)
 	if err != nil {
-		return 0, "", false, fail("read failed: " + err.Error())
+		return 0, "", false, jsonx.Fail("read failed: " + err.Error())
 	}
-	cut := frontmatter.BodyOffset(text)
-	return strings.Count(text[:cut], "\n"), text[cut:], cut > 0, nil
+	cut := note.Offset
+	return strings.Count(note.Text[:cut], "\n"), note.Text[cut:], cut > 0, nil
 }
 
 // closeEntry appends the resolution to the one open entry a.Match names,
@@ -207,12 +207,12 @@ func closeEntry(v *Vault, d *vault.Doc, a LogArgs, head int) *jsonx.Obj {
 					" with the text of the entry you mean").Set("candidates", candidates)
 		}
 		closed = hits[0]
-		lines := strings.Split(body, "\n")
-		lines[closed.index] = strings.TrimRight(lines[closed.index], " \t\r") + ResolutionMark + resolution
+		b := sections.NewBody(body)
+		b.Lines[closed.index] = strings.TrimRight(b.Lines[closed.index], " \t\r") + ResolutionMark + resolution
 		closed.text += ResolutionMark + resolution
-		return strings.Join(lines, "\n"), nil
+		return b.String(), nil
 	}, "action", "close")
-	if !failed(out) {
+	if !out.Failed() {
 		return out.Set("line", closed.line).Set("text", closed.text)
 	}
 	return guide(out, func(msg string) []string {

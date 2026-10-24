@@ -25,6 +25,7 @@ One Go module, one binary.
 | `internal/education/`, `internal/hqmanifest/` | The edu dataset; the HQ docs manifest (moves to HQ). |
 | `internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}/` | Config, vault-confined file access (`os.Root`) and atomic writes, Python-exact JSON, Python string semantics, time, receipts, table rows. |
 | `internal/testkit/` | Test vault builders. |
+| `internal/archtest/` | Source guards: one home per fact, and no second copy outside it. |
 | `internal/fuzzseed/` | Sample-vault markdown as fuzz seeds. |
 
 ## Everything else

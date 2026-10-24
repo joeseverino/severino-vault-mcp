@@ -205,14 +205,37 @@ func BodyOffset(text string) int {
 	return 0
 }
 
-// Read parses one file's frontmatter (nil when absent).
-func Read(path string) (*jsonx.Obj, error) {
+// Note is a file's text split once at its frontmatter block. Every read of a
+// note's frontmatter or body goes through NewNote, by fsx.Vault.ReadNote
+// inside a vault root or ReadFile outside one (archtest.TestOneNoteReader).
+type Note struct {
+	Text      string
+	FM        *jsonx.Obj // nil when the file has no block
+	Body      string     // as Split returns it
+	StartLine int        // 1-indexed line where Body starts
+	Offset    int        // Text[Offset:] is the body's exact bytes (BodyOffset)
+}
+
+// NewNote splits text.
+func NewNote(text string) Note {
+	fm, body, start := Split(text)
+	return Note{Text: text, FM: fm, Body: body, StartLine: start, Offset: BodyOffset(text)}
+}
+
+// ReadFile reads and splits a file by path, for the walks that read outside
+// a vault root.
+func ReadFile(path string) (Note, error) {
 	text, err := pystr.ReadText(path)
 	if err != nil {
-		return nil, err
+		return Note{}, err
 	}
-	fm, _, _ := Split(text)
-	return fm, nil
+	return NewNote(text), nil
+}
+
+// Read parses one file's frontmatter (nil when absent).
+func Read(path string) (*jsonx.Obj, error) {
+	n, err := ReadFile(path)
+	return n.FM, err
 }
 
 var knownKeyOrder = []string{

@@ -20,7 +20,12 @@ TOML parser; nothing else.
   (`schema` for field rules and the settable frontmatter fields, `fsx.Vault.Update` for writes, `core/fields.go` for
   masks, `core/next.go` for next steps, the command table for CLI surfaces) and
   everything else derives from it. A second copy is a defect; remove it and add
-  the guard that stops a third.
+  the guard that stops a third. Source guards live in `internal/archtest`
+  (`sections.Slugify` is the one slug function: `TestOneSlugFunction`;
+  `sections.Body` splits a body and finds and edits its sections:
+  `TestOneBodySplitter`; `fsx.Vault.ReadNote`/`frontmatter.ReadFile` read and
+  split a note: `TestOneNoteReader`; field and value coercions live on
+  `jsonx.Obj`, `jsonx.Strings` and `fsx.IsDir`: `TestOneCoercion`).
 
 ## Shape
 
@@ -34,6 +39,7 @@ internal/core            the 9 shared tools, transport-free (the MCP adapter and
 internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,queue,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
+internal/archtest         source guards (tests only): one home per fact
 ```
 
 - HQ, the site and the golden files read this output byte for byte: `jsonx`
@@ -41,7 +47,8 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   messages, and the frontmatter parser is a constrained YAML subset (numbers
   and dates stay strings). Don't swap in a YAML library or `encoding/json` for
   these.
-- Every service returns one `*jsonx.Obj`; failures are `{"ok": false, "error": "..."}`.
+- Every service returns one `*jsonx.Obj`; failures are `{"ok": false, "error": "..."}`,
+  built only by `jsonx.Fail`/`jsonx.Failure` (`archtest.TestOneFailureEnvelope`).
   CLI subcommands exit 0/1 on `ok`, 2 on argument errors.
 - The labs profile is `schema.Labs`. `schema --json` is the frozen shape HQ
   commits (`docs_index/schema.json`); `tests/golden/schema.json` pins it.
@@ -70,6 +77,11 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   `mcp-tools.txt`. A diff there is a deliberate contract change; regenerate
   with the binary. The JSON Schema derives from `Profile.Settable`; a test
   holds it to `Profile.Check`'s verdict on every fixture doc.
+- README's tool table, between its `tools:begin`/`tools:end` markers, is
+  generated from the registered tools (name and the description's first
+  paragraph); `TestReadmeToolsTable` fails on drift, and
+  `SVMC_UPDATE_README=1 go test -run TestReadmeToolsTable ./internal/mcpserver`
+  rewrites it. Never edit it by hand.
 - The note lock (`fsx.LockPath`, documented for outside writers in
   `docs/ai-tool-contract.md`): any process that writes a vault note, such as
   an append-only hook, takes an exclusive `flock` on
@@ -93,7 +105,7 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   the rename, re-running the edit if a writer that skipped the lock appended,
   so its edit function may run more than once. Everything is confined to the
   vault by `os.Root`. Never write vault files any other way:
-  `TestOnlyFsxWritesFiles` fails on an `os` file write outside `fsx`.
+  `archtest.TestOnlyFsxWritesFiles` fails on an `os` file write outside `fsx`.
 - A doc's body is written through `write_doc` (`core.WriteDoc`, CLI
   `write-doc`): create checks the new block with `Profile.Check`, so a created
   doc passes `validate`; section edits change no frontmatter but `last_reviewed`.

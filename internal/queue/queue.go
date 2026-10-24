@@ -105,25 +105,6 @@ func SplitID(id string) (prefix string, n int, ok bool) {
 // ValidPrefix reports whether p can start an id.
 func ValidPrefix(p string) bool { return prefixRe.MatchString(p) }
 
-// Slug is name as an id prefix: lowercase, each run of other characters one
-// dash.
-func Slug(name string) string {
-	var sb strings.Builder
-	dash := false
-	for _, r := range strings.ToLower(name) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			if dash && sb.Len() > 0 {
-				sb.WriteByte('-')
-			}
-			sb.WriteRune(r)
-			dash = false
-			continue
-		}
-		dash = true
-	}
-	return sb.String()
-}
-
 // ValidToken reports whether s can stand as a one-word field value.
 func ValidToken(s string) bool { return tokenRe.MatchString(s) }
 

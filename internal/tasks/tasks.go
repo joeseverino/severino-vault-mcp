@@ -18,6 +18,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -35,8 +36,6 @@ var (
 	live          = map[string]bool{"open": true, "active": true}
 	closed        = map[string]bool{"done": true, "wontfix": true}
 )
-
-func fail(msg string) *jsonx.Obj { return fsx.Fail(msg) }
 
 func filedDir(currentDir, status string) string {
 	base := currentDir
@@ -78,17 +77,6 @@ type record struct {
 	slug     string
 }
 
-func strField(fm *jsonx.Obj, key string) string {
-	if fm == nil {
-		return ""
-	}
-	v, _ := fm.Get(key)
-	if !pystr.Truthy(v) {
-		return ""
-	}
-	return pystr.Str(v)
-}
-
 func taskRecord(d *vault.Doc, staleDays int) record {
 	fm, _ := frontmatter.Read(d.Path)
 	age := ageDays(d.Path)
@@ -98,9 +86,9 @@ func taskRecord(d *vault.Doc, staleDays int) record {
 	}
 	r := record{
 		status:   status,
-		priority: strField(fm, "priority"),
-		created:  strField(fm, "created"),
-		closed:   strField(fm, "closed"),
+		priority: fm.Text("priority"),
+		created:  fm.Text("created"),
+		closed:   fm.Text("closed"),
 		docID:    d.DocID,
 		project:  projectOf(d.RelativePath),
 		related:  slices.Clone(d.RelatedProjects),
@@ -114,7 +102,7 @@ func taskRecord(d *vault.Doc, staleDays int) record {
 		"status", status,
 		"project", r.project,
 		"related_projects", r.related,
-		"effort", strField(fm, "effort"),
+		"effort", fm.Text("effort"),
 		"priority", r.priority,
 		"created", r.created,
 		"closed", r.closed,
@@ -190,10 +178,8 @@ func List(l *vault.Loader, f Filter) *jsonx.Obj {
 	statusCounts, projectCounts := jsonx.New(), jsonx.New()
 	stale := 0
 	for _, t := range all {
-		n, _ := statusCounts.Get(t.status)
-		statusCounts.Set(t.status, toInt(n)+1)
-		n, _ = projectCounts.Get(t.project)
-		projectCounts.Set(t.project, toInt(n)+1)
+		statusCounts.Set(t.status, statusCounts.Int(t.status)+1)
+		projectCounts.Set(t.project, projectCounts.Int(t.project)+1)
 		if t.stale {
 			stale++
 		}
@@ -255,11 +241,6 @@ func List(l *vault.Loader, f Filter) *jsonx.Obj {
 	)
 }
 
-func toInt(v any) int {
-	n, _ := v.(int)
-	return n
-}
-
 func objs(rs []record) []*jsonx.Obj {
 	out := []*jsonx.Obj{}
 	for _, r := range rs {
@@ -288,7 +269,7 @@ func Projects(l *vault.Loader) *jsonx.Obj {
 	var names []string
 	if err == nil {
 		for _, e := range entries {
-			if isDir(filepath.Join(l.Config.VaultPath, ProjectsDir, e.Name())) {
+			if fsx.IsDir(filepath.Join(l.Config.VaultPath, ProjectsDir, e.Name())) {
 				names = append(names, e.Name())
 			}
 		}
@@ -299,28 +280,6 @@ func Projects(l *vault.Loader) *jsonx.Obj {
 		projects = append(projects, jsonx.New("slug", name, "open", open[name]))
 	}
 	return jsonx.New("ok", true, "count", len(projects), "projects", projects)
-}
-
-func isDir(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.IsDir()
-}
-
-func slugify(title string) string {
-	var sb strings.Builder
-	for _, ch := range strings.ToLower(title) {
-		if pystr.IsAlnum(ch) {
-			sb.WriteRune(ch)
-		} else {
-			sb.WriteByte('-')
-		}
-	}
-	slug := sb.String()
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	slug = strings.Trim(slug, "-")
-	return strings.Trim(pystr.Prefix(slug, 60), "-")
 }
 
 const templateBody = "**Problem.** \n\n**Fix.** \n\n**Principle.** \n\n**Source.** \n"
@@ -339,22 +298,22 @@ type New struct {
 func create(l *vault.Loader, n New) *jsonx.Obj {
 	title := pystr.Strip(n.Title)
 	if title == "" {
-		return fail("title is required")
+		return jsonx.Fail("title is required")
 	}
 	for _, f := range [][2]string{{"effort", n.Effort}, {"priority", n.Priority}} {
 		if errs := schema.Labs.Problems(f[0], f[1], true); len(errs) > 0 {
-			return fail(errs[0])
+			return jsonx.Fail(errs[0])
 		}
 	}
-	slug := slugify(title)
+	slug := sections.SlugifyWith(title, sections.SlugOptions{Unicode: true, MaxLen: 60})
 	if slug == "" {
-		return fail("title produced an empty slug")
+		return jsonx.Fail("title produced an empty slug")
 	}
 	docID := "task-" + slug
 	vaultPath := l.Config.VaultPath
 	v, verr := fsx.OpenVault(vaultPath)
 	if verr != nil {
-		return fail("write failed: " + verr.Error())
+		return jsonx.Fail("write failed: " + verr.Error())
 	}
 	defer v.Close()
 	project := n.Project
@@ -366,7 +325,7 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 	if project != "" {
 		projectDir := filepath.Join(vaultPath, ProjectsDir, project)
 		if !v.IsDir(projectDir) {
-			return fail(fmt.Sprintf("no such project: %s (expected %s/%s/)", pystr.Repr(project), ProjectsDir, project))
+			return jsonx.Fail(fmt.Sprintf("no such project: %s (expected %s/%s/)", pystr.Repr(project), ProjectsDir, project))
 		}
 		targetDir = filepath.Join(projectDir, "tasks")
 		related = n.RelatedProjects
@@ -385,11 +344,11 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 	}
 	idx := l.Index(false)
 	if existing, ok := idx.ByDocID[docID]; ok {
-		return fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
+		return jsonx.Fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
 	}
 	filePath := filepath.Join(targetDir, docID+".md")
 	if _, err := v.Stat(filePath); err == nil {
-		return fail("file already exists: " + filepath.Base(filePath))
+		return jsonx.Fail("file already exists: " + filepath.Base(filePath))
 	}
 	tags := n.Tags
 	if len(tags) == 0 {
@@ -400,17 +359,17 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		"title", title,
 		"doc_type", "task",
 		"status", "open",
-		"related_projects", anyList(related),
+		"related_projects", jsonx.Strings(related),
 		"effort", n.Effort,
 		"priority", n.Priority,
 		"created", write.Today(),
-		"tags", anyList(tags),
+		"tags", jsonx.Strings(tags),
 	)
 	if err := v.MkdirAll(targetDir); err != nil {
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	if err := v.AtomicCreate(filePath, frontmatter.Serialize(fm)+"# "+title+"\n\n"+n.Body); err != nil {
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	l.Index(true)
 	rel, _ := filepath.Rel(vaultPath, filePath)
@@ -429,14 +388,6 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		Metadata:            jsonx.New("relative_path", rel),
 	}.AsDict())
 	return result
-}
-
-func anyList(v []string) []any {
-	out := make([]any, len(v))
-	for i, s := range v {
-		out[i] = s
-	}
-	return out
 }
 
 // Sections fill a new task's body at write time.
@@ -459,18 +410,18 @@ func Add(l *vault.Loader, n New, s Sections) *jsonx.Obj {
 func Promote(l *vault.Loader, source string, n New) *jsonx.Obj {
 	v, verr := fsx.OpenVault(l.Config.VaultPath)
 	if verr != nil {
-		return fail("read failed: " + verr.Error())
+		return jsonx.Fail("read failed: " + verr.Error())
 	}
 	defer v.Close()
 	src := filepath.Join(l.Config.VaultPath, source)
 	if info, err := v.Stat(src); err != nil || !info.Mode().IsRegular() {
-		return fail("no such note: " + source)
+		return jsonx.Fail("no such note: " + source)
 	}
-	text, err := v.ReadText(src)
+	note, err := v.ReadNote(src)
 	if err != nil {
-		return fail("read failed: " + err.Error())
+		return jsonx.Fail("read failed: " + err.Error())
 	}
-	_, body, _ := frontmatter.Split(text)
+	body := note.Body
 	if n.Effort == "" {
 		n.Effort = "S"
 	}
@@ -488,7 +439,7 @@ func Promote(l *vault.Loader, source string, n New) *jsonx.Obj {
 		return result
 	}
 	if err := v.Remove(src); err != nil {
-		return fail("task created but source delete failed: " + err.Error())
+		return jsonx.Fail("task created but source delete failed: " + err.Error())
 	}
 	l.Index(true)
 	result.Set("promoted_from", source)
@@ -502,10 +453,10 @@ func resolve(l *vault.Loader, docID string) (*vault.Doc, *jsonx.Obj) {
 		d, ok = idx.ByDocID["task-"+docID]
 	}
 	if !ok {
-		return nil, fail("no task matches: " + pystr.Repr(docID))
+		return nil, jsonx.Fail("no task matches: " + pystr.Repr(docID))
 	}
 	if d.DocType != "task" {
-		return nil, fail(fmt.Sprintf("%s is not a task (doc_type %s)", pystr.Repr(d.DocID), d.DocType))
+		return nil, jsonx.Fail(fmt.Sprintf("%s is not a task (doc_type %s)", pystr.Repr(d.DocID), d.DocType))
 	}
 	return d, nil
 }
@@ -514,7 +465,7 @@ func resolve(l *vault.Loader, docID string) (*vault.Doc, *jsonx.Obj) {
 // file moves into or out of done/.
 func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	if errs := schema.Labs.Problems("status", status, true); len(errs) > 0 {
-		return fail(errs[0])
+		return jsonx.Fail(errs[0])
 	}
 	d, err := resolve(l, docID)
 	if err != nil {
@@ -522,7 +473,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	}
 	v, verr := fsx.OpenVault(l.Config.VaultPath)
 	if verr != nil {
-		return fail("write failed: " + verr.Error())
+		return jsonx.Fail("write failed: " + verr.Error())
 	}
 	defer v.Close()
 	var refused *jsonx.Obj
@@ -530,7 +481,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	_, uerr := v.Update(d.Path, func(text string) string {
 		fm, body, _ := frontmatter.Split(text)
 		if fm == nil {
-			refused = fail("task file has no frontmatter")
+			refused = jsonx.Fail("task file has no frontmatter")
 			return text
 		}
 		prevV, _ := fm.Get("status")
@@ -547,7 +498,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 		return frontmatter.Serialize(fm) + body
 	})
 	if uerr != nil {
-		return fail("write failed: " + uerr.Error())
+		return jsonx.Fail("write failed: " + uerr.Error())
 	}
 	if refused != nil {
 		return refused
@@ -556,7 +507,7 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 	final := filepath.Join(target, filepath.Base(d.Path))
 	if final != d.Path {
 		if err := v.Move(d.Path, final, false); err != nil {
-			return fail("write failed: " + err.Error())
+			return jsonx.Fail("write failed: " + err.Error())
 		}
 	}
 	l.Index(true)
@@ -570,7 +521,7 @@ func Reconcile(l *vault.Loader) *jsonx.Obj {
 	moved := 0
 	v, err := fsx.OpenVault(l.Config.VaultPath)
 	if err != nil {
-		return fail("reconcile failed: " + err.Error())
+		return jsonx.Fail("reconcile failed: " + err.Error())
 	}
 	defer v.Close()
 	for _, d := range taskDocs(idx) {
@@ -600,11 +551,11 @@ func Delete(l *vault.Loader, docID string) *jsonx.Obj {
 	}
 	v, verr := fsx.OpenVault(l.Config.VaultPath)
 	if verr != nil {
-		return fail("delete failed: " + verr.Error())
+		return jsonx.Fail("delete failed: " + verr.Error())
 	}
 	defer v.Close()
 	if err := v.Remove(d.Path); err != nil {
-		return fail("delete failed: " + err.Error())
+		return jsonx.Fail("delete failed: " + err.Error())
 	}
 	l.Index(true)
 	return jsonx.New("ok", true, "doc_id", d.DocID, "relative_path", d.RelativePath, "deleted", true)

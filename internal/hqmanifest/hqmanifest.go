@@ -3,12 +3,12 @@
 package hqmanifest
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -101,8 +101,8 @@ func DefaultDirs(indexed []string) []string {
 
 // Build returns the manifest plus warnings, failing on duplicate doc_ids.
 func Build(vaultPath string, subdirs []string) *jsonx.Obj {
-	if info, err := os.Stat(vaultPath); err != nil || !info.IsDir() {
-		return jsonx.New("ok", false, "error", "vault root not found: "+vaultPath)
+	if !fsx.IsDir(vaultPath) {
+		return jsonx.Fail("vault root not found: " + vaultPath)
 	}
 	entries := []*jsonx.Obj{}
 	seen := map[string]string{}
@@ -110,7 +110,7 @@ func Build(vaultPath string, subdirs []string) *jsonx.Obj {
 	duplicates := []*jsonx.Obj{}
 	var present []string
 	for _, sub := range subdirs {
-		if info, err := os.Stat(filepath.Join(vaultPath, sub)); err == nil && info.IsDir() {
+		if fsx.IsDir(filepath.Join(vaultPath, sub)) {
 			present = append(present, sub)
 		} else {
 			missingDirs = append(missingDirs, sub)
@@ -149,7 +149,7 @@ func Build(vaultPath string, subdirs []string) *jsonx.Obj {
 		entries = append(entries, entry)
 	}
 	if len(duplicates) > 0 {
-		return jsonx.New("ok", false, "error", "duplicate doc_id values prevent manifest generation",
+		return jsonx.Failure("error", "duplicate doc_id values prevent manifest generation",
 			"duplicates", duplicates, "missing_frontmatter", missingFM, "missing_dirs", missingDirs)
 	}
 	return jsonx.New("ok", true, "entries", entries, "count", len(entries),
