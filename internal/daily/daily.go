@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/clock"
 	"github.com/joeseverino/severino-vault-mcp/v3/internal/config"
@@ -90,7 +91,7 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 		}
 		day = t
 	}
-	relative := cfg.DailyNotesDir + "/" + day.Format("2006-01-02") + ".md"
+	relative := cfg.DailyNotesDir + "/" + day.Format(time.DateOnly) + ".md"
 	path := filepath.Join(cfg.VaultPath, relative)
 	if errObj := fsx.PathWithinRoot(cfg.VaultPath, path, "daily note", "any"); errObj != nil {
 		return errObj
@@ -119,7 +120,7 @@ func Write(cfg config.Config, content, noteDate string) *jsonx.Obj {
 		text := frontmatter.Serialize(jsonx.New(
 			"doc_id", "daily-"+day.Format("20060102"),
 			"created", clock.Now().Format("2006-01-02 15:04:05"),
-			"date", day.Format("2006-01-02"),
+			"date", day.Format(time.DateOnly),
 		))
 		newText, inserted := UpsertRegion(text, RegionID, content)
 		if err := v.MkdirAll(filepath.Dir(path)); err != nil {

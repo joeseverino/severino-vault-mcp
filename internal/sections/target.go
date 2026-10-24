@@ -1,8 +1,8 @@
 package sections
 
 import (
+	"cmp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -65,7 +65,7 @@ func newLayout(body string) *layout {
 
 // under is the nearest heading above line at, as Body.Under.
 func (l *layout) under(at int) (Heading, bool) {
-	i := sort.Search(len(l.headings), func(i int) bool { return l.headings[i].Line >= at })
+	i, _ := slices.BinarySearchFunc(l.headings, at, func(h Heading, at int) int { return cmp.Compare(h.Line, at) })
 	if i == 0 {
 		return Heading{}, false
 	}
@@ -152,7 +152,7 @@ func (l *layout) targets(ref string) []Target {
 			add(h.Line)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+	slices.SortFunc(out, func(a, b Target) int { return cmp.Compare(a.Start, b.Start) })
 	return out
 }
 
