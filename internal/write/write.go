@@ -192,7 +192,7 @@ func SetFrontmatter(l *vault.Loader, relativePath string, c Changes, p *schema.P
 	defer v.Close()
 	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
 	var idx *vault.Index
-	if slices.ContainsFunc(c.names(), func(name string) bool { f, _ := p.Field(name); return f.Unique }) {
+	if slices.ContainsFunc(c.names(), func(name string) bool { f, _ := p.Field(name); return f.Unique || f.DocRef }) {
 		idx = l.Index(true)
 	}
 	var out *jsonx.Obj
@@ -255,6 +255,7 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 	}
 	task := schema.IsTask(fm)
 	var errs []string
+	refs := jsonx.New("doc_id", docID)
 	for _, name := range changed {
 		f, _ := p.Field(name)
 		if !f.InScope(rel) {
@@ -263,6 +264,9 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 		}
 		v, _ := fm.Get(name)
 		errs = append(errs, p.Problems(name, v, task)...)
+		if f.DocRef {
+			refs.Set(name, v)
+		}
 		if f.Unique && idx != nil {
 			old, _ := before.Get(name)
 			fresh := slices.DeleteFunc(valueList(v), func(s string) bool { return slices.Contains(valueList(old), s) })
@@ -270,6 +274,9 @@ func applyChanges(text, rel string, c Changes, p *schema.Profile, idx *vault.Ind
 				errs = append(errs, e)
 			}
 		}
+	}
+	if idx != nil {
+		errs = append(errs, p.RefProblems(refs, idx.Has)...)
 	}
 	if len(errs) > 0 {
 		return text, fail(strings.Join(errs, "; "))
@@ -301,9 +308,13 @@ func createBlock(text, rel string, c Changes, p *schema.Profile, idx *vault.Inde
 }
 
 // checkNew is every problem with a new block at rel: the profile's rules,
-// and each unique field's value held by another doc.
+// each unique field's value held by another doc, and each doc reference that
+// names no doc.
 func checkNew(fm *jsonx.Obj, rel string, p *schema.Profile, idx *vault.Index) []string {
 	errs := p.Check(fm, rel)
+	if idx != nil {
+		errs = append(errs, p.RefProblems(fm, idx.Has)...)
+	}
 	for _, f := range p.Settable() {
 		v, _ := fm.Get(f.Name)
 		if !f.Unique || v == nil || idx == nil {

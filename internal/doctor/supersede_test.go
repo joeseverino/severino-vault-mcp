@@ -1,0 +1,91 @@
+package doctor_test
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/joeseverino/severino-vault-mcp/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
+	"github.com/joeseverino/severino-vault-mcp/internal/schema"
+	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
+	"github.com/joeseverino/severino-vault-mcp/internal/write"
+)
+
+const (
+	oldReport = "04 Reference/Example Audit — 2026-08-01.md"
+	newReport = "04 Reference/Example Audit — 2026-10-01.md"
+)
+
+func report(t *testing.T, root, rel, id, status string) {
+	t.Helper()
+	title := strings.TrimSuffix(filepath.Base(rel), ".md")
+	tk.Doc(t, filepath.Join(root, rel), "doc_id: "+id+"\ntitle: "+title+"\ndoc_type: decision_record\nsystem: Example Site\n"+
+		"environment: other\nstatus: "+status+"\nsensitivity: internal\nlast_reviewed: 2026-10-01", "# "+title+"\n")
+}
+
+func findings(root string) []doctor.Finding {
+	return doctor.Validate(config.Load("", tk.Env(root)), schema.Labs, false).Findings
+}
+
+func TestASupersededReportPointsAtItsSuccessor(t *testing.T) {
+	root := tk.Dir(t)
+	report(t, root, oldReport, "report-example-audit-2026-08-01", "deprecated")
+	report(t, root, newReport, "report-example-audit-2026-10-01", "active")
+	got := findings(root)
+	if len(got) != 1 || got[0].RelativePath != oldReport || got[0].Severity != "warning" || !strings.Contains(got[0].Message, "superseded_by") {
+		t.Fatalf("a deprecated dated report without a successor: %+v", got)
+	}
+
+	l := tk.Loader(root)
+	refused := write.SetFrontmatter(l, oldReport, write.With("superseded_by", "report-example-audit-2026-11-01"), schema.Labs)
+	if refused.Bool("ok") || !strings.Contains(refused.Str("error"), "names no doc in the vault") {
+		t.Fatalf("set_frontmatter took a successor that does not exist: %v", refused.Str("error"))
+	}
+	if r := write.SetFrontmatter(l, oldReport, write.With("superseded_by", "report-example-audit-2026-10-01"), schema.Labs); !r.Bool("ok") {
+		t.Fatal(r.Str("error"))
+	}
+	if got := findings(root); len(got) != 0 {
+		t.Fatalf("doctor should be clean once the old report names its successor: %+v", got)
+	}
+
+	// The successor deprecated in turn leaves the old report pointing at a
+	// dead end.
+	if r := write.SetFrontmatter(l, newReport, write.With("status", "deprecated"), schema.Labs); !r.Bool("ok") {
+		t.Fatal(r.Str("error"))
+	}
+	byFile := map[string]string{}
+	for _, f := range findings(root) {
+		byFile[f.RelativePath] += f.Severity + ": " + f.Message
+	}
+	if !strings.Contains(byFile[oldReport], "is itself deprecated") || !strings.Contains(byFile[newReport], "names no superseded_by") {
+		t.Fatal(byFile)
+	}
+}
+
+func TestASupersededByNamingNoDocIsAnError(t *testing.T) {
+	root := tk.Dir(t)
+	report(t, root, oldReport, "report-example-audit-2026-08-01", "deprecated")
+	tk.Doc(t, filepath.Join(root, newReport), "doc_id: report-example-audit-2026-10-01\ntitle: Example Audit\ndoc_type: decision_record\n"+
+		"system: Example Site\nenvironment: other\nstatus: active\nsensitivity: internal\nsuperseded_by: report-gone", "# Example Audit\n")
+	got := findings(root)
+	var errs []string
+	for _, f := range got {
+		if f.Severity == "error" {
+			errs = append(errs, f.RelativePath+": "+f.Message)
+		}
+	}
+	if len(errs) != 1 || errs[0] != newReport+": superseded_by 'report-gone' names no doc in the vault" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// An undated deprecated doc is not a report of a series, so it needs no
+// successor.
+func TestAnUndatedDeprecatedDocNeedsNoSuccessor(t *testing.T) {
+	root := tk.Dir(t)
+	report(t, root, "04 Reference/Old Example Notes.md", "note-old-example", "deprecated")
+	if got := findings(root); len(got) != 0 {
+		t.Fatalf("%+v", got)
+	}
+}

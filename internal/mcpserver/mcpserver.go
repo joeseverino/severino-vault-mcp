@@ -75,7 +75,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write", "log_entries", "queue"}
+var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "move_doc", "task_board", "task_write", "log_entries", "queue"}
 
 // ----- schemas ------------------------------------------------------------------
 
@@ -573,6 +573,33 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		return core.WriteDoc(v, w), nil
 	})
 
+	h.add(s, "move_doc", descMoveDoc, object(jsonx.New(
+		"to", str(`Destination from the vault root: a .md path ("Security/Reports/Example Audit.md"), or a folder ending in / to keep the file name.`),
+		"vault", h.vaultProp("Which vault."),
+		"doc_id", optStr("The doc to move (or give relative_path)."),
+		"relative_path", optStr("The doc's current path from the vault root."),
+		"with_folder", boolean("Move the doc's whole folder, files beside it included, into `to` (a folder)."),
+	), []string{"to"}), func(a args) (*jsonx.Obj, error) {
+		v, _, err := h.vault(a)
+		if err != nil {
+			return nil, err
+		}
+		var m core.MoveArgs
+		if m.To, err = a.str("to", true, ""); err != nil {
+			return nil, err
+		}
+		if m.DocID, err = a.str("doc_id", false, ""); err != nil {
+			return nil, err
+		}
+		if m.RelativePath, err = a.str("relative_path", false, ""); err != nil {
+			return nil, err
+		}
+		if m.WithFolder, err = a.boolean("with_folder"); err != nil {
+			return nil, err
+		}
+		return core.MoveDoc(v, m), nil
+	})
+
 	h.add(s, "task_board", descBoard, object(jsonx.New(
 		"vault", h.vaultProp("Which vault."),
 		"status", optStr("Only this status (open, active, parked, done, wontfix)."),
@@ -957,6 +984,17 @@ replace_section: replace the content under heading (doc_id or
 append_section: add body to the end of that section.
 Section modes keep the frontmatter as it is except last_reviewed, which
 becomes today. Restricted docs need include_restricted and a Touch ID approval through 1Password.`
+
+const descMoveDoc = `Move or rename a registered doc; its doc_id and frontmatter stay as they are.
+
+to is a .md path, or a folder ending in / that keeps the file name; missing
+folders are created. Refused: a destination that exists, one outside the
+indexed folders or inside a read-only one, and a file name another note in
+the vault already has (Obsidian resolves [[Name]] by unique file name). A
+rename in the same folder is how a shared name like Audit.md gets a unique
+one. with_folder moves the doc's folder, evidence files included, into to.
+wikilinks lists the notes whose [[links]] named the old location, with a
+count each; fix them with write_doc. Other notes are never rewritten.`
 
 const descLogEntries = `Work an append-only log note: one top-level bullet per entry, closed once
 its line carries " → " and a resolution.

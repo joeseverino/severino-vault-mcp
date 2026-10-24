@@ -93,11 +93,13 @@ func checkRefused(t *testing.T, v *fsx.Vault, p string) {
 	if err := v.Remove(p); err == nil {
 		t.Errorf("Remove(%q) allowed", p)
 	}
-	if err := v.Rename(p, "moved.md"); err == nil {
-		t.Errorf("Rename from %q allowed", p)
-	}
-	if err := v.Rename("moved.md", p); err == nil {
-		t.Errorf("Rename to %q allowed", p)
+	for _, folder := range []bool{false, true} {
+		if err := v.Move(p, "moved/moved.md", folder); err == nil {
+			t.Errorf("Move from %q allowed (folder %v)", p, folder)
+		}
+		if err := v.Move("moved/moved.md", p, folder); err == nil {
+			t.Errorf("Move to %q allowed (folder %v)", p, folder)
+		}
 	}
 }
 

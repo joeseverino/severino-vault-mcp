@@ -55,6 +55,16 @@ they started with.
 - `write_doc` creates a registered doc, or replaces or appends to one section
   of its body; `heading: ""` is the text before the first heading. Body edits to a registered doc go through it, never the file
   directly.
+- `move_doc` moves or renames a registered doc (`to` is a .md path, or a
+  folder ending in `/`); its doc_id and frontmatter stay. Never move a vault
+  file with the shell. A file name another note already has is refused, since
+  Obsidian links by unique name: rename first, in the same folder, to a name
+  that says which doc it is (`Audit.md` becomes `Example Audit — 2026-09-07.md`).
+  `with_folder=true` moves a report's folder with its evidence files. Fix the
+  links the result's `wikilinks` lists with `write_doc`.
+- A newer report of a series supersedes the old one: on the old one,
+  `set_frontmatter` `superseded_by` to the new doc's doc_id and
+  `status: deprecated`.
 - `task_board` shows open work, best first (`limit`, `status`, `project`),
   and the projects a task can go in; `task_write` adds, moves, promotes or
   deletes tasks, and `items=[...]` makes several changes in one call, each

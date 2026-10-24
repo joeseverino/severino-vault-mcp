@@ -17,6 +17,7 @@ func TestEveryDeclaredFieldIsSettableThroughTheCLI(t *testing.T) {
 	root := tk.FakeVault(t)
 	rel := "01 Projects/Example/index.md"
 	tk.Write(t, filepath.Join(root, rel), "---\ntitle: Example\n---\n\n# Example\n")
+	tk.RefTargets(t, root, "03 Runbooks", schema.Labs)
 	for _, f := range schema.Labs.Settable() {
 		flag := "--" + strings.ReplaceAll(f.Name, "_", "-")
 		var values []string

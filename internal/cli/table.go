@@ -197,6 +197,18 @@ func init() {
 				{Name: "--heading", Help: "Exact heading text of the section to edit (section modes); \"\" for the text before the first heading.", TakesValue: true},
 			}, frontmatterFlags(createArgs)...), pretty(prettyHelp)),
 			Run: runWriteDoc},
+		{Name: "move-doc", Effect: "vault_write",
+			Summary: "Move or rename a registered doc, keeping its doc_id and frontmatter: the MCP move_doc tool. Refuses a destination " +
+				"that exists, one outside the indexed folders or in a read-only one, and a file name another note already has; " +
+				"lists the notes whose [[links]] named the old location.",
+			Args: []Arg{
+				{Name: "to", Help: "Destination from the vault root: a .md path, or a folder ending in / to keep the file name."},
+				{Name: "--doc-id", Help: "The doc to move.", TakesValue: true},
+				{Name: "--relative-path", Help: "The doc's current vault-relative path (instead of --doc-id).", TakesValue: true},
+				{Name: "--with-folder", Help: "Move the doc's whole folder, files beside it included, into the destination folder."},
+				pretty(prettyHelp),
+			},
+			Run: runMoveDoc},
 		{Name: "log-entries", Effect: "vault_write",
 			Summary: "List an append-only log note's entries (one top-level bullet each), or close one by appending ' → <resolution>' " +
 				"to its line. The MCP log_entries tool: close needs --match to name exactly one open entry, and writes like a section edit.",
@@ -305,6 +317,9 @@ func init() {
 				{Name: "--json", Help: "Emit the schema as JSON (the default)."},
 				{Name: "--contract", Help: "Emit the complete versioned profile contract, including task and per-document rules. The legacy default remains HQ-compatible."},
 				{Name: "--fingerprint", Help: "Emit the stable SHA-256 fingerprint of the complete profile contract.", Dest: "schema_fingerprint"},
+				{Name: "--json-schema", Help: "Emit a vault's frontmatter rules as a JSON Schema (draft 2020-12) for off-the-shelf validators " +
+					"and editors, derived from the profile set_frontmatter and validate use."},
+				{Name: "--vault", TakesValue: true, Default: "labs", Help: "With --json-schema: the vault whose profile to emit, labs (default) or edu."},
 				{Name: "--check-doc", TakesValue: true, Metavar: "PATH",
 					Help: "Instead of emitting, verify that a human schema doc's enum lines (doc_type/environment/status/sensitivity) match " +
 						"the canonical schema. Exit 1 and print mismatches on drift."},

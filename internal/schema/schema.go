@@ -60,6 +60,9 @@ type Field struct {
 	Immutable bool
 	// Touch: the date can be set to today without naming it.
 	Touch bool
+	// DocRef: the value, or each list item, is the doc_id of another doc in
+	// the vault. It takes the profile's doc_id prefixes unless it names its own.
+	DocRef bool
 	// Example and Help describe the field to a caller.
 	Example, Help string
 }
@@ -226,7 +229,7 @@ func (f Field) Contract() *jsonx.Obj {
 	for _, b := range []struct {
 		key string
 		on  bool
-	}{{"unique", f.Unique}, {"immutable", f.Immutable}, {"touch", f.Touch}} {
+	}{{"unique", f.Unique}, {"immutable", f.Immutable}, {"touch", f.Touch}, {"doc_ref", f.DocRef}} {
 		if b.on {
 			o.Set(b.key, true)
 		}
@@ -329,11 +332,15 @@ func (p *Profile) shared() []Field {
 }
 
 // Settable is every frontmatter field the profile declares, in order: the
-// shared fields, then its own. Required follows RequiredFields.
+// shared fields, then its own. Required follows RequiredFields, and a doc
+// reference without prefixes of its own takes the doc_id prefixes.
 func (p *Profile) Settable() []Field {
 	out := append(p.shared(), p.Fields...)
 	for i := range out {
 		out[i].Required = slices.Contains(p.RequiredFields, out[i].Name)
+		if out[i].DocRef && len(out[i].Prefixes) == 0 {
+			out[i].Prefixes = p.DocIDPrefixes
+		}
 	}
 	return out
 }
@@ -423,6 +430,35 @@ func (p *Profile) Check(fm *jsonx.Obj, rel string) []string {
 		}
 	}
 	return append(errs, p.ValidateDocument(fm)...)
+}
+
+// RefProblems checks every doc reference fm carries against the vault: each
+// must name a doc_id that known holds, and not the doc's own. Check is the
+// per-file half; validate, doctor and set_frontmatter add this one, which
+// needs the vault's index.
+func (p *Profile) RefProblems(fm *jsonx.Obj, known func(docID string) bool) []string {
+	own, _ := fm.Get("doc_id")
+	var errs []string
+	for _, f := range p.Settable() {
+		v, _ := fm.Get(f.Name)
+		if !f.DocRef || missing(v) {
+			continue
+		}
+		items, isList := v.([]any)
+		if !isList {
+			items = []any{v}
+		}
+		for _, item := range items {
+			id := pystr.Str(item)
+			switch {
+			case own != nil && id == pystr.Str(own):
+				errs = append(errs, fmt.Sprintf("%s %s names the doc itself", f.Name, pystr.Repr(id)))
+			case !known(id):
+				errs = append(errs, fmt.Sprintf("%s %s names no doc in the vault", f.Name, pystr.Repr(id)))
+			}
+		}
+	}
+	return errs
 }
 
 // Sorted returns a sorted copy.
@@ -602,6 +638,8 @@ var Labs = &Profile{
 		{Name: "queue_prefix", Kind: KindString, Scope: projectIndex, Unique: true, Pattern: `[a-z][a-z0-9]{0,11}`,
 			Shape: "lowercase letters and digits, starting with a letter, at most 12 characters", Reserved: []string{"backlog"},
 			Example: "hq", Help: "The id prefix of this project's work queue items."},
+		{Name: "superseded_by", Kind: KindString, DocRef: true, Example: "report-example-audit-2026-10-01",
+			Help: "The doc_id of the doc that replaces this one; the older report of a series carries it with status: deprecated."},
 	},
 	DocumentSchemas: map[string]DocumentSchema{},
 }
@@ -629,6 +667,10 @@ var Education = &Profile{
 	DocumentSchemas: map[string]DocumentSchema{},
 }
 
+// Builtin are the profiles built into the server, by the vault that uses
+// each.
+var Builtin = map[string]*Profile{"labs": Labs, "edu": Education}
+
 // strs reads a contract list of strings.
 func strs(v any) ([]string, bool) {
 	switch x := v.(type) {
@@ -652,7 +694,7 @@ func strs(v any) ([]string, bool) {
 func fieldFromContract(where string, ro *jsonx.Obj) (Field, error) {
 	field := Field{Kind: ro.Str("kind"), Required: ro.Bool("required"), Pattern: ro.Str("pattern"), Shape: ro.Str("shape"),
 		Scope: ro.Str("scope"), Unique: ro.Bool("unique"), Immutable: ro.Bool("immutable"), Touch: ro.Bool("touch"),
-		Example: ro.Str("example"), Help: ro.Str("help")}
+		DocRef: ro.Bool("doc_ref"), Example: ro.Str("example"), Help: ro.Str("help")}
 	if field.Kind == "" {
 		field.Kind = KindString
 	}

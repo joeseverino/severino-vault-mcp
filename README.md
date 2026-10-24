@@ -60,6 +60,7 @@ Shared, each taking `vault`:
 | `read_doc` | A doc's body, `sections=[...]` for just those sections, or `fields=["outline"]` for its section list without text. Restricted bodies need `include_restricted=True` plus a Touch ID approval through 1Password. |
 | `set_frontmatter` | Create a frontmatter block, or update one in place. `doc_id` never changes. |
 | `write_doc` | Create a registered doc, or replace or append one section of its body. |
+| `move_doc` | Move or rename a registered doc, keeping its doc_id and frontmatter. Refuses a destination that exists and a file name another note already has; `with_folder` moves a report folder with its evidence files; lists the links that named the old location. |
 | `task_board` | Open tasks, best first (`limit`, default 25; `status`, `project` and `fields`), with the projects tasks can be filed in. |
 | `task_write` | `action`: `add`, `status`, `promote` (inbox note to task), `delete`; `items=[...]` applies several in one call and reports each. |
 | `log_entries` | An append-only log note, one bullet per entry. `action="list"`: the open entries as `{line, text}` (`contains`, `limit`, `open_only`, `fields`). `action="close"`: append ` → <resolution>` to the one open entry `match` names. |
@@ -120,7 +121,7 @@ SVMC_VAULT_PATH=/path/to/vault severino-vault-mcp doctor --propose
 
 With no subcommand (or `serve`) the binary serves MCP. Subcommands run one
 governed call against the labs vault and print JSON: `doctor`, `find`, `read`,
-`brief`, `task-*`, `promote-note`, `update-frontmatter`,
+`brief`, `task-*`, `promote-note`, `update-frontmatter`, `move-doc`,
 `touch-reviewed`, `backfill-aliases`, `daily-write`, `schema`, `hq-manifest`,
 `describe`, and `export education` (the dataset jseverino.com and
 resume-engine read). `describe` emits the surface as a
@@ -128,7 +129,9 @@ resume-engine read). `describe` emits the surface as a
 same command table that parses arguments.
 
 `schema --json` is the frozen enum contract HQ commits; `schema --contract` and
-`schema --fingerprint` give the full versioned profile and its hash.
+`schema --fingerprint` give the full versioned profile and its hash, and
+`schema --json-schema [--vault labs|edu]` the frontmatter rules as a JSON
+Schema for off-the-shelf validators and editors.
 `--fingerprint` hashes the binary's own Go sources, so `tools doctor` can tell
 a stale install from the source tree.
 

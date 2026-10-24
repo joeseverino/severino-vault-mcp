@@ -66,6 +66,8 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 		{"task_board", map[string]any{"fields": []string{"stale", "age_days", "tags"}}},
 		{"set_frontmatter", map[string]any{"relative_path": "03 Runbooks/Missing.md"}},
 		{"write_doc", map[string]any{"body": "x", "mode": "append_section", "heading": "Nope", "doc_id": "rb-backup-ops"}},
+		{"move_doc", map[string]any{"doc_id": "rb-backup-ops", "to": "02 Infrastructure/"}},
+		{"move_doc", map[string]any{"doc_id": "rb-backup-ops", "to": "00 Inbox/"}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "fields": []string{"line", "text", "closed", "resolution"}, "open_only": false}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson", "resolution": "x"}},
 		{"log_entries", map[string]any{"doc_id": "infra-example-log", "action": "close", "match": "lesson one", "resolution": "x"}},
