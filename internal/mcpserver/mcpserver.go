@@ -33,8 +33,8 @@ adds below. Every shared tool takes ` + "`vault`" + ` (default labs).
    ` + "`find`" + ` before writing any prose, then ` + "`read_doc`" + ` on the best hit, and
    answer in the doc's own words at the doc's length. Quote commands
    verbatim. Never substitute a generic tutorial for an existing doc.
-2. No relevant hit: say so, then offer to write the doc (write the file,
-   then ` + "`set_frontmatter`" + ` to register it).
+2. No relevant hit: say so, then offer to write the doc, and create it
+   with ` + "`write_doc`" + ` (body plus frontmatter fields in one validated call).
 3. Broad questions: start from the ` + "`vault://labs/quick-index`" + ` resource (or
    ` + "`read_doc`" + ` on the Quick Index doc), then read the target doc.
 4. Progress or log questions ("what did I do Friday?"): ` + "`daily_progress`" + `.
@@ -47,8 +47,9 @@ are withheld unless the user explicitly needs one; pass
 ` + "`include_restricted=True`" + `, which also needs a local unlock.
 
 Writes: ` + "`set_frontmatter`" + ` creates or updates a doc's frontmatter against that
-vault's schema; ` + "`task_write`" + ` adds, moves, promotes or deletes tasks. After a
-write, remind the user to run their vault sync.
+vault's schema; ` + "`task_write`" + ` adds, moves, promotes or deletes tasks. Body
+edits to a registered doc go through ` + "`write_doc`" + `'s section modes, never the
+file directly. After a write, remind the user to run their vault sync.
 
 edu: ` + "`education_dataset`" + ` returns the publishable institutions and courses
 the site and resume read.
@@ -77,7 +78,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	h := &handlers{reg: reg}
 	h.registerCore(s)
 	if edu := reg.Lookup("edu"); edu != nil {
-		s.AddTool(&mcp.Tool{
+		addTool(s, &mcp.Tool{
 			Name: "education_dataset",
 			Description: "The edu vault's publishable dataset: institutions and their courses (row facts from frontmatter, " +
 				"public bullets from each course's `## Site` section). The same JSON `severino-vault-mcp export education` " +
@@ -101,7 +102,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 			taken[tool.Name] = true
 			p := p
 			t := *tool
-			s.AddTool(&t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			addTool(s, &t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return p.Call(ctx, t.Name, req.Params.Arguments)
 			})
 		}
@@ -109,12 +110,12 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "recent_changes", "daily_progress", "set_frontmatter", "update_link", "task_board", "task_write"}
+var coreToolNames = []string{"find", "read_doc", "recent_changes", "daily_progress", "set_frontmatter", "write_doc", "update_link", "task_board", "task_write"}
 
 // ----- schemas ------------------------------------------------------------------
 
 func object(props *jsonx.Obj, required []string) json.RawMessage {
-	o := jsonx.New("type", "object", "properties", props)
+	o := jsonx.New("type", "object", "properties", props, "additionalProperties", false)
 	if len(required) > 0 {
 		o.Set("required", required)
 	}
@@ -151,6 +152,73 @@ func (h *handlers) vaultProp(desc string) *jsonx.Obj {
 }
 
 // ----- arguments ------------------------------------------------------------------
+
+// addTool registers every tool, core or provider, so a call naming an argument
+// its schema doesn't declare fails before the handler runs: a mistyped key
+// would otherwise be dropped and the call answer as if it had done the work.
+func addTool(s *mcp.Server, tool *mcp.Tool, next mcp.ToolHandler) {
+	valid, closed := declaredArgs(tool.InputSchema)
+	if !closed {
+		s.AddTool(tool, next)
+		return
+	}
+	s.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if err := unknownArgs(req.Params.Arguments, valid); err != nil {
+			return toolError(tool.Name, err), nil
+		}
+		return next(ctx, req)
+	})
+}
+
+// declaredArgs reads a schema's property names. A schema that declares no
+// properties, or allows additional ones, is open.
+func declaredArgs(schema any) ([]string, bool) {
+	raw, isRaw := schema.(json.RawMessage)
+	if !isRaw {
+		b, err := json.Marshal(schema)
+		if err != nil {
+			return nil, false
+		}
+		raw = b
+	}
+	var s struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties *json.RawMessage           `json:"additionalProperties"`
+	}
+	if json.Unmarshal(raw, &s) != nil || s.Properties == nil {
+		return nil, false
+	}
+	if s.AdditionalProperties != nil && strings.TrimSpace(string(*s.AdditionalProperties)) != "false" {
+		return nil, false
+	}
+	names := make([]string, 0, len(s.Properties))
+	for k := range s.Properties {
+		names = append(names, k)
+	}
+	slices.Sort(names)
+	return names, true
+}
+
+func unknownArgs(raw json.RawMessage, valid []string) error {
+	var given map[string]json.RawMessage
+	if json.Unmarshal(raw, &given) != nil {
+		return nil // not an object; the handler reports it
+	}
+	var unknown []string
+	for k := range given {
+		if !slices.Contains(valid, k) {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	slices.Sort(unknown)
+	if len(valid) == 0 {
+		return argError{fmt.Sprintf("unknown arguments %s; this tool takes none", pystr.ReprList(unknown))}
+	}
+	return argError{fmt.Sprintf("unknown arguments %s; valid arguments are %s", pystr.ReprList(unknown), pystr.ReprList(valid))}
+}
 
 type args struct{ o *jsonx.Obj }
 
@@ -324,7 +392,7 @@ func (h *handlers) vault(a args) (*core.Vault, string, error) {
 type toolFunc func(a args) (*jsonx.Obj, error)
 
 func (h *handlers) add(s *mcp.Server, name, desc string, schema json.RawMessage, fn toolFunc) {
-	s.AddTool(&mcp.Tool{Name: name, Description: desc, InputSchema: schema},
+	addTool(s, &mcp.Tool{Name: name, Description: desc, InputSchema: schema},
 		func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			a, err := parseArgs(req.Params.Arguments)
 			if err != nil {
@@ -497,6 +565,58 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		return core.SetFrontmatter(v, rel, set), nil
 	})
 
+	writeProps := jsonx.New(
+		"mode", enum(core.WriteDocModes, "create", "create, replace_section or append_section; see the tool description."),
+		"body", str("Markdown without frontmatter: the whole doc for create, the section's new content otherwise."),
+		"vault", h.vaultProp("Which vault."),
+		"relative_path", optStr(`Path from the vault root, e.g. "03 Runbooks/Add Proxy Host.md". Required to create.`),
+		"doc_id", optStr("Stable id: the new doc's on create, the doc to edit otherwise (or give relative_path)."),
+	)
+	for _, f := range []string{"title", "doc_type", "system", "environment", "status", "sensitivity"} {
+		writeProps.Set(f, optStr("Frontmatter field, create only."))
+	}
+	for _, f := range []string{"tags", "related_projects", "related_assets"} {
+		writeProps.Set(f, strList("Frontmatter list, create only."))
+	}
+	writeProps.Set("last_reviewed", optStr("ISO date, create only. Defaults to today."))
+	writeProps.Set("heading", optStr("The section's exact heading text, any level, without the #s. Section modes only."))
+	writeProps.Set("include_restricted", boolean("Edit a restricted doc; local policy still decides."))
+	h.add(s, "write_doc", descWriteDoc, object(writeProps, []string{"body"}), func(a args) (*jsonx.Obj, error) {
+		v, _, err := h.vault(a)
+		if err != nil {
+			return nil, err
+		}
+		var w core.WriteDocArgs
+		if w.Mode, err = a.choice("mode", core.WriteDocModes, "create"); err != nil {
+			return nil, err
+		}
+		if w.Body, err = a.str("body", true, ""); err != nil {
+			return nil, err
+		}
+		for _, f := range []struct {
+			name string
+			dst  *string
+		}{{"relative_path", &w.RelativePath}, {"heading", &w.Heading}, {"doc_id", &w.New.DocID}, {"title", &w.New.Title},
+			{"doc_type", &w.New.DocType}, {"system", &w.New.System}, {"environment", &w.New.Environment}, {"status", &w.New.Status},
+			{"sensitivity", &w.New.Sensitivity}, {"last_reviewed", &w.New.LastReviewed}} {
+			if *f.dst, err = a.str(f.name, false, ""); err != nil {
+				return nil, err
+			}
+		}
+		for _, f := range []struct {
+			name string
+			dst  *[]string
+		}{{"tags", &w.New.Tags}, {"related_projects", &w.New.RelatedProjects}, {"related_assets", &w.New.RelatedAssets}} {
+			if *f.dst, _, err = a.list(f.name); err != nil {
+				return nil, err
+			}
+		}
+		if w.IncludeRestricted, err = a.boolean("include_restricted"); err != nil {
+			return nil, err
+		}
+		return core.WriteDoc(v, w), nil
+	})
+
 	h.add(s, "update_link", descLink, object(jsonx.New(
 		"doc_id", str("The doc's stable id."),
 		"label", str("The link's exact visible label."),
@@ -655,6 +775,20 @@ A file without frontmatter gets a new block (doc_id, title, doc_type and
 system are required; environment, status and sensitivity default to
 other, active, internal). A file with frontmatter is updated in place:
 omitted fields stay as they are, and doc_id can never change.`
+
+const descWriteDoc = `Create a registered doc, or edit one section of its body, validated against the vault's schema.
+
+create (default): write relative_path with body and a new frontmatter block
+    (doc_id, title, doc_type and system required; environment, status and
+    sensitivity default to other, active, internal). Refuses an existing
+    file and a body that carries its own frontmatter; adds ` + "`# <title>`" + `
+    when the body has no H1.
+replace_section: replace the content under heading (doc_id or
+    relative_path names the doc) up to the next heading of the same or
+    higher level; the heading line stays.
+append_section: add body to the end of that section.
+Section modes keep the frontmatter as it is except last_reviewed, which
+becomes today. Restricted docs need include_restricted and a local unlock.`
 
 const descLink = `Replace one exact Markdown link in a doc, atomically.
 

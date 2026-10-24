@@ -1,5 +1,5 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, update_link, task_board, task_write,
+// read_doc, set_frontmatter, write_doc, update_link, task_board, task_write,
 // recent_changes and daily_progress, plus the two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
@@ -14,6 +14,8 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/daily"
+	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
+	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
@@ -469,6 +471,119 @@ func SetFrontmatter(v *Vault, relativePath string, s write.Set) *jsonx.Obj {
 		return jsonx.New("ok", false, "error", "vault "+pystr.Repr(v.Name)+" has no schema profile")
 	}
 	return write.SetFrontmatter(v.Loader, relativePath, s, v.Profile)
+}
+
+// WriteDocModes are write_doc's modes; the first is the default.
+var WriteDocModes = []string{"create", "replace_section", "append_section"}
+
+// WriteDocArgs are write_doc's arguments. New carries the frontmatter a
+// create writes; New.DocID also names the doc a section mode edits.
+type WriteDocArgs struct {
+	Mode              string
+	RelativePath      string
+	Heading           string
+	Body              string
+	IncludeRestricted bool
+	New               write.NewDoc
+}
+
+// WriteDoc creates a registered doc, or edits one section of its body, with
+// the frontmatter validated against v's profile either way.
+func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
+	fail := func(msg string) *jsonx.Obj { return jsonx.New("ok", false, "error", msg) }
+	if v.Profile == nil {
+		return fail("vault " + pystr.Repr(v.Name) + " has no schema profile")
+	}
+	switch a.Mode {
+	case "create":
+		if a.RelativePath == "" {
+			return fail("mode 'create' requires relative_path")
+		}
+		if a.Heading != "" {
+			return fail("heading only applies to replace_section and append_section")
+		}
+		return write.CreateDoc(v.Loader, a.RelativePath, a.Body, a.New, v.Profile)
+	case "replace_section", "append_section":
+	default:
+		return fail(fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.Mode), strings.Join(WriteDocModes, ", ")))
+	}
+	n := a.New
+	if n.Title != "" || n.DocType != "" || n.System != "" || n.Environment != "" || n.Status != "" || n.Sensitivity != "" ||
+		n.LastReviewed != "" || n.Tags != nil || n.RelatedProjects != nil || n.RelatedAssets != nil {
+		return fail("frontmatter fields only apply to mode 'create'; change them with set_frontmatter")
+	}
+	if pystr.Strip(a.Heading) == "" {
+		return fail(fmt.Sprintf("mode %s requires heading", pystr.Repr(a.Mode)))
+	}
+	d, err := registeredDoc(v, n.DocID, a.RelativePath)
+	if err != "" {
+		return fail(err)
+	}
+	if d.Sensitivity == gate.Restricted {
+		if !a.IncludeRestricted {
+			return fail(d.DocID + " is restricted; rerun with include_restricted=True, which also needs a local unlock")
+		}
+		allowed, result, msg := unlock(v, d.DocID, d.Title)
+		gate.AuditUnlock(v.Config.RestrictedAuditLog, d.DocID, result)
+		if !allowed {
+			return fail(d.DocID + " is restricted and the unlock was refused: " + msg)
+		}
+	}
+	return write.EditSection(v.Loader, d.RelativePath, a.Heading, a.Body, a.Mode == "append_section", v.Profile)
+}
+
+// registeredDoc finds the indexed doc a section edit names by doc_id or path.
+func registeredDoc(v *Vault, docID, relativePath string) (*vault.Doc, string) {
+	idx := v.Loader.Index(true)
+	switch {
+	case docID != "" && relativePath != "":
+		return nil, "pass doc_id or relative_path, not both"
+	case docID != "":
+		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
+			return nil, fmt.Sprintf("duplicate doc_id %s at %s; resolve the duplicate first", pystr.Repr(docID), pystr.ReprList(dups))
+		}
+		if d, ok := idx.ByDocID[docID]; ok {
+			return d, ""
+		}
+		return nil, "unknown doc_id " + pystr.Repr(docID) + "; call `find` to get one"
+	case relativePath != "":
+		clean := filepath.Clean(strings.TrimLeft(relativePath, "/"))
+		for _, d := range idx.Docs {
+			if d.RelativePath == clean {
+				return d, ""
+			}
+		}
+		return nil, "no registered doc at " + relativePath + "; create it with mode 'create', or register it with set_frontmatter"
+	}
+	return nil, "pass doc_id or relative_path"
+}
+
+// CheckDoc validates one file's frontmatter against v's profile with the rules
+// set_frontmatter writes by. path is absolute or vault-relative. ok is false
+// when path is not one of v's docs (outside the vault or its indexed dirs, not
+// markdown, or absent), so a caller can ignore it.
+func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
+	if v.Profile == nil {
+		return "", nil, false
+	}
+	root, err := fsx.OpenVault(v.Config.VaultPath)
+	if err != nil {
+		return "", nil, false
+	}
+	defer root.Close()
+	rel, err = root.Rel(path)
+	if err != nil || !vault.IsDocPath(rel, v.Config.IndexedDirs) {
+		return "", nil, false
+	}
+	text, err := root.ReadText(rel)
+	if err != nil {
+		return "", nil, false
+	}
+	fm, _, _ := frontmatter.Split(text)
+	if fm == nil {
+		return rel, []string{"missing YAML frontmatter"}, true
+	}
+	return rel, v.Profile.Check(fm), true
 }
 
 // UpdateLink replaces one exact Markdown link in a doc.

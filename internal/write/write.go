@@ -94,32 +94,66 @@ func UpdateLink(l *vault.Loader, docID, label, expectedHref, replacementHref str
 		"old_href", expectedHref, "new_href", replacementHref, "receipt", receipt)
 }
 
+func fieldErrors(p *schema.Profile, task bool, checks ...[2]string) []string {
+	var errs []string
+	for _, c := range checks {
+		if e := p.FieldError(c[0], c[1], task); e != "" {
+			errs = append(errs, e)
+		}
+	}
+	return errs
+}
+
+// docIDTaken is the failure for a doc_id another doc already holds, nil when free.
+func docIDTaken(idx *vault.Index, docID string) *jsonx.Obj {
+	if dups, ok := idx.DuplicateDocIDs[docID]; ok {
+		return fail(fmt.Sprintf("doc_id %s is already duplicated at %s", pystr.Repr(docID), pystr.ReprList(dups)))
+	}
+	if existing, ok := idx.ByDocID[docID]; ok {
+		return fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
+	}
+	return nil
+}
+
+// newFrontmatter is the block a create writes: a task gets the task fields,
+// anything else the doc fields. lastReviewed "" is today.
+func newFrontmatter(docID, title, docType, system, environment, status, sensitivity, lastReviewed string,
+	tags, relatedProjects, relatedAssets []string, hasTags bool) *jsonx.Obj {
+	reviewed := lastReviewed
+	if reviewed == "" {
+		reviewed = Today()
+	}
+	if docType == "task" {
+		taskTags := tags
+		if !hasTags || len(tags) == 0 {
+			taskTags = []string{"backlog"}
+		}
+		return jsonx.New(
+			"doc_id", docID, "title", title, "doc_type", "task", "status", status,
+			"related_projects", strList(relatedProjects),
+			"effort", "S", "priority", "med", "created", reviewed,
+			"tags", strList(taskTags),
+		)
+	}
+	return jsonx.New(
+		"doc_id", docID, "title", title, "doc_type", docType, "system", system,
+		"environment", environment, "status", status, "sensitivity", sensitivity,
+		"last_reviewed", reviewed,
+		"related_projects", strList(relatedProjects),
+		"related_assets", strList(relatedAssets),
+		"tags", strList(tags),
+	)
+}
+
 // AddFrontmatter prepends a new block to a file that has none.
 func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system, environment, status, sensitivity string,
 	tags, relatedProjects, relatedAssets []string, hasTags, hasProjects, hasAssets bool, lastReviewed string, p *schema.Profile) *jsonx.Obj {
 	isTask := docType == "task"
-	var errs []string
-	if !p.HasDocType(docType) {
-		errs = append(errs, fmt.Sprintf("doc_type %s not in %s", pystr.Repr(docType), pystr.ReprList(schema.Sorted(p.DocTypes))))
+	checks := [][2]string{{"doc_type", docType}, {"status", status}}
+	if !isTask {
+		checks = [][2]string{{"doc_type", docType}, {"environment", environment}, {"status", status}, {"sensitivity", sensitivity}}
 	}
-	if isTask {
-		if !p.HasTaskStatus(status) {
-			errs = append(errs, fmt.Sprintf("status %s not in %s (task lifecycle)", pystr.Repr(status), pystr.ReprList(schema.Sorted(p.TaskStatuses))))
-		}
-	} else {
-		if !p.HasEnvironment(environment) {
-			errs = append(errs, fmt.Sprintf("environment %s not in %s", pystr.Repr(environment), pystr.ReprList(schema.Sorted(p.Environments))))
-		}
-		if !p.HasStatus(status) {
-			errs = append(errs, fmt.Sprintf("status %s not in %s", pystr.Repr(status), pystr.ReprList(schema.Sorted(p.Statuses))))
-		}
-		if !p.HasSensitivity(sensitivity) {
-			errs = append(errs, fmt.Sprintf("sensitivity %s not in %s", pystr.Repr(sensitivity), pystr.ReprList(schema.Sorted(p.Sensitivities))))
-		}
-	}
-	if !p.HasPrefix(docID) {
-		errs = append(errs, fmt.Sprintf("doc_id %s must start with one of %s", pystr.Repr(docID), pystr.ReprList(p.DocIDPrefixes)))
-	}
+	errs := fieldErrors(p, isTask, append(checks, [2]string{"doc_id", docID})...)
 	if len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
@@ -135,42 +169,18 @@ func AddFrontmatter(l *vault.Loader, relativePath, docID, title, docType, system
 	if strings.HasPrefix(pystr.LStrip(body), "---") {
 		return fail("file already starts with `---` (existing frontmatter); update it instead of adding a block.")
 	}
-	idx := l.Index(true)
-	if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-		return fail(fmt.Sprintf("doc_id %s is already duplicated at %s", pystr.Repr(docID), pystr.ReprList(dups)))
+	if taken := docIDTaken(l.Index(true), docID); taken != nil {
+		return taken
 	}
-	if existing, ok := idx.ByDocID[docID]; ok {
-		return fail(fmt.Sprintf("doc_id %s already exists at %s", pystr.Repr(docID), existing.RelativePath))
-	}
-	reviewed := lastReviewed
-	if reviewed == "" {
-		reviewed = Today()
-	}
+	payload := newFrontmatter(docID, title, docType, system, environment, status, sensitivity, lastReviewed,
+		tags, relatedProjects, relatedAssets, hasTags)
 	if isTask {
-		taskTags := tags
-		if !hasTags || len(tags) == 0 {
-			taskTags = []string{"backlog"}
-		}
-		payload := jsonx.New(
-			"doc_id", docID, "title", title, "doc_type", "task", "status", status,
-			"related_projects", strList(relatedProjects),
-			"effort", "S", "priority", "med", "created", reviewed,
-			"tags", strList(taskTags),
-		)
 		if err := v.AtomicWrite(full, frontmatter.Serialize(payload)+body); err != nil {
 			return fail("write failed: " + err.Error())
 		}
 		l.Index(true)
 		return jsonx.New("ok", true, "relative_path", relativePath, "doc_id", docID)
 	}
-	payload := jsonx.New(
-		"doc_id", docID, "title", title, "doc_type", docType, "system", system,
-		"environment", environment, "status", status, "sensitivity", sensitivity,
-		"last_reviewed", reviewed,
-		"related_projects", strList(relatedProjects),
-		"related_assets", strList(relatedAssets),
-		"tags", strList(tags),
-	)
 	text := frontmatter.Serialize(payload) + body
 	if err := v.AtomicWrite(full, text); err != nil {
 		return fail("write failed: " + err.Error())
@@ -239,20 +249,16 @@ func valueList(v any) []string {
 
 // UpdateFrontmatter changes fields in an existing block; doc_id is immutable.
 func UpdateFrontmatter(l *vault.Loader, relativePath string, u Update, p *schema.Profile) *jsonx.Obj {
-	var errs []string
-	if u.DocType != nil && !p.HasDocType(*u.DocType) {
-		errs = append(errs, fmt.Sprintf("doc_type %s not in %s", pystr.Repr(*u.DocType), pystr.ReprList(schema.Sorted(p.DocTypes))))
+	var checks [][2]string
+	for _, f := range []struct {
+		key string
+		val *string
+	}{{"doc_type", u.DocType}, {"environment", u.Environment}, {"status", u.Status}, {"sensitivity", u.Sensitivity}} {
+		if f.val != nil {
+			checks = append(checks, [2]string{f.key, *f.val})
+		}
 	}
-	if u.Environment != nil && !p.HasEnvironment(*u.Environment) {
-		errs = append(errs, fmt.Sprintf("environment %s not in %s", pystr.Repr(*u.Environment), pystr.ReprList(schema.Sorted(p.Environments))))
-	}
-	if u.Status != nil && !p.HasStatus(*u.Status) {
-		errs = append(errs, fmt.Sprintf("status %s not in %s", pystr.Repr(*u.Status), pystr.ReprList(schema.Sorted(p.Statuses))))
-	}
-	if u.Sensitivity != nil && !p.HasSensitivity(*u.Sensitivity) {
-		errs = append(errs, fmt.Sprintf("sensitivity %s not in %s", pystr.Repr(*u.Sensitivity), pystr.ReprList(schema.Sorted(p.Sensitivities))))
-	}
-	if len(errs) > 0 {
+	if errs := fieldErrors(p, false, checks...); len(errs) > 0 {
 		return fail(strings.Join(errs, "; "))
 	}
 	v, full, perr := fsx.IndexedPath(l.Config, relativePath)

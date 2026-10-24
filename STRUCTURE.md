@@ -25,7 +25,6 @@ One Go module, one binary.
 | `internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}/` | Config, vault-confined file access (`os.Root`) and atomic writes, Python-exact JSON, Python string semantics, time, receipts, table rows. |
 | `internal/testkit/` | Test vault builders. |
 | `internal/fuzzseed/` | Sample-vault markdown as fuzz seeds. |
-| `internal/parity/` | Opt-in side-by-side harness against the Python reference. |
 
 ## Everything else
 

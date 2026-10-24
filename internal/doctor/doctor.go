@@ -11,7 +11,6 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
@@ -48,7 +47,9 @@ func relative(p, root string) string {
 	return rel
 }
 
-// Validate checks every vault-doc file under the indexed dirs.
+// Validate checks every vault-doc file under the indexed dirs: the field rules
+// are schema.Profile.Check; doctor adds the whole-vault ones (unreadable
+// files, a missing block, duplicate doc_ids).
 func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	r := &Report{VaultPath: cfg.VaultPath}
 	seen := map[string]string{}
@@ -78,50 +79,11 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 				seen[id] = rel
 			}
 		}
-		ValidateFrontmatter(r, rel, fm, p)
+		for _, msg := range p.Check(fm) {
+			r.add(Finding{rel, "error", msg, ""})
+		}
 	}
 	return r
-}
-
-// ValidateFrontmatter checks one doc per its doc type: tasks use the task
-// lifecycle and required fields.
-func ValidateFrontmatter(r *Report, rel string, fm *jsonx.Obj, p *schema.Profile) {
-	dt, _ := fm.Get("doc_type")
-	isTask := pystr.Truthy(dt) && pystr.Str(dt) == "task"
-	required, statuses := p.RequiredFields, p.Statuses
-	if isTask {
-		required, statuses = p.TaskRequiredFields, p.TaskStatuses
-	}
-	for _, name := range required {
-		v, _ := fm.Get(name)
-		if v == nil || v == "" {
-			r.add(Finding{rel, "error", "missing required field: " + name, ""})
-			continue
-		}
-		if l, ok := v.([]any); ok && len(l) == 0 {
-			r.add(Finding{rel, "error", "missing required field: " + name, ""})
-		}
-	}
-	if idv, _ := fm.Get("doc_id"); pystr.Truthy(idv) && !p.HasPrefix(pystr.Str(idv)) {
-		r.add(Finding{rel, "error", "doc_id must start with one of: " + strings.Join(p.DocIDPrefixes, ", "), ""})
-	}
-	validateEnum(r, rel, fm, "doc_type", p.DocTypes)
-	validateEnum(r, rel, fm, "environment", p.Environments)
-	validateEnum(r, rel, fm, "status", statuses)
-	validateEnum(r, rel, fm, "sensitivity", p.Sensitivities)
-	for _, msg := range p.ValidateDocument(fm) {
-		r.add(Finding{rel, "error", msg, ""})
-	}
-}
-
-func validateEnum(r *Report, rel string, fm *jsonx.Obj, field string, allowed []string) {
-	v, _ := fm.Get(field)
-	if v == nil || v == "" {
-		return
-	}
-	if !slices.Contains(allowed, pystr.Str(v)) {
-		r.add(Finding{rel, "error", fmt.Sprintf("%s=%s must be one of: %s", field, pystr.ReprAny(v), strings.Join(schema.Sorted(allowed), ", ")), ""})
-	}
 }
 
 // Run prints a report and returns the exit code.

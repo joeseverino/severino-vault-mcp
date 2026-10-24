@@ -131,14 +131,21 @@ func (r *Registry) Names() []string {
 	return out
 }
 
-// Build composes every available vault, logging what is off to log.
-func Build(ctx context.Context, env config.Env, log io.Writer) *Registry {
-	r := &Registry{Vaults: []*core.Vault{Labs(env)}}
+// Local is the vaults whose profile this binary holds: labs, and edu when its
+// config exists. Providers are not started.
+func Local(env config.Env, log io.Writer) []*core.Vault {
+	out := []*core.Vault{Labs(env)}
 	if eduPath := EduConfigPath(env); isFile(eduPath) {
-		r.Vaults = append(r.Vaults, Edu(env))
+		out = append(out, Edu(env))
 	} else {
 		fmt.Fprintf(log, "severino-vault-mcp: no edu config at %s; edu vault off\n", eduPath)
 	}
+	return out
+}
+
+// Build composes every available vault, logging what is off to log.
+func Build(ctx context.Context, env config.Env, log io.Writer) *Registry {
+	r := &Registry{Vaults: Local(env, log)}
 	for _, spec := range ProviderSpecs(env, log) {
 		p, err := provider.Connect(ctx, spec, env, ProviderTimeout)
 		if err != nil {

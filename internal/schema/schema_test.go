@@ -74,7 +74,7 @@ func TestDocumentSchemaValidatesComposableFieldRules(t *testing.T) {
 		t.Fatal(errs)
 	}
 	errs := domain.Validate(jsonx.New("category", "x", "renews", "someday", "notice", "999", "horizon", "soon"))
-	for _, want := range []string{"one of", "ISO date", "at most 365", "does not match"} {
+	for _, want := range []string{"category 'x' not in ['a', 'b']", "ISO date", "at most 365", "does not match"} {
 		if !slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, want) }) {
 			t.Fatalf("missing %q in %v", want, errs)
 		}

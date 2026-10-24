@@ -21,7 +21,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/vaults"
 )
 
-var coreTools = []string{"daily_progress", "find", "read_doc", "recent_changes", "set_frontmatter", "task_board", "task_write", "update_link"}
+var coreTools = []string{"daily_progress", "find", "read_doc", "recent_changes", "set_frontmatter", "task_board", "task_write", "update_link", "write_doc"}
 
 // TestMain doubles as a fake vault provider when re-executed with
 // FAKE_PROVIDER set to the vault name it should serve, so the provider seam
@@ -260,6 +260,67 @@ func TestProviderToolsProfileAndInstructionsAreReexported(t *testing.T) {
 		"doc_id": "rb-x", "title": "X", "doc_type": "runbook", "system": "x"})
 	if bad.Bool("ok") || !strings.Contains(bad.Str("error"), "doc_type 'runbook' not in") {
 		t.Fatal(jsonx.Compact(bad))
+	}
+}
+
+// Every registered tool, core, edu or provider, refuses an argument its schema
+// doesn't declare, naming it and the valid ones, so no tool can ship open.
+func TestEveryToolRejectsUnknownArguments(t *testing.T) {
+	root := tk.FakeVault(t)
+	env := providerFixture(t, root, "")
+	env["SVMC_EDU_CONFIG"] = eduConfig(t, root)
+	reg := vaults.Build(context.Background(), env, io.Discard)
+	t.Cleanup(reg.Close)
+	s := connect(t, reg)
+	all := tools(t, s)
+	for _, want := range []string{"set_frontmatter", "education_dataset", "example_lookup"} {
+		if _, ok := all[want]; !ok {
+			t.Fatalf("%s not registered: %v", want, names(all))
+		}
+	}
+	for name, tool := range all {
+		r, isErr := call(t, s, name, map[string]any{"not_an_argument": 1})
+		if !isErr || !strings.Contains(r.Str("error"), "unknown arguments ['not_an_argument']") {
+			t.Errorf("%s accepted an unknown argument: %s", name, jsonx.Compact(r))
+		}
+		props, _ := tool.InputSchema.(map[string]any)["properties"].(map[string]any)
+		for prop := range props {
+			if !strings.Contains(r.Str("error"), "'"+prop+"'") {
+				t.Errorf("%s: error doesn't list %s: %s", name, prop, r.Str("error"))
+			}
+		}
+	}
+}
+
+func TestSetFrontmatterRefusesAFieldsObject(t *testing.T) {
+	reg, root := labsOnly(t)
+	before := tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md"))
+	r, isErr := call(t, connect(t, reg), "set_frontmatter", map[string]any{
+		"relative_path": "03 Runbooks/Add Nginx Proxy Host.md", "fields": map[string]any{"status": "draft"}})
+	if !isErr || !strings.Contains(r.Str("error"), "unknown arguments ['fields']; valid arguments are [") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if tk.Read(t, filepath.Join(root, "03 Runbooks", "Add Nginx Proxy Host.md")) != before {
+		t.Fatal("refused call wrote")
+	}
+}
+
+func TestWriteDocCreatesThenEditsASection(t *testing.T) {
+	reg, root := labsOnly(t)
+	s := connect(t, reg)
+	rel := "03 Runbooks/Rotate Example Token.md"
+	create := map[string]any{"relative_path": rel, "doc_id": "rb-rotate-example-token", "title": "Rotate Example Token",
+		"doc_type": "runbook", "system": "homelab", "body": "## Steps\n\n1. Run `x`.\n"}
+	if r, isErr := call(t, s, "write_doc", create); isErr || !r.Bool("ok") || r.Str("relative_path") != rel {
+		t.Fatal(jsonx.Compact(r))
+	}
+	r, isErr := call(t, s, "write_doc", map[string]any{"mode": "replace_section", "doc_id": "rb-rotate-example-token",
+		"heading": "Steps", "body": "1. Run `y`.\n"})
+	if isErr || !r.Bool("ok") || !strings.HasSuffix(tk.Read(t, filepath.Join(root, rel)), "## Steps\n\n1. Run `y`.\n") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if r, isErr := call(t, s, "write_doc", map[string]any{"mode": "rewrite", "body": "x"}); !isErr || !strings.Contains(r.Str("error"), "mode: input should be") {
+		t.Fatal(jsonx.Compact(r))
 	}
 }
 

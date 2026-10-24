@@ -10,61 +10,12 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
-	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
 
-func errorsFor(fm *jsonx.Obj, p *schema.Profile) []string {
-	r := &doctor.Report{}
-	doctor.ValidateFrontmatter(r, "x.md", fm, p)
-	var out []string
-	for _, f := range r.Findings {
-		out = append(out, f.Message)
-	}
-	return out
-}
-
 func has(errs []string, sub string) bool {
 	return slices.ContainsFunc(errs, func(e string) bool { return strings.Contains(e, sub) })
-}
-
-func TestValidTaskHasNoFindings(t *testing.T) {
-	if e := errorsFor(jsonx.New("doc_id", "task-ship-the-thing", "title", "Ship the thing", "doc_type", "task", "status", "open"), schema.Labs); len(e) != 0 {
-		t.Fatal(e)
-	}
-}
-
-func TestTaskStatusLifecycleIsEnforced(t *testing.T) {
-	if !has(errorsFor(jsonx.New("doc_id", "task-x", "title", "x", "doc_type", "task", "status", "deprecated"), schema.Labs), "status=") {
-		t.Fatal("deprecated task accepted")
-	}
-}
-
-func TestStandardDocRequiresTheFullFieldSetAndRejectsTaskStatus(t *testing.T) {
-	if !has(errorsFor(jsonx.New("doc_id", "rb-x", "title", "x", "doc_type", "runbook", "status", "active"), schema.Labs), "missing required field") {
-		t.Fatal("missing fields accepted")
-	}
-	if !has(errorsFor(jsonx.New("doc_id", "rb-x", "title", "x", "doc_type", "runbook", "system", "s", "environment", "homelab",
-		"sensitivity", "internal", "status", "parked"), schema.Labs), "status=") {
-		t.Fatal("task status accepted on a runbook")
-	}
-}
-
-func TestValidateHonorsACustomProfile(t *testing.T) {
-	research := &schema.Profile{
-		Name: "research", DocTypes: []string{"paper", "task"}, Environments: []string{"lab"}, Statuses: []string{"draft", "active"},
-		Sensitivities: []string{"public", "internal", "restricted"}, DocIDPrefixes: []string{"paper-", "task-"},
-		RequiredFields: []string{"doc_id", "title", "doc_type", "status"}, TaskStatuses: []string{"open", "done"},
-		TaskRequiredFields: []string{"doc_id", "title", "doc_type", "status"}, TaskFields: []string{"status", "created"},
-	}
-	fm := jsonx.New("doc_id", "paper-x", "title", "X", "doc_type", "paper", "status", "active")
-	if e := errorsFor(fm, research); len(e) != 0 {
-		t.Fatal(e)
-	}
-	if !has(errorsFor(fm, schema.Labs), "doc_type=") {
-		t.Fatal("labs accepted a foreign doc type")
-	}
 }
 
 func TestReportsMissingFrontmatterAndProposesAFix(t *testing.T) {
@@ -95,7 +46,7 @@ func TestReportsInvalidFrontmatterAndDuplicates(t *testing.T) {
 	for _, f := range r.Findings {
 		byFile[f.RelativePath] = append(byFile[f.RelativePath], f.Message)
 	}
-	if !has(byFile["03 Runbooks/Bad.md"], "doc_id must start") || !has(byFile["03 Runbooks/Bad.md"], "doc_type='made_up'") ||
+	if !has(byFile["03 Runbooks/Bad.md"], "doc_id 'nope' must start") || !has(byFile["03 Runbooks/Bad.md"], "doc_type 'made_up' not in") ||
 		!has(byFile["03 Runbooks/Duplicate.md"], "duplicate doc_id") {
 		t.Fatal(byFile)
 	}
