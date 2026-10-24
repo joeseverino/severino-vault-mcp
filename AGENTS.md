@@ -41,8 +41,8 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 - `export education` JSON is read by jseverino.com (`bin/content-sync`) and
   resume-engine (`lib/reconcile-coursework`). Changing its shape is a contract
   change for both.
-- `validate <path>...` is run by severino-hooks `vault-guard` on every edited
-  path: `<relative_path>: <problem>` lines and exit 1, silent exit 0 for paths
+- `validate <path>...` is meant for editor and agent hooks that check every
+  edited path: `<relative_path>: <problem>` lines and exit 1, silent exit 0 for paths
   no local vault indexes, exit 2 on usage. Its problems are `schema.Profile.Check`,
   the rules set_frontmatter writes by.
 - `tests/golden/`: `schema.json`, `cli-describe.json`, `mcp-tools.txt`. A diff
@@ -66,7 +66,14 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
 ```bash
 scripts/check.sh            # the CI gate: gofmt, vet, test -race, govulncheck, golangci-lint, repo invariants
 bash tests/golden/verify.sh
+scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the real vault with evals/local/cases.json
 ```
+
+- Run the eval before changing ranking, `find` output or tool descriptions,
+  and raise `TestEvalFloors` when the numbers improve. Decide on the real-vault
+  run: the fixture is a regression floor, too small to compare backends.
+- The repository-policy check refuses file names that look like sync conflict
+  copies (ending in ` <number>.md`); name fixtures accordingly.
 
 ## Test idioms
 

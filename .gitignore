@@ -24,3 +24,6 @@ Thumbs.db
 # cordon checks engine: generated report + CI checkout of the cordon repo
 .cordon-checks-report.md
 /.cordon/
+
+# Eval cases for the real vault: real doc ids and titles are private
+/evals/local/
