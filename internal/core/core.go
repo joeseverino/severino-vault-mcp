@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -246,11 +245,11 @@ func (a FindArgs) Keep() query.Keep {
 		return nil
 	}
 	return func(d *vault.Doc) bool {
-		if system != "" && !strings.Contains(strings.ToLower(d.System), system) {
+		if system != "" && !containsFold(d.System, system) {
 			return false
 		}
 		return project == "" || slices.ContainsFunc(d.RelatedProjects, func(p string) bool {
-			return strings.Contains(strings.ToLower(p), project)
+			return containsFold(p, project)
 		})
 	}
 }
@@ -282,8 +281,8 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 		resp.Set("match_count", len(hits.([]*jsonx.Obj)))
 	case "text":
 		resp = query.SearchBody(v.Loader, q, a.Limit, a.ContextLines, a.CaseSensitive, keep)
-		if resp.Has("error") {
-			resp = steer(jsonx.New("ok", false).Merge(resp), Call("find", "query", q, "by", "relevance")+" to match titles and sections instead")
+		if resp.Failed() {
+			resp = steer(resp, Call("find", "query", q, "by", "relevance")+" to match titles and sections instead")
 		} else {
 			// Rename in place, keeping the Python key order.
 			renamed := jsonx.New()
@@ -694,11 +693,11 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	if err != nil || !vault.IsDocPath(rel, v.Config.IndexedDirs) {
 		return "", nil, false
 	}
-	text, err := root.ReadText(rel)
+	note, err := root.ReadNote(rel)
 	if err != nil {
 		return "", nil, false
 	}
-	fm, _, _ := frontmatter.Split(text)
+	fm := note.FM
 	if fm == nil {
 		return rel, []string{"missing YAML frontmatter"}, true
 	}

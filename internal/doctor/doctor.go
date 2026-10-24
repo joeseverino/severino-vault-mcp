@@ -14,6 +14,7 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
@@ -59,12 +60,12 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	for _, path := range vault.MarkdownFiles(cfg.VaultPath, cfg.IndexedDirs) {
 		r.CheckedFiles++
 		rel := relative(path, cfg.VaultPath)
-		text, err := pystr.ReadText(path)
+		note, err := frontmatter.ReadFile(path)
 		if err != nil {
 			r.add(Finding{rel, "error", "cannot read file: " + err.Error(), ""})
 			continue
 		}
-		fm, _, _ := frontmatter.Split(text)
+		fm := note.FM
 		if fm == nil || fm.Len() == 0 {
 			proposal := ""
 			if propose {
@@ -143,15 +144,13 @@ func Run(w io.Writer, cfg config.Config, p *schema.Profile, propose bool) int {
 	return 0
 }
 
-var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
-
 func proposalFor(path, root string) string {
 	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	title := pystr.Strip(strings.ReplaceAll(strings.ReplaceAll(stem, "_", " "), "-", " "))
 	if title == "" {
 		title = "Untitled"
 	}
-	slug := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(title), "-"), "-")
+	slug := sections.Slugify(title)
 	if slug == "" {
 		slug = "untitled"
 	}

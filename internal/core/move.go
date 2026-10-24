@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
@@ -224,11 +223,12 @@ func staleLinks(v *Vault, from, to string) (links []*jsonx.Obj, skipped []string
 		if rel == to {
 			continue
 		}
-		text, err := root.ReadText(rel)
-		if err != nil || !strings.Contains(text, "[[") {
+		note, err := root.ReadNote(rel)
+		if err != nil || !strings.Contains(note.Text, "[[") {
 			continue
 		}
-		if fm, _, _ := frontmatter.Split(text); fm != nil {
+		text := note.Text
+		if fm := note.FM; fm != nil {
 			if s, _ := fm.Get("sensitivity"); gate.Parse(pystr.Str(orNone(s))) == gate.Restricted {
 				skipped = append(skipped, rel)
 				continue

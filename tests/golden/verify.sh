@@ -45,4 +45,13 @@ else
   fail=1
 fi
 
+# 4. README's tool table, generated from the registered tools.
+if go test -count=1 -run '^TestReadmeToolsTable$' ./internal/mcpserver/ >"$DIFF" 2>&1; then
+  echo "ok:    README tool table"
+else
+  echo "DRIFT: README tool table"
+  cat "$DIFF"
+  fail=1
+fi
+
 exit "$fail"

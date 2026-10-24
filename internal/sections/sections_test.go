@@ -102,3 +102,29 @@ func FuzzParseCap(f *testing.F) {
 		}
 	})
 }
+
+// Every slug in the server comes from SlugifyWith: section anchors, doctor's
+// proposed doc_id, queue id prefixes (plain) and task file names (Unicode,
+// capped at 60).
+func TestSlugify(t *testing.T) {
+	long := strings.Repeat("ab ", 30)
+	cases := []struct{ in, plain, task string }{
+		{"Example Project (2)", "example-project-2", "example-project-2"},
+		{"  --Hello,  World!--  ", "hello-world", "hello-world"},
+		{"Café über naïve", "caf-ber-na-ve", "café-über-naïve"},
+		{"日本語 title", "title", "日本語-title"},
+		{"", "", ""},
+		{"!!!", "", ""},
+		{"a_b-c.d", "a-b-c-d", "a-b-c-d"},
+		{"x\xffy", "x-y", "x-y"},
+		{long, strings.TrimSuffix(strings.Repeat("ab-", 30), "-"), strings.TrimSuffix(strings.Repeat("ab-", 20), "-")},
+	}
+	for _, c := range cases {
+		if got := Slugify(c.in); got != c.plain {
+			t.Errorf("Slugify(%q) = %q, want %q", c.in, got, c.plain)
+		}
+		if got := SlugifyWith(c.in, SlugOptions{Unicode: true, MaxLen: 60}); got != c.task {
+			t.Errorf("SlugifyWith(%q, unicode, 60) = %q, want %q", c.in, got, c.task)
+		}
+	}
+}

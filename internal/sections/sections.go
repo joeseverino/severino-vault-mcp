@@ -18,7 +18,6 @@ const DefaultTokenCap = 400
 var (
 	fenceRE  = regexp.MustCompile("^[ \t\n\r\f\v]*(```|~~~)")
 	atxRE    = regexp.MustCompile(`^(#{1,6})[ \t\n\r\f\v]+(.*?)[ \t\n\r\f\v]*#*[ \t\n\r\f\v]*$`)
-	nonSlug  = regexp.MustCompile(`[^a-z0-9]+`)
 	sentence = regexp.MustCompile(`(.+?[.!?])(\s|$)`)
 )
 
@@ -48,9 +47,41 @@ func estimateTokens(text string) int {
 	return n
 }
 
-// Slugify lowercases and collapses everything but [a-z0-9] to hyphens.
-func Slugify(text string) string {
-	return strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(text), "-"), "-")
+// SlugOptions widen Slugify for a slug that names a file.
+type SlugOptions struct {
+	Unicode bool // keep every letter and digit pystr.IsAlnum accepts, not only [a-z0-9]
+	MaxLen  int  // cap in code points; 0 is no cap
+}
+
+// Slugify lowercases text and turns each run of characters outside [a-z0-9]
+// into one hyphen, with none at either end. It is the only slug function in
+// the server; a caller that needs more passes SlugOptions to SlugifyWith.
+func Slugify(text string) string { return SlugifyWith(text, SlugOptions{}) }
+
+// SlugifyWith is Slugify with the kept characters and length set by o.
+func SlugifyWith(text string, o SlugOptions) string {
+	keep := func(r rune) bool { return r >= 'a' && r <= 'z' || r >= '0' && r <= '9' }
+	if o.Unicode {
+		keep = pystr.IsAlnum
+	}
+	var sb strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(text) {
+		if !keep(r) {
+			dash = true
+			continue
+		}
+		if dash && sb.Len() > 0 {
+			sb.WriteByte('-')
+		}
+		sb.WriteRune(r)
+		dash = false
+	}
+	slug := sb.String()
+	if o.MaxLen > 0 {
+		slug = strings.TrimRight(pystr.Prefix(slug, o.MaxLen), "-")
+	}
+	return slug
 }
 
 type slugger struct{ counts map[string]int }
@@ -102,8 +133,10 @@ type Heading struct {
 }
 
 // Headings lists a body's headings in order, split on "\n".
-func Headings(body string) []Heading {
-	h := headingLines(strings.Split(body, "\n"))
+func Headings(body string) []Heading { return headingsOf(Lines(body)) }
+
+func headingsOf(lines []string) []Heading {
+	h := headingLines(lines)
 	out := make([]Heading, 0, len(h))
 	for i, hd := range h {
 		out = append(out, Heading{Line: i, Level: hd.level, Text: hd.text})
@@ -198,7 +231,7 @@ func Parse(body string, bodyStartLine int) []Section {
 
 // ParseCap is Parse with an explicit token cap.
 func ParseCap(body string, bodyStartLine, cap int) []Section {
-	lines := strings.Split(body, "\n")
+	lines := Lines(body)
 	headings := headingLines(lines)
 	h2 := levelIndexes(headings, 2)
 
@@ -262,7 +295,7 @@ func Resolve(secs []Section, ref string) *Section {
 // Summary is the section's first prose sentence, capped at 120 characters.
 func Summary(sec Section) string {
 	const limit = 120
-	lines := strings.Split(sec.Body, "\n")
+	lines := Lines(sec.Body)
 	start := 0
 	if sec.Heading != "" {
 		start = 1

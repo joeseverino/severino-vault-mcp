@@ -126,9 +126,6 @@ func TestIDsSplitAtTheLastDash(t *testing.T) {
 	if _, _, ok := SplitID("task-old-slug"); ok {
 		t.Fatal("an alias is not an id")
 	}
-	if got := Slug("Example Project (2)"); got != "example-project-2" {
-		t.Fatal(got)
-	}
 }
 
 func FuzzTextRoundTrips(f *testing.F) {

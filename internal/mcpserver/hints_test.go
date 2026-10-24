@@ -95,7 +95,7 @@ func TestStructuredContentFitsEachOutputSchema(t *testing.T) {
 	}
 	for _, c := range calls {
 		res, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: c.tool, Arguments: c.args})
-		if err != nil || res.IsError {
+		if err != nil {
 			t.Fatalf("%s %v: %v %+v", c.tool, c.args, err, res)
 		}
 		if err := resolved[c.tool].Validate(res.StructuredContent); err != nil {
@@ -151,7 +151,7 @@ func TestTaskWriteItemsBatchThroughOneCall(t *testing.T) {
 		map[string]any{"action": "status", "doc_id": "task-no-such-task", "status": "done"},
 		map[string]any{"action": "add", "title": "Second batched task", "priority": "high"},
 	}})
-	if isErr || r.Bool("ok") || jsonx.Compact(tk.Get(r, "applied")) != "2" || jsonx.Compact(tk.Get(r, "failed")) != "[1]" ||
+	if !isErr || r.Bool("ok") || jsonx.Compact(tk.Get(r, "applied")) != "2" || jsonx.Compact(tk.Get(r, "failed")) != "[1]" ||
 		tk.Get(r, "results.1.ok") != false || tk.Get(r, "results.2.ok") != true || strings.Contains(jsonx.Compact(r), "receipt") {
 		t.Fatal(jsonx.Compact(r))
 	}

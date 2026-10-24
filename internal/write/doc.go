@@ -20,36 +20,36 @@ import (
 // created doc always passes validate.
 func CreateDoc(l *vault.Loader, relativePath, body string, c Changes, p *schema.Profile) *jsonx.Obj {
 	if msg := c.undeclared(p); msg != "" {
-		return fail(msg)
+		return jsonx.Fail(msg)
 	}
 	if absent := absentForCreate(c); len(absent) > 0 {
-		return fail("creating a doc needs " + strings.Join(absent, ", "))
+		return jsonx.Fail("creating a doc needs " + strings.Join(absent, ", "))
 	}
 	if strings.HasPrefix(pystr.LStrip(body), "---") {
-		return fail("body starts with a `---` block; pass the body without frontmatter and give its fields as arguments")
+		return jsonx.Fail("body starts with a `---` block; pass the body without frontmatter and give its fields as arguments")
 	}
 	fm := newFrontmatter(c)
 	v, err := fsx.OpenVault(l.Config.VaultPath)
 	if err != nil {
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	defer v.Close()
 	rel, err := v.Rel(strings.TrimLeft(relativePath, "/"))
 	if err != nil {
-		return fail("path escapes vault root: " + relativePath)
+		return jsonx.Fail("path escapes vault root: " + relativePath)
 	}
 	if refused := readOnly(l, rel); refused != nil {
 		return refused
 	}
 	if !vault.IsDocPath(rel, l.Config.IndexedDirs) {
-		return fail("relative_path must be a .md file under the indexed dirs " + pystr.ReprList(l.Config.IndexedDirs) + ": " + relativePath)
+		return jsonx.Fail("relative_path must be a .md file under the indexed dirs " + pystr.ReprList(l.Config.IndexedDirs) + ": " + relativePath)
 	}
-	exists := fail("file already exists: " + rel + "; edit its body with write_doc mode replace_section or append_section")
+	exists := jsonx.Fail("file already exists: " + rel + "; edit its body with write_doc mode replace_section or append_section")
 	if _, err := v.Stat(rel); err == nil {
 		return exists
 	}
 	if errs := checkNew(fm, rel, p, l.Index(true)); len(errs) > 0 {
-		return fail(strings.Join(errs, "; "))
+		return jsonx.Fail(strings.Join(errs, "; "))
 	}
 	if !hasH1(body) {
 		body = "# " + c.Str("title") + "\n\n" + body
@@ -59,13 +59,13 @@ func CreateDoc(l *vault.Loader, relativePath, body string, c Changes, p *schema.
 	}
 	text := frontmatter.Serialize(fm) + body
 	if err := v.MkdirAll(filepath.Dir(rel)); err != nil {
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	if err := v.AtomicCreate(rel, text); err != nil {
 		if errors.Is(err, fsx.ErrExists) {
 			return exists
 		}
-		return fail("write failed: " + err.Error())
+		return jsonx.Fail("write failed: " + err.Error())
 	}
 	l.Index(true)
 	return jsonx.New("ok", true, "doc_id", c.Str("doc_id"), "relative_path", rel, "wrote_bytes", len(text), "next_step", nextStep)
@@ -85,7 +85,7 @@ func hasH1(body string) bool {
 // level.
 func EditSection(l *vault.Loader, relativePath, heading, body string, appendMode bool, p *schema.Profile) *jsonx.Obj {
 	if appendMode && pystr.Strip(body) == "" {
-		return fail("body is empty; nothing to append")
+		return jsonx.Fail("body is empty; nothing to append")
 	}
 	mode := "replace_section"
 	if appendMode {
@@ -125,7 +125,7 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 		out, size = nil, 0
 		cut := frontmatter.BodyOffset(text)
 		if cut == 0 {
-			out = fail("file has no frontmatter; register it with set_frontmatter first.")
+			out = jsonx.Fail("file has no frontmatter; register it with set_frontmatter first.")
 			return text
 		}
 		head, old := text[:cut], text[cut:]
@@ -137,7 +137,7 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 		newText := touchReviewed(head, Today()) + newBody
 		fm, _, _ := frontmatter.Split(newText)
 		if errs := p.Check(fm, rel); len(errs) > 0 {
-			out = fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
+			out = jsonx.Fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
 			return text
 		}
 		docID, _ := fm.Get("doc_id")
@@ -152,7 +152,7 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 		return writeFailed(err)
 	}
 	if !wrote {
-		if failed(out) {
+		if out.Failed() {
 			return out
 		}
 		return out.Set("no_op", true).Set("wrote_bytes", 0)
@@ -167,9 +167,10 @@ func editBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 // names the preamble, the text before the first heading.
 func spliceSection(body, heading, content string, appendMode bool, rel string) (string, *jsonx.Obj) {
 	needle := pystr.Strip(heading)
-	all := sections.Headings(body)
+	b := sections.NewBody(body)
+	all := b.Headings()
 	if needle == "" {
-		return splicePreamble(body, all, content, appendMode), nil
+		return splicePreamble(body, b, all, content, appendMode), nil
 	}
 	texts := make([]string, len(all))
 	var matches []sections.Heading
@@ -181,22 +182,15 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 	}
 	switch {
 	case len(all) == 0:
-		return "", fail(rel + " has no headings; create the doc's sections with write_doc mode create")
+		return "", jsonx.Fail(rel + " has no headings; create the doc's sections with write_doc mode create")
 	case len(matches) == 0:
-		return "", fail(fmt.Sprintf("no heading %s in %s; pass one of %s exactly", pystr.Repr(needle), rel, pystr.ReprList(texts)))
+		return "", jsonx.Fail(fmt.Sprintf("no heading %s in %s; pass one of %s exactly", pystr.Repr(needle), rel, pystr.ReprList(texts)))
 	case len(matches) > 1:
-		return "", fail(fmt.Sprintf("heading %s appears %d times in %s; rename one so it is unique, then retry. Headings: %s",
+		return "", jsonx.Fail(fmt.Sprintf("heading %s appears %d times in %s; rename one so it is unique, then retry. Headings: %s",
 			pystr.Repr(needle), len(matches), rel, pystr.ReprList(texts)))
 	}
 	target := matches[0]
-	lines := strings.Split(body, "\n")
-	end := len(lines)
-	for _, h := range all {
-		if h.Line > target.Line && h.Level <= target.Level {
-			end = h.Line
-			break
-		}
-	}
+	lines, end := b.Lines, b.SectionEnd(target)
 	section := strings.Trim(content, "\n")
 	if existing := strings.Trim(strings.Join(lines[target.Line+1:end], "\n"), "\n"); appendMode && existing != "" {
 		section = existing + "\n\n" + section
@@ -217,8 +211,8 @@ func spliceSection(body, heading, content string, appendMode bool, rel string) (
 
 // splicePreamble rewrites the text before the first heading of body (all of
 // it when there is none), keeping the blank lines that open the body.
-func splicePreamble(body string, all []sections.Heading, content string, appendMode bool) string {
-	lines := strings.Split(body, "\n")
+func splicePreamble(body string, b *sections.Body, all []sections.Heading, content string, appendMode bool) string {
+	lines := b.Lines
 	end := len(lines)
 	if len(all) > 0 {
 		end = all[0].Line

@@ -129,9 +129,13 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 	}
 	for _, tc := range cases {
 		r, isErr := call(t, s, tc.tool, tc.args)
-		if isErr || r.Bool("ok") || r.Bool("body_released") {
+		if r.Bool("ok") || r.Bool("body_released") {
 			t.Errorf("%s %v did not fail: %s", tc.tool, tc.args, jsonx.Compact(r))
 			continue
+		}
+		// A failure envelope is an MCP tool error; an empty search is not.
+		if isErr != r.Failed() {
+			t.Errorf("%s %v: isError %v for %s", tc.tool, tc.args, isErr, jsonx.Compact(r))
 		}
 		if p := stepProblems(r, registered); len(p) > 0 {
 			t.Errorf("%s %v: %v\n%s", tc.tool, tc.args, p, jsonx.Compact(r))

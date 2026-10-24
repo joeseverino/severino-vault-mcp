@@ -15,6 +15,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
 
 // Obj is a JSON object that keeps insertion order.
@@ -30,6 +32,19 @@ func New(kv ...any) *Obj {
 		o.Set(kv[i].(string), kv[i+1])
 	}
 	return o
+}
+
+// Failure is the failure envelope, {"ok": false} followed by kv. Every ok:false
+// object in the server is built here (archtest.TestOneFailureEnvelope).
+func Failure(kv ...any) *Obj { return New(append([]any{"ok", false}, kv...)...) }
+
+// Fail is a failure with one error message.
+func Fail(msg string) *Obj { return Failure("error", msg) }
+
+// Failed reports whether o is a failure envelope: ok present and false.
+func (o *Obj) Failed() bool {
+	ok, has := o.Get("ok")
+	return has && ok == false
 }
 
 // Set assigns k, keeping its position when it already exists.
@@ -64,6 +79,35 @@ func (o *Obj) Str(k string) string {
 	v, _ := o.Get(k)
 	s, _ := v.(string)
 	return s
+}
+
+// Int returns the int at k, or 0.
+func (o *Obj) Int(k string) int {
+	v, _ := o.Get(k)
+	n, _ := v.(int)
+	return n
+}
+
+// Text is the value at k as Python's str() writes it when the value is
+// truthy, else "". A nil o has no fields.
+func (o *Obj) Text(k string) string {
+	if o == nil {
+		return ""
+	}
+	v, _ := o.Get(k)
+	if !pystr.Truthy(v) {
+		return ""
+	}
+	return pystr.Str(v)
+}
+
+// Strings is a string list as JSON array values.
+func Strings(v []string) []any {
+	out := make([]any, len(v))
+	for i, s := range v {
+		out[i] = s
+	}
+	return out
 }
 
 // Bool returns the bool at k, or false.

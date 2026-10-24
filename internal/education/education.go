@@ -5,19 +5,18 @@
 package education
 
 import (
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
+	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
 var (
 	termSeasons = map[string]int{"spring": 0, "summer": 1, "fall": 2}
-	headingRE   = regexp.MustCompile(`^#{1,6} `)
 )
 
 func termKey(term string) [2]int {
@@ -30,18 +29,15 @@ func termKey(term string) [2]int {
 	return [2]int{y, s}
 }
 
+// siteSection is the text under the body's ## Site heading, up to the next
+// heading of any level.
 func siteSection(body string) string {
-	lines := strings.Split(body, "\n")
-	start := slices.IndexFunc(lines, func(l string) bool { return pystr.Strip(l) == "## Site" })
-	if start < 0 {
+	b := sections.NewBody(body)
+	h, ok := b.Find(2, "Site")
+	if !ok {
 		return ""
 	}
-	rest := lines[start+1:]
-	end := slices.IndexFunc(rest, func(l string) bool { return headingRE.MatchString(l) })
-	if end < 0 {
-		end = len(rest)
-	}
-	return pystr.Strip(strings.Join(rest[:end], "\n"))
+	return pystr.Strip(strings.Join(b.Lines[h.Line+1:b.NextHeading(h.Line)], "\n"))
 }
 
 func extra(d *vault.Doc, key string) any {
@@ -127,7 +123,7 @@ func Dataset(l *vault.Loader, statuses []string) *jsonx.Obj {
 		))
 	}
 	if len(errors) > 0 {
-		return jsonx.New("ok", false, "errors", errors)
+		return jsonx.Failure("errors", errors)
 	}
 	return jsonx.New("ok", true, "institutions", institutions)
 }

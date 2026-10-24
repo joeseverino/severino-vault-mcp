@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
+	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 )
@@ -90,6 +91,13 @@ func (v *Vault) Stat(p string) (fs.FileInfo, error) {
 	return v.root.Stat(rel)
 }
 
+// IsDir reports whether path is a directory, for the walks that check a
+// folder outside a vault root.
+func IsDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // IsDir reports whether p is a directory inside the vault.
 func (v *Vault) IsDir(p string) bool {
 	info, err := v.Stat(p)
@@ -112,6 +120,15 @@ func (v *Vault) ReadText(p string) (string, error) {
 		return "", err
 	}
 	return pystr.Decode(raw), nil
+}
+
+// ReadNote reads p and splits it at its frontmatter block.
+func (v *Vault) ReadNote(p string) (frontmatter.Note, error) {
+	text, err := v.ReadText(p)
+	if err != nil {
+		return frontmatter.Note{}, err
+	}
+	return frontmatter.NewNote(text), nil
 }
 
 // MkdirAll creates dir and its parents inside the vault.
@@ -268,14 +285,11 @@ func Within(root, p string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, "../"))
 }
 
-// Fail is the shared failure envelope.
-func Fail(msg string) *jsonx.Obj { return jsonx.New("ok", false, "error", msg) }
-
 // PathWithinRoot returns nil when path is inside root (and exists per kind:
 // "dir", "file" or "any"), else a failure envelope.
 func PathWithinRoot(root, path, label, kind string) *jsonx.Obj {
 	resolvedRoot := Resolve(root)
-	outside := Fail(fmt.Sprintf("%s must stay inside configured vault root %s: %s", label, resolvedRoot, path))
+	outside := jsonx.Fail(fmt.Sprintf("%s must stay inside configured vault root %s: %s", label, resolvedRoot, path))
 	v, err := OpenVault(root)
 	if err != nil {
 		return outside
@@ -288,11 +302,11 @@ func PathWithinRoot(root, path, label, kind string) *jsonx.Obj {
 	switch kind {
 	case "dir":
 		if err != nil || !info.IsDir() {
-			return Fail(fmt.Sprintf("%s not found: %s", label, path))
+			return jsonx.Fail(fmt.Sprintf("%s not found: %s", label, path))
 		}
 	case "file":
 		if err != nil || !info.Mode().IsRegular() {
-			return Fail(fmt.Sprintf("%s not found: %s", label, path))
+			return jsonx.Fail(fmt.Sprintf("%s not found: %s", label, path))
 		}
 	}
 	return nil
@@ -305,9 +319,9 @@ func PathWithinRoot(root, path, label, kind string) *jsonx.Obj {
 func IndexedPath(cfg config.Config, relativePath string) (*Vault, string, *jsonx.Obj) {
 	v, err := OpenVault(cfg.VaultPath)
 	if err != nil {
-		return nil, "", Fail("file not found: " + relativePath)
+		return nil, "", jsonx.Fail("file not found: " + relativePath)
 	}
-	escapes := Fail("path escapes vault root: " + relativePath)
+	escapes := jsonx.Fail("path escapes vault root: " + relativePath)
 	rel, err := v.Rel(strings.TrimLeft(relativePath, "/"))
 	if err != nil {
 		_ = v.Close()
@@ -320,7 +334,7 @@ func IndexedPath(cfg config.Config, relativePath string) (*Vault, string, *jsonx
 	}
 	if err != nil || !info.Mode().IsRegular() {
 		_ = v.Close()
-		return nil, "", Fail("file not found: " + relativePath)
+		return nil, "", jsonx.Fail("file not found: " + relativePath)
 	}
 	root := v.bases[len(v.bases)-1]
 	full := Resolve(filepath.Join(root, rel))
@@ -330,5 +344,5 @@ func IndexedPath(cfg config.Config, relativePath string) (*Vault, string, *jsonx
 		}
 	}
 	_ = v.Close()
-	return nil, "", Fail("path is outside the indexed dirs: " + pystr.ReprList(cfg.IndexedDirs))
+	return nil, "", jsonx.Fail("path is outside the indexed dirs: " + pystr.ReprList(cfg.IndexedDirs))
 }

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -186,14 +185,14 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	}
 	rg, err := exec.LookPath("rg")
 	if err != nil {
-		return jsonx.New("error", "ripgrep (`rg`) not found on PATH. Install via `brew install ripgrep` or skip this tool.")
+		return jsonx.Fail("ripgrep (`rg`) not found on PATH. Install via `brew install ripgrep` or skip this tool.")
 	}
 	idx := l.Index(false)
 	root := fsx.Resolve(l.Config.VaultPath)
 	var roots []string
 	for _, sub := range l.Config.SearchDirs() {
 		r := filepath.Join(root, sub)
-		if info, err := os.Stat(r); err == nil && info.IsDir() {
+		if fsx.IsDir(r) {
 			roots = append(roots, r)
 		}
 	}
@@ -217,14 +216,14 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 	if runErr != nil {
 		exit, isExit := errors.AsType[*exec.ExitError](runErr)
 		if !isExit {
-			return jsonx.New("error", "ripgrep failed: "+runErr.Error())
+			return jsonx.Fail("ripgrep failed: " + runErr.Error())
 		}
 		if exit.ExitCode() > 1 {
 			msg := strings.TrimSpace(stderr.String())
 			if msg == "" {
 				msg = "ripgrep returncode=" + strconv.Itoa(exit.ExitCode())
 			}
-			return jsonx.New("error", msg)
+			return jsonx.Fail(msg)
 		}
 	}
 
@@ -495,7 +494,7 @@ func bestWordSection(secs []sections.Section, words []string, fold func(string) 
 
 func wordSnippets(sec *sections.Section, words []string, fold func(string) string) []*jsonx.Obj {
 	out := []*jsonx.Obj{}
-	for i, line := range strings.Split(sec.Body, "\n") {
+	for i, line := range sections.Lines(sec.Body) {
 		folded := fold(line)
 		if !slices.ContainsFunc(words, func(w string) bool { return strings.Contains(folded, w) }) {
 			continue

@@ -43,18 +43,12 @@ func contended(msg string) bool {
 const contendedWhy = "; another process was writing the note"
 
 // failNext is a failure with the calls that recover from it.
-func failNext(msg string, steps ...string) *jsonx.Obj { return steer(fail(msg), steps...) }
-
-// failed reports whether o is a failure envelope.
-func failed(o *jsonx.Obj) bool {
-	ok, has := o.Get("ok")
-	return has && ok == false
-}
+func failNext(msg string, steps ...string) *jsonx.Obj { return steer(jsonx.Fail(msg), steps...) }
 
 // guide gives a failure from the write or task layer its next steps; steps
 // runs only for a failure, since it may look at the vault on disk.
 func guide(o *jsonx.Obj, steps func(msg string) []string) *jsonx.Obj {
-	if !failed(o) || o.Has("next_steps") {
+	if !o.Failed() || o.Has("next_steps") {
 		return o
 	}
 	return steer(o, steps(o.Str("error"))...)

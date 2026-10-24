@@ -494,7 +494,7 @@ func runUpdateFrontmatter(c *Ctx, p Parsed) int {
 func runWriteDoc(c *Ctx, p Parsed) int {
 	content, err := io.ReadAll(c.Stdin)
 	if err != nil {
-		return c.emit(jsonx.New("ok", false, "error", "could not read stdin: "+err.Error()), p.Bool("pretty"))
+		return c.emit(jsonx.Fail("could not read stdin: "+err.Error()), p.Bool("pretty"))
 	}
 	return c.emit(core.WriteDoc(vaults.Labs(c.Env), core.WriteDocArgs{
 		Mode: p.Str("mode"), RelativePath: p.Str("relative_path"), DocID: p.Str("doc_id"), Heading: optStr(p, "heading"),
@@ -662,7 +662,7 @@ func runBrief(c *Ctx, p Parsed) int {
 func runDailyWrite(c *Ctx, p Parsed) int {
 	content, err := io.ReadAll(c.Stdin)
 	if err != nil {
-		return c.emit(jsonx.New("ok", false, "error", "could not read stdin: "+err.Error()), p.Bool("pretty"))
+		return c.emit(jsonx.Fail("could not read stdin: "+err.Error()), p.Bool("pretty"))
 	}
 	return c.emit(daily.Write(config.Load("", c.Env), pystr.Decode(content), p.Str("date")), p.Bool("pretty"))
 }
