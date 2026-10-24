@@ -57,7 +57,7 @@ For each entry the host starts `command` with the process environment minus
   (`schema.FromContract`). Its `name` is the vault's name, so the `vault` enum
   is labs, edu (when configured), then each connected provider's vault;
 - loads the vault's `[vault]` settings from `config`, so the core tools serve
-  its docs and tasks, and writes validate against the provider's profile;
+  its docs and queues, and writes validate against the provider's profile;
 - lists the provider's tools and re-exports them unchanged (a name that
   collides with a core tool is skipped and logged);
 - appends the instructions from the provider's initialize result.
@@ -71,7 +71,7 @@ already exists are each logged and skipped; the rest of the server comes up.
 The governance engine is `internal/`: indexing, alias resolution and
 duplicate-ID exclusion, section chunking and ranking, the sensitivity gate and
 the 1Password unlock, schema profiles, frontmatter parsing and serialization, atomic
-writes, path validation, the task ledger, daily notes and `doctor`. On top:
+writes, path validation, the work queue, daily notes and `doctor`. On top:
 
 - `internal/core`: the shared tools, transport-free.
 - `internal/vaults`, `internal/provider`: composition.
@@ -135,7 +135,6 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
 | `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's profile. |
 | `move_doc` | Move or rename a registered doc, keeping its frontmatter; a file name another note has is refused. |
-| `task_board`, `task_write` | The task ledger. |
 | `log_entries` | An append-only log note's entries: list the open ones, or close one with its resolution. |
 | `queue` | A project's work queue: add, list, set or claim, and close one-line items in its `Queue.md`. |
 

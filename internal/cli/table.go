@@ -157,34 +157,6 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runRead},
-		{Name: "task-list", Effect: "read",
-			Summary: "The backlog board: every `doc_type: task` doc, derived from the index (project tasks under 01 Projects/<project>/tasks/ + " +
-				"the 07 Backlog/ cross-cutting bucket), filtered and ranked. Default shows live work (open + active); the thin `backlog` CLI " +
-				"and the Obsidian cockpit render this; the MCP is the one task brain.",
-			Args: []Arg{
-				{Name: "--status", Help: "Only this status.", TakesValue: true},
-				{Name: "--project", Help: "Only this project (folder or related_projects).", TakesValue: true},
-				{Name: "--stale-only", Help: "Only stale (open/active, untouched past the window)."},
-				{Name: "--all", Help: "Include parked/done/wontfix.", Dest: "include_all"},
-				{Name: "--stale-days", Help: "Stale window in days (default 14).", TakesValue: true, Int: true, Default: "14"},
-				{Name: "--include-queue", Help: "Add the open and returned work queue items (of --project, or every queue) under queue."},
-				{Name: "--limit", Help: "Most tasks to print, best first (default 0: all).", TakesValue: true, Int: true, Default: "0"},
-				fieldsArg("Task fields to print (e.g. doc_id title status); omit for the whole board."),
-				pretty(prettyHelp),
-			},
-			Run: runTaskList},
-		{Name: "promote-note", Effect: "read",
-			Summary: "Promote a captured note (e.g. an 00 Inbox/ capture) into a task, preserving its body and deleting the source. " +
-				"The capture → task half of the inbox loop; used by the Obsidian promote command.",
-			Args: []Arg{
-				{Name: "source", Help: "Vault-relative path to the note."},
-				{Name: "--title", Help: "Task title.", TakesValue: true},
-				{Name: "--project", Help: "Owning project (colocates the task).", TakesValue: true},
-				{Name: "--effort", TakesValue: true, Default: "S"},
-				{Name: "--priority", TakesValue: true, Default: "med"},
-				pretty(prettyHelp),
-			},
-			Run: runPromoteNote},
 		{Name: "update-frontmatter", Effect: "vault_write",
 			Summary: "Set fields in a vault doc's frontmatter: the MCP set_frontmatter tool, one flag per field the labs profile " +
 				"declares, each validated against it (doc_id never changes once set). Used by the Obsidian relation editor so author-time edits can't dangle.",
@@ -280,43 +252,6 @@ func init() {
 				pretty(prettyHelp),
 			},
 			Run: runQueue},
-		{Name: "task-reconcile", Effect: "read",
-			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status, the idempotent tidy sweep for statuses " +
-				"edited by hand (a Base/Properties edit) that didn't move through task-move.",
-			Args: []Arg{pretty(prettyHelp)},
-			Run:  runTaskReconcile},
-		{Name: "task-projects", Effect: "read",
-			Summary: "The task-project universe: every 01 Projects/<project>/ folder a task can be filed in, with its open-task count. " +
-				"The one owner of where a task can go; pickers (the Obsidian modal, the cockpit) derive from this instead of re-walking the vault layout.",
-			Args: []Arg{pretty(prettyHelp)},
-			Run:  runTaskProjects},
-		{Name: "task-add", Effect: "read",
-			Summary: "Author a new task file. With --project it colocates at 01 Projects/<project>/tasks/ and links related_projects; " +
-				"without, it files a cross-cutting task in 07 Backlog/. Schema-validated, written through the one atomic serializer.",
-			Args: []Arg{
-				{Name: "title", Help: "Imperative task title."},
-				{Name: "--project", Help: "Owning project (an 01 Projects/<project>/ folder).", TakesValue: true},
-				{Name: "--related-projects", Help: "Projects a cross-cutting task touches.", TakesValue: true, Multi: true},
-				{Name: "--effort", Help: "Effort S|M|L (default S).", TakesValue: true, Default: "S"},
-				{Name: "--priority", Help: "Priority high|med|low (default med).", TakesValue: true, Default: "med"},
-				{Name: "--tags", Help: "Tags (default: backlog).", TakesValue: true, Multi: true},
-				pretty(prettyHelp),
-			},
-			Run: runTaskAdd},
-		{Name: "task-delete", Effect: "read",
-			Summary: "Permanently delete a task file (for mistakes / junk only; finished or abandoned work should be task-move'd to " +
-				"done/wontfix, which keeps it queryable). Resolves a bare slug or the full id; refuses non-tasks.",
-			Args: []Arg{{Name: "doc_id", Help: "Task id or slug (task-foo or foo)."}, pretty(prettyHelp)},
-			Run:  runTaskDelete},
-		{Name: "task-move", Effect: "read",
-			Summary: "Move a task to a new status (open|active|parked|done|wontfix). Stamps closed: on done, clears it on reopen; " +
-				"done tasks are kept so 'what shipped' stays a query. Resolves a bare slug or the full id.",
-			Args: []Arg{
-				{Name: "doc_id", Help: "Task id or slug (task-foo or foo)."},
-				{Name: "status", Help: "Target status (open|active|parked|done|wontfix)."},
-				pretty(prettyHelp),
-			},
-			Run: runTaskMove},
 		{Name: "hq-manifest", Effect: "read",
 			Summary: "Build the Severino HQ manifest with the package's shared frontmatter parser.",
 			Args: []Arg{

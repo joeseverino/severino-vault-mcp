@@ -136,8 +136,6 @@ func (h *handlers) registerCore(s *mcp.Server) map[string]bool {
 		h.writeDoc(fields),
 		h.moveDoc(),
 		h.moveFolder(),
-		h.taskBoard(),
-		h.taskWrite(),
 		h.logEntries(),
 		h.queue(),
 	} {

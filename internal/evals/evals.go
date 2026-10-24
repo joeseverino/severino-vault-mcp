@@ -294,6 +294,10 @@ func RealConfig(path string) config.Config {
 // typo or a renamed doc reads as an error rather than as a retriever miss.
 func CheckWants(cfg config.Config, cases []Case) error {
 	idx := vault.NewLoader(cfg).Index(false)
+	if idx.Err != nil {
+		// An unreadable vault indexes as empty, which would name every want.
+		return fmt.Errorf("vault %s is unreadable: %w", cfg.VaultPath, idx.Err)
+	}
 	var missing []string
 	for _, c := range cases {
 		for _, id := range c.Want {

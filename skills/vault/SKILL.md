@@ -1,6 +1,6 @@
 ---
 name: vault
-description: How to use the severino-vault-mcp tools. Load it for any question the Obsidian vaults may answer (how do I, runbooks, infrastructure, projects, coursework, tasks) before answering from memory, before any write to a vault doc or task, and before tracking next, delegated, decision or follow-up work in a project's queue.
+description: How to use the severino-vault-mcp tools. Load it for any question the Obsidian vaults may answer (how do I, runbooks, infrastructure, projects, coursework, tracked work) before answering from memory, before any write to a vault doc or task, and before tracking next, delegated, decision or follow-up work in a project's queue.
 ---
 
 # Using the vault
@@ -26,10 +26,9 @@ adds. Every shared tool takes `vault` (default labs).
    order). `system` and `project` narrow either mode to docs whose `system`
    field, or one of whose `related_projects` entries, contains the value.
    Queue notes (`doc_type: queue`) stay out of `find` unless you pass
-   `doc_type="queue"`; `task_board(include_queue=true)` adds the open queue
-   items.
+   `doc_type="queue"`; `queue(action="list")` reads their items.
 5. Outputs are lean by default. `fields=[...]` (dotted paths, e.g. `tags`,
-   `snippets.text`) asks `find`, `read_doc` or `task_board` for more; an
+   `snippets.text`) asks `find`, `read_doc` or `queue` for more; an
    unknown name is refused with the valid ones.
 
 ## Sensitivity
@@ -80,7 +79,7 @@ from the old one until the session restarts.
   `01 Projects/<new>` also renames the slug in every `related_projects` and
   retitles the queue note; doc_ids and queue item ids stay. Restricted notes
   are listed in `skipped_restricted` unless `include_restricted=true`.
-- `99 Archive` is history: only archived docs go there (a task: closed), and
+- `99 Archive` is history: only archived docs go there, and
   `archive=true` on `move_doc` or `move_folder` sets `status: archived` in the
   same call. `find` leaves archived docs out unless `include_archived=true`;
   `read_doc` still reads them by doc_id. `set_frontmatter` and `write_doc`
@@ -93,10 +92,6 @@ from the old one until the session restarts.
   or scorecard that keeps changing is a living note elsewhere. A newer report
   of a series supersedes the old one: on the old one, `set_frontmatter`
   `superseded_by` to the new doc's doc_id and `status: deprecated`.
-- `task_board` shows open work, best first (`limit`, `status`, `project`),
-  and the projects a task can go in; `task_write` adds, moves, promotes or
-  deletes tasks, and `items=[...]` makes several changes in one call, each
-  reported on its own.
 - `log_entries` works an append-only log note, one bullet per entry:
   `action="list"` returns the open entries (`contains` narrows them, e.g. to
   a repo), and `action="close"` with `match` and `resolution` appends

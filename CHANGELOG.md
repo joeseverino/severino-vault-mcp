@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Breaking:** the queue is the only work tracker. The MCP tools
+  `task_board` and `task_write`, the CLI commands `task-list`, `task-add`,
+  `task-move`, `task-delete`, `task-reconcile`, `task-projects` and
+  `promote-note`, and `brief`'s `tasks` block are gone; `queue` lists, adds
+  and closes work.
+- **Breaking:** the labs and edu profiles declare no `task` doc_type,
+  `task-` prefix or task lifecycle (`schema --json` prints empty
+  `task_statuses` and `task_required_fields`), and the task fields `effort`,
+  `priority`, `created` and `closed` belong only to a profile that declares
+  tasks, as a provider's may.
 - `move_folder` (CLI `move-folder`) moves or renames a folder with everything
   in it and rewrites every path link into it across the vault; a project
   rename also carries `related_projects` and the queue note's title.

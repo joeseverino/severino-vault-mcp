@@ -46,7 +46,10 @@ func TestAddFrontmatterTaskRetrofitRidesTheTaskContract(t *testing.T) {
 	task := func(docID, title, status string) write.Changes {
 		return write.With("doc_id", docID, "title", title, "doc_type", "task", "system", "backlog", "status", status)
 	}
-	r := write.SetFrontmatter(l, "07 Backlog/loose-todo.md", task("task-loose-todo", "Loose todo", "open"), schema.Labs)
+	if r := write.SetFrontmatter(l, "07 Backlog/loose-todo.md", task("task-loose-todo", "Loose todo", "open"), schema.Labs); r.Bool("ok") {
+		t.Fatal("labs declares no tasks", jsonx.Compact(r))
+	}
+	r := write.SetFrontmatter(l, "07 Backlog/loose-todo.md", task("task-loose-todo", "Loose todo", "open"), tk.TaskProfile())
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
@@ -60,7 +63,7 @@ func TestAddFrontmatterTaskRetrofitRidesTheTaskContract(t *testing.T) {
 		t.Fatal(text)
 	}
 	tk.Write(t, filepath.Join(root, "07 Backlog", "bad.md"), "# Bad\n")
-	bad := write.SetFrontmatter(l, "07 Backlog/bad.md", task("task-bad", "Bad", "deprecated"), schema.Labs)
+	bad := write.SetFrontmatter(l, "07 Backlog/bad.md", task("task-bad", "Bad", "deprecated"), tk.TaskProfile())
 	if bad.Bool("ok") || !strings.Contains(bad.Str("error"), "task lifecycle") {
 		t.Fatal(jsonx.Compact(bad))
 	}
@@ -70,10 +73,10 @@ func TestPathGuardsRefuseEscapesAndUnindexedDirs(t *testing.T) {
 	root := tk.Dir(t)
 	tk.Write(t, filepath.Join(root, "Elsewhere", "x.md"), "# X\n")
 	l := tk.Loader(root)
-	if r := write.TouchReviewed(l, "../outside.md"); !strings.Contains(r.Str("error"), "escapes vault root") {
+	if r := write.TouchReviewed(l, "../outside.md", schema.Labs); !strings.Contains(r.Str("error"), "escapes vault root") {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if r := write.TouchReviewed(l, "Elsewhere/x.md"); !strings.Contains(r.Str("error"), "outside the indexed dirs") {
+	if r := write.TouchReviewed(l, "Elsewhere/x.md", schema.Labs); !strings.Contains(r.Str("error"), "outside the indexed dirs") {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
@@ -95,7 +98,7 @@ func TestEveryWriterRefusesTheReadOnlyFolders(t *testing.T) {
 		}
 	}
 	refused("set_frontmatter", write.SetFrontmatter(l, "05 Writeups/example-article/index.md", write.With("status", "active"), schema.Labs))
-	refused("touch_reviewed", write.TouchReviewed(l, "00 Inbox/capture.md"))
+	refused("touch_reviewed", write.TouchReviewed(l, "00 Inbox/capture.md", schema.Labs))
 	refused("create", write.CreateDoc(l, "00 Inbox/new.md", "body\n",
 		write.With("doc_id", "note-new", "title", "New", "doc_type", "architecture_note", "system", "example"), schema.Labs))
 	refused("edit_section", write.EditSection(l, "05 Writeups/example-article/index.md", "Body", "new\n", false, schema.Labs))
@@ -131,7 +134,7 @@ func TestTouchReviewedIsANoOpWhenAlreadyToday(t *testing.T) {
 	root := tk.Dir(t)
 	p := filepath.Join(root, "03 Runbooks", "x.md")
 	tk.Write(t, p, "---\ndoc_id: rb-x\nlast_reviewed: "+clock.TodayISO()+"\n---\n\nbody\n")
-	if r := write.TouchReviewed(tk.Loader(root), "03 Runbooks/x.md"); !r.Bool("no_op") {
+	if r := write.TouchReviewed(tk.Loader(root), "03 Runbooks/x.md", schema.Labs); !r.Bool("no_op") {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if info, _ := os.Stat(p); info.Size() == 0 {
@@ -150,7 +153,7 @@ func TestFrontmatterWritersRefuseTraversalAndEscapingSymlinks(t *testing.T) {
 	l := tk.Loader(root)
 	for _, rel := range []string{"../outside-doc.md", "02 Infrastructure/../../outside-doc.md", "02 Infrastructure/link.md"} {
 		for name, r := range map[string]*jsonx.Obj{
-			"touch": write.TouchReviewed(l, rel),
+			"touch": write.TouchReviewed(l, rel, schema.Labs),
 			"set":   write.SetFrontmatter(l, rel, write.With("title", "Changed"), schema.Labs),
 		} {
 			if r.Bool("ok") {

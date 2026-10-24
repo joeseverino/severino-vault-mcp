@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,9 +43,12 @@ func Doc(t testing.TB, path, front, body string) {
 	Write(t, path, "---\n"+strings.TrimSpace(front)+"\n---\n\n"+body)
 }
 
-// Dir returns a fresh temp dir with symlinks resolved.
+// Dir returns a fresh temp dir with symlinks resolved. It also points the
+// state directory (where note locks live) at a temp dir, so no test touches
+// the real one.
 func Dir(t testing.TB) string {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	d, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +78,25 @@ func Loader(root string, extra ...string) *vault.Loader {
 // Vault is a governed labs vault over root.
 func Vault(root string, extra ...string) *core.Vault {
 	return core.NewVault("labs", config.Load("", Env(root, extra...)), schema.Labs)
+}
+
+// TaskProfile is labs plus doc_type task, declared the way a provider's
+// profile declares tasks: their own lifecycle, required fields and fields.
+// Labs itself tracks work in the queue, so the task rules the core still
+// serves for providers are tested through this.
+func TaskProfile() *schema.Profile {
+	p := *schema.Labs
+	p.DocTypes = append(slices.Clone(p.DocTypes), "task")
+	p.DocIDPrefixes = append(slices.Clone(p.DocIDPrefixes), "task-")
+	p.TaskStatuses = []string{"open", "active", "parked", "done", "wontfix"}
+	p.TaskRequiredFields = []string{"doc_id", "title", "doc_type", "status"}
+	p.TaskFields = []string{"status", "related_projects", "effort", "priority", "created", "closed"}
+	return &p
+}
+
+// TaskVault is Vault under TaskProfile.
+func TaskVault(root string, extra ...string) *core.Vault {
+	return core.NewVault("labs", config.Load("", Env(root, extra...)), TaskProfile())
 }
 
 // Get walks a dotted path through Objs and lists ("hits.0.doc_id"); a

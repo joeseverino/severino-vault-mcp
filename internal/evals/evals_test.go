@@ -158,3 +158,19 @@ func TestGrepBaselineSeesRestrictedBodies(t *testing.T) {
 		t.Fatalf("%v", f.IDs)
 	}
 }
+
+// An unreadable vault indexes as empty, so the eval refuses it instead of
+// reading every want as missing or scoring an empty baseline.
+func TestAnUnreadableVaultIsRefused(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "vault")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := FixtureConfig(notADir)
+	if err := CheckWants(cfg, []Case{{ID: "a", Want: []string{"infra-dns"}}}); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("CheckWants: %v", err)
+	}
+	if _, err := OpenGrep(cfg); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("OpenGrep: %v", err)
+	}
+}

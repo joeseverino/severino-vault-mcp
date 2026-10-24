@@ -135,7 +135,6 @@ The write tools are intentionally schema-specific:
 |---|---|
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block or updates one in place; `doc_id` is immutable; fields validate against that vault's schema. |
 | `write_doc` | One registered doc under the named vault's root and indexed folders: create it (refuses an existing file), or replace or append one section. Frontmatter validates against that vault's schema; restricted docs need a local unlock. |
-| `task_write` | Task files under the named vault's task folders. |
 | Provider tools | Governed by the provider process; the host forwards calls unchanged and never widens them. |
 
 Every call resolves paths inside the vault named by its `vault` argument.

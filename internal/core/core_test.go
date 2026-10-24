@@ -15,7 +15,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/query"
 	"github.com/joeseverino/severino-vault-mcp/internal/schema"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 	"github.com/joeseverino/severino-vault-mcp/internal/write"
 )
@@ -304,51 +303,6 @@ func TestSetFrontmatterUpdatesInPlaceAndKeepsDocID(t *testing.T) {
 	}
 	if cf, _ := updated.Get("changed_fields"); !slices.Equal(cf.([]string), []string{"status", "tags"}) {
 		t.Fatal(cf)
-	}
-}
-
-func TestTaskWriteValidatesPerAction(t *testing.T) {
-	v := newTwoVaults(t)
-	cases := map[string]core.TaskWriteArgs{
-		"requires title":          {Action: "add"},
-		"requires doc_id, status": {Action: "status"},
-		"requires note_path":      {Action: "promote", Title: "x"},
-		"unknown action":          {Action: "archive"},
-	}
-	for want, a := range cases {
-		a.Effort, a.Priority = "S", "med"
-		if got := core.TaskWrite(v.labs, a).Str("error"); !strings.Contains(got, want) {
-			t.Errorf("%s: %q", want, got)
-		}
-	}
-}
-
-func TestTasksStayInTheirVault(t *testing.T) {
-	v := newTwoVaults(t)
-	added := core.TaskWrite(v.edu, core.TaskWriteArgs{Action: "add", Title: "Finish the BGP lab", Effort: "S", Priority: "med"})
-	if !added.Bool("ok") {
-		t.Fatal(jsonx.Compact(added))
-	}
-	id := added.Str("doc_id")
-	if got := tk.IDs(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}, core.BoardArgs{}), "tasks")); !slices.Equal(got, []string{id}) {
-		t.Fatal(got)
-	}
-	if len(tk.Hits(core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{}), "tasks")) != 0 {
-		t.Fatal("labs board saw an edu task")
-	}
-	if !core.TaskWrite(v.edu, core.TaskWriteArgs{Action: "status", DocID: id, Status: "done"}).Bool("ok") {
-		t.Fatal("status")
-	}
-	if len(tk.Hits(core.TaskBoard(v.edu, tasks.Filter{}, core.BoardArgs{}), "tasks")) != 0 {
-		t.Fatal("done task still on the board")
-	}
-}
-
-func TestTaskBoardListsTheProjectsTasksCanGoIn(t *testing.T) {
-	v := newTwoVaults(t)
-	slugs, _ := tk.Get(core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{}), "projects").([]string)
-	if !slices.Equal(slugs, []string{"homelab-apps"}) {
-		t.Fatal(slugs)
 	}
 }
 

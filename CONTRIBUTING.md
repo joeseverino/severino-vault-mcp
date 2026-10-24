@@ -52,7 +52,7 @@ through `go run`). Fix findings in place. A `//nolint` needs a specific linter
 and a reason.
 
 The suite covers indexing and frontmatter parsing, search and body search,
-the sensitivity gate and local unlock, validated writes, the task ledger, the
+the sensitivity gate and local unlock, validated writes, the work queue, the
 CLI and its golden contracts, the MCP server through a real client, the
 provider seam, and sample-vault reproducibility.
 

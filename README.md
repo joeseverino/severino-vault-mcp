@@ -122,8 +122,8 @@ the full CI gate.
 ## How it fits together
 
 The binary indexes each vault, ranks sections for search, gates bodies by
-sensitivity, validates writes against a schema profile, and keeps the task
-ledger. Each shared tool registers once with a `vault` argument that routes the
+sensitivity, validates writes against a schema profile, and keeps each
+project's work queue. Each shared tool registers once with a `vault` argument that routes the
 call to that vault; search, the gate and validation never cross vaults.
 
 | Vault | Config | Profile |
@@ -152,16 +152,14 @@ Shared, each taking `vault`:
 | `queue` | Track work in a project's queue: one Obsidian task per item in 01 Projects/&lt;project>/Queue.md (cross-cutting work in 07 Backlog/Queue.md). Kinds: next, delegated (a worker holds it), decision (the user must answer), follow-up. Status: open, returned (delegated only), closed, dropped; a box ticked in Obsidian reads as closed. Each item carries the date it was filed (created); a worker's item may carry base (the branch it lands on), owns (the paths its worker owns) and transcript (the absolute path of the worker transcript holding its brief and report). |
 | `read_doc` | Read a vault doc's markdown body, gated by its sensitivity. |
 | `set_frontmatter` | Create or update a doc's frontmatter, validated against the vault's schema. |
-| `task_board` | A vault's task board: open work, counts, recently shipped, and the projects tasks can go in. |
-| `task_write` | Change a vault's tasks. |
 | `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's schema. |
 <!-- tools:end -->
 
 A failure is `{"ok": false, "error": ...}` plus `next_steps`, the calls that
 recover from it, each naming one of these tools; a `find` with no hits carries
 them too. `find` and `read_doc` ask Claude Code to load them upfront
-(`anthropic/alwaysLoad`), and `read_doc` and `task_board` set
-`anthropic/maxResultSizeChars` so a long doc or a full lean board stays inline.
+(`anthropic/alwaysLoad`), and `read_doc` sets
+`anthropic/maxResultSizeChars` so a long doc stays inline.
 
 How an agent should use them (find before prose, answer in the doc's words,
 the sensitivity rules, writes) is the `vault` skill, `skills/vault/SKILL.md`;
@@ -171,7 +169,7 @@ the server's instructions point to it. Resources are
 ## CLI
 
 Subcommands run one governed call against the labs vault and print JSON:
-`doctor`, `find`, `read`, `brief`, `task-*`, `promote-note`,
+`doctor`, `find`, `read`, `brief`, `queue`,
 `update-frontmatter`, `move-doc`, `touch-reviewed`, `backfill-aliases`,
 `daily-write`, `schema`, `hq-manifest`, `describe`, and `export education`.
 `schema --json-schema [--vault labs|edu]` prints the frontmatter rules as a JSON

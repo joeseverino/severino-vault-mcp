@@ -27,7 +27,6 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | Move or rename a folder or project; retire one | `move_folder(from, to)` (`to` in `99 Archive/` with `archive=true` to retire) | Path links and `related_projects` follow; read `links`, `skipped_restricted` and `failed`. |
 | Archived docs | `find(query, include_archived=true)` | `find` leaves `99 Archive` out otherwise. |
 | A newer report of a series | `write_doc` for the new one | `set_frontmatter` on the old one: `superseded_by` (the new doc_id) and `status: deprecated`. |
-| Tasks | `task_board` (`include_queue=true` adds the open queue items), then `task_write` | `task_write(action=...)`: add, status, promote, delete; `items=[...]` for several changes in one call. |
 | Open entries in a log note | `log_entries(doc_id, contains=...)` | `log_entries(action="close", match=..., resolution=...)` closes one; never read or edit the log whole. |
 | Work to track: next, delegated, a decision, a follow-up | `queue(action="add", cwd=..., kind=..., text=...)` | `queue(action="list", cwd=...)` to see it; `set`, `close` by `id` (or `agent`). Never keep it in scratch files. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
@@ -298,8 +297,9 @@ check-jsonschema --schemafile labs.schema.json note-frontmatter.json
   item patterns, integer and boolean kinds. A value the profile treats as
   absent (`null`, `""`, `[]`) passes for an optional field and fails a
   required one.
-- A task (`doc_type: task`) is held to the task's required fields and
-  lifecycle through `if`/`then`/`else`; a doc to the doc's.
+- In a profile that declares tasks (a provider's; labs and edu track work in
+  the queue), a task (`doc_type: task`) is held to the task's required fields
+  and lifecycle through `if`/`then`/`else`; a doc to the doc's.
 - Numbers stay text in the frontmatter parser, so an integer field also takes
   digits as a string.
 - What a schema can't check is in the field's `description` and stays with
@@ -423,13 +423,13 @@ and boards, the brief and `validate` never see them. A live doc keeps a
 doc_id an archived one shares. Nothing writes in the archive but a move and
 the link rewrite a folder move makes: `move_doc` and `move_folder` take a doc
 there only when it has
-`status: archived` (a task: `done` or `wontfix`), and `archive=true` sets
+`status: archived` (in a profile with tasks, a task: `done` or `wontfix`), and `archive=true` sets
 `status: archived` on each doc first. The archive keeps a doc's frontmatter
 as it was, so path-scoped fields are not checked there.
 
 A doc in the archive is maintained like any other: `set_frontmatter` and
 `write_doc` (sections, and create) accept it when the doc is, or the same
-call makes it, `status: archived` (a task: `done` or `wontfix`), and refuse
+call makes it, `status: archived` (a provider's task: `done` or `wontfix`), and refuse
 anything else there. A write there checks `doc_id`, `title`, `doc_type` and
 `status` and each field's value, not the live required set or path scopes,
 so `set_frontmatter` registers an archive note that has no block with just
@@ -490,11 +490,22 @@ over it. A process that writes the same note directly, such as an
 append-only hook adding a line, takes the note's lock for the duration of its
 append, so the server's rewrite never drops that line:
 
-- Lock file: `<vault root>/.locks/<path of the note relative to the vault
-  root, clean (no `./`, `..` or doubled `/`), every "/" replaced by
-  "%">.lock`. `Projects/Example/queue.md` locks
-  `.locks/Projects%Example%queue.md.lock`. Create `.locks/` and the file if
-  absent; never delete them.
+- Lock file: `<state dir>/locks/<id>/<name>.lock`, outside the vault so a
+  synced vault never uploads it.
+  - `<state dir>` is `$XDG_STATE_HOME/severino-vault-mcp` when
+    `XDG_STATE_HOME` is set to an absolute path, else
+    `$HOME/.local/state/severino-vault-mcp`.
+  - `<id>` is the first 16 lowercase hex characters of the SHA-256 of the
+    vault root's absolute path with symlinks resolved, no trailing `/`, as
+    UTF-8 bytes.
+  - `<name>` is the note's path relative to the vault root, clean (no `./`,
+    `..` or doubled `/`), with every "/" replaced by "%".
+  - Example: vault root `/srv/example-vault`, note `Projects/Example/queue.md`,
+    `XDG_STATE_HOME` unset, `HOME=/home/joe` gives
+    `/home/joe/.local/state/severino-vault-mcp/locks/52f595614f5a30d2/Projects%Example%queue.md.lock`
+    (`printf %s /srv/example-vault | shasum -a 256 | cut -c1-16`).
+  - Create the directories (mode 0700) and the file if absent; never delete
+    them.
 - Lock: an exclusive `flock(2)` on that file, held from before the note is
   opened until after it is closed. Never lock the note itself: a rewrite
   replaces its inode, so a lock on the old one guards nothing.
@@ -502,7 +513,10 @@ append, so the server's rewrite never drops that line:
   seconds for the lock, then fails the write with a retry as its next step.
 
 ```go
-lock, _ := os.OpenFile(filepath.Join(vault, ".locks", strings.ReplaceAll(rel, "/", "%")+".lock"), os.O_RDWR|os.O_CREATE, 0o644)
+sum := sha256.Sum256([]byte(vaultRealPath))
+dir := filepath.Join(stateDir, "locks", hex.EncodeToString(sum[:])[:16])
+os.MkdirAll(dir, 0o700)
+lock, _ := os.OpenFile(filepath.Join(dir, strings.ReplaceAll(rel, "/", "%")+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
 defer lock.Close() // closing releases the lock
 syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
 note, _ := os.OpenFile(filepath.Join(vault, rel), os.O_WRONLY|os.O_APPEND, 0)

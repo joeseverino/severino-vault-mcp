@@ -14,12 +14,11 @@ var closedWorld = new(false)
 
 // annotations are the core tools' behaviour hints. Destructive is honest
 // rather than hopeful: set_frontmatter and write_doc overwrite values and
-// sections, and task_write can delete a task. Idempotent means repeating the
+// sections. Idempotent means repeating the
 // same call leaves the vault as the first call did.
 var annotations = map[string]*mcp.ToolAnnotations{
 	"find":            {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},
 	"read_doc":        {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},
-	"task_board":      {ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: closedWorld},
 	"set_frontmatter": {DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: closedWorld},
 	"write_doc":       {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// A move keeps every byte and never replaces a file; repeating it finds
@@ -28,7 +27,6 @@ var annotations = map[string]*mcp.ToolAnnotations{
 	// A folder move rewrites links and related_projects in other notes;
 	// repeating it finds the folder already gone.
 	"move_folder": {DestructiveHint: new(true), IdempotentHint: true, OpenWorldHint: closedWorld},
-	"task_write":  {DestructiveHint: new(true), OpenWorldHint: closedWorld},
 	// Closing an entry appends to its line and never removes text.
 	"log_entries": {DestructiveHint: new(false), OpenWorldHint: closedWorld},
 	// set replaces an item's text, owner and links.
@@ -40,19 +38,15 @@ var annotations = map[string]*mcp.ToolAnnotations{
 // tool search, so the two every vault question starts with need no search
 // step. anthropic/maxResultSizeChars replaces the 50,000-character point past
 // which a result is saved to a file: read_doc's holds a whole long doc's
-// body, and task_board's the lean board of every status.
+// body.
 var toolMeta = map[string]mcp.Meta{
-	"find":       {"anthropic/alwaysLoad": true},
-	"read_doc":   {"anthropic/alwaysLoad": true, "anthropic/maxResultSizeChars": readDocMaxChars},
-	"task_board": {"anthropic/maxResultSizeChars": taskBoardMaxChars},
+	"find":     {"anthropic/alwaysLoad": true},
+	"read_doc": {"anthropic/alwaysLoad": true, "anthropic/maxResultSizeChars": readDocMaxChars},
 }
 
-// Result size ceilings, in characters. They leave room for any doc but an
-// append-only log, which log_entries reads in pieces.
-const (
-	readDocMaxChars   = 100_000
-	taskBoardMaxChars = 80_000
-)
+// readDocMaxChars is read_doc's result ceiling, in characters. It leaves
+// room for any doc but an append-only log, which log_entries reads in pieces.
+const readDocMaxChars = 100_000
 
 // outputSchemas describe each core tool's structuredContent: the envelope
 // every result shares, then the tool's own keys. Every key is optional, since
@@ -73,16 +67,6 @@ var outputSchemas = map[string]json.RawMessage{
 		"ambiguous", ty("boolean"), "paths", textList(),
 		"alias_hint", ty("string"), "warning", ty("string"),
 	))),
-	"task_board": outSchema(jsonx.New(
-		"count", ty("integer"), "total", ty("integer"),
-		"tasks", records(core.TaskFields), "shipped", records(core.TaskFields), "projects", textList(),
-		"queue", records(core.QueueItemFields), "warning", ty("string"),
-	)),
-	"task_write": outSchema(jsonx.New(
-		"doc_id", ty("string"), "relative_path", ty("string"),
-		"applied", ty("integer"), "failed", jsonx.New("type", "array", "items", ty("integer")),
-		"results", jsonx.New("type", "array", "items", ty("object")),
-	)),
 	"log_entries": outSchema(jsonx.New(
 		"vault", ty("string"), "doc_id", ty("string"),
 		"count", ty("integer"), "entries", records(core.EntryFields),

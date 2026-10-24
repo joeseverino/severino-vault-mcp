@@ -113,13 +113,6 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		{"move_doc", c{"doc_id": "rb-backup-ops", "to": "01 Projects/Local PKI.md"}},
 		{"move_doc", c{"doc_id": "rb-backup-ops", "to": "Elsewhere/"}},
 		{"move_doc", c{"doc_id": "rb-backup-ops", "to": "03 Runbooks/Backup Ops"}},
-		{"task_board", c{"fields": []string{"nope"}}},
-		{"task_board", c{"limit": -1}},
-		{"task_write", c{"action": "add"}},
-		{"task_write", c{"action": "add", "title": "Example", "project": "no-such-project"}},
-		{"task_write", c{"action": "status", "doc_id": "task-nope", "status": "done"}},
-		{"task_write", c{"action": "delete", "doc_id": "task-nope"}},
-		{"task_write", c{"action": "promote", "note_path": "00 Inbox/Missing.md", "title": "Example"}},
 		{"log_entries", c{"doc_id": "no-such-log"}},
 		{"log_entries", c{"doc_id": "infra-local-pki"}},
 		{"log_entries", c{"doc_id": "infra-example-log", "fields": []string{"nope"}}},
@@ -161,8 +154,6 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		{"read_doc", c{"doc_id": "rb-backup-ops", "fields": "outline"}, ""},
 		{"set_frontmatter", c{"relative_path": "03 Runbooks/Backup Ops.md", "titel": "x"}, `set_frontmatter(relative_path="03 Runbooks/Backup Ops.md", title="x")`},
 		{"write_doc", c{"body": "x", "mode": "rewrite"}, `write_doc(body="x") with mode one of`},
-		{"task_board", c{"include_all": "maybe"}, ""},
-		{"task_write", c{"items": []any{c{"action": "add", "titel": "x"}}}, ""},
 		{"log_entries", c{"doc_id": "infra-example-log", "action": "erase"}, ""},
 	}
 	for _, tc := range argCases {
@@ -177,12 +168,6 @@ func TestEveryFailureNamesItsNextCall(t *testing.T) {
 		if steps, _ := r.Get("next_steps"); tc.step != "" && !strings.HasPrefix(firstStep(steps), tc.step) {
 			t.Errorf("%s %v: want a step starting %s\n%s", tc.tool, tc.args, tc.step, jsonx.Compact(r))
 		}
-	}
-	// A batch reports each item's own next steps.
-	r, _ := call(t, s, "task_write", c{"items": []any{c{"action": "delete", "doc_id": "task-nope"}}})
-	results, _ := r.Get("results")
-	if p := stepProblems(results.([]any)[0].(*jsonx.Obj), registered); len(p) > 0 {
-		t.Errorf("batch item: %v\n%s", p, jsonx.Compact(r))
 	}
 	// A step that names an unregistered tool fails the check.
 	if p := stepProblems(jsonx.New("next_steps", []any{`find_runbook(query="x")`}), registered); len(p) != 1 {

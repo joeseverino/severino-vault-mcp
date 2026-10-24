@@ -8,7 +8,6 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	tk "github.com/joeseverino/severino-vault-mcp/internal/testkit"
 )
 
@@ -170,56 +169,6 @@ func TestReadDocSectionsReturnsEachInOrder(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if e := core.ReadDoc(v, "rb-backup-ops", core.ReadArgs{Sections: []string{}}); !strings.Contains(e.Str("error"), "sections: give at least one") {
-		t.Fatal(jsonx.Compact(e))
-	}
-}
-
-func TestTaskBoardMasksFiltersAndLimits(t *testing.T) {
-	v := newTwoVaults(t)
-	for _, title := range []string{"First task", "Second task", "Third task"} {
-		if r := core.TaskWrite(v.labs, core.TaskWriteArgs{Action: "add", Title: title, Project: "homelab-apps", Effort: "S", Priority: "med"}); !r.Bool("ok") {
-			t.Fatal(jsonx.Compact(r))
-		}
-	}
-	board := core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{})
-	task := tk.Hits(board, "tasks")[0]
-	if !slices.Equal(task.Keys(), []string{"doc_id", "title", "status", "project", "priority"}) || board.Has("counts") {
-		t.Fatal(jsonx.Compact(board))
-	}
-	limited := core.TaskBoard(v.labs, tasks.Filter{Project: "homelab-apps"}, core.BoardArgs{Limit: 2, Fields: []string{"slug"}})
-	if got := tk.Hits(limited, "tasks"); len(got) != 2 || !slices.Equal(got[0].Keys(), []string{"slug"}) || tk.Get(limited, "count") != 3 {
-		t.Fatal(jsonx.Compact(limited))
-	}
-	if n := len(tk.Hits(core.TaskBoard(v.labs, tasks.Filter{Status: "done"}, core.BoardArgs{}), "tasks")); n != 0 {
-		t.Fatalf("status filter let %d open tasks through", n)
-	}
-	if r := core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{Fields: []string{"zzcanary"}}); !strings.Contains(r.Str("error"), "'stale'") {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
-
-func TestTaskWritesAppliesEachItemAndNamesTheFailures(t *testing.T) {
-	v := newTwoVaults(t)
-	r := core.TaskWrites(v.labs, []core.TaskWriteArgs{
-		{Action: "add", Title: "Batch one", Effort: "S", Priority: "med"},
-		{Action: "status", DocID: "task-no-such-task", Status: "done"},
-		{Action: "add", Title: "Batch two", Effort: "S", Priority: "med"},
-	})
-	if r.Bool("ok") || tk.Get(r, "applied") != 2 {
-		t.Fatal(jsonx.Compact(r))
-	}
-	if failed, _ := r.Get("failed"); !slices.Equal(failed.([]int), []int{1}) {
-		t.Fatal(jsonx.Compact(r))
-	}
-	results := tk.Hits(r, "results")
-	if len(results) != 3 || results[1].Bool("ok") || results[1].Str("error") == "" || tk.Get(results[1], "index") != 1 {
-		t.Fatal(jsonx.Compact(r))
-	}
-	board := tk.IDs(tk.Hits(core.TaskBoard(v.labs, tasks.Filter{}, core.BoardArgs{}), "tasks"))
-	if !slices.Contains(board, results[0].Str("doc_id")) || !slices.Contains(board, results[2].Str("doc_id")) {
-		t.Fatal(board)
-	}
-	if e := core.TaskWrites(v.labs, nil); !strings.Contains(e.Str("error"), "items: give at least one") {
 		t.Fatal(jsonx.Compact(e))
 	}
 }

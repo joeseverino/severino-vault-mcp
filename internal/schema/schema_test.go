@@ -10,7 +10,7 @@ import (
 
 // The labs contract's fingerprint. HQ commits the contract, so a change to it
 // is deliberate: update this with the regenerated tests/golden/schema.json.
-const labsFingerprint = "da90366128172e2a017177f339c94504db10f753af026835c4b2ec0c3bd8f1f3"
+const labsFingerprint = "e649cf2e12297c899c4d48d5d6aa3a7b4f20ff1e90881bbbc91c91e4ed83c818"
 
 func TestAsDictIsSortedAndStable(t *testing.T) {
 	d := Labs.AsDict()
@@ -141,9 +141,8 @@ func TestFromContractRoundTripsAndRejectsUnknownDocTypes(t *testing.T) {
 }
 
 func TestEducationIsADistinctContract(t *testing.T) {
-	if !slices.Equal(Sorted(Education.DocTypes), []string{"assignment", "course", "course_note", "resource", "task"}) ||
-		!slices.Equal(Education.DocIDPrefixes, []string{"course-", "cnote-", "asg-", "res-", "task-"}) ||
-		!slices.Equal(Sorted(Education.TaskStatuses), Sorted(Labs.TaskStatuses)) {
+	if !slices.Equal(Sorted(Education.DocTypes), []string{"assignment", "course", "course_note", "resource"}) ||
+		!slices.Equal(Education.DocIDPrefixes, []string{"course-", "cnote-", "asg-", "res-"}) {
 		t.Fatal("education profile")
 	}
 }

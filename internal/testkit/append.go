@@ -13,7 +13,7 @@ import (
 
 // Append adds line to the note at root/rel the way an append-only hook does:
 // O_APPEND, and, when locked, under the note's lock per the documented
-// convention (flock on root/fsx.LockPath(rel), held for the append).
+// convention (flock on fsx.LockFile(root, rel), held for the append).
 func Append(t testing.TB, root, rel, line string, locked bool) {
 	t.Helper()
 	if locked {
@@ -36,8 +36,12 @@ func Append(t testing.TB, root, rel, line string, locked bool) {
 // would, blocking until it is free, and returns its release.
 func HoldLock(t testing.TB, root, rel string) (release func()) {
 	t.Helper()
-	lockPath := filepath.Join(root, fsx.LockPath(rel))
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+	lockPath, err := fsx.LockFile(root, rel)
+	if err != nil {
+		t.Error(err)
+		return func() {}
+	}
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		t.Error(err)
 		return func() {}
 	}

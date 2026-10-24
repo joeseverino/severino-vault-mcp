@@ -91,7 +91,13 @@ func TestValidateChecksRequiredFieldsDatesAndTheBlock(t *testing.T) {
 	code, out, _ := run(t, root, "", "validate", "03 Runbooks/Thin.md", "01 Projects/untagged.md", "03 Runbooks/Task.md")
 	want := "03 Runbooks/Thin.md: missing required field: sensitivity\n" +
 		"03 Runbooks/Thin.md: last_reviewed must be an ISO date (YYYY-MM-DD)\n" +
-		"01 Projects/untagged.md: missing YAML frontmatter\n"
+		"01 Projects/untagged.md: missing YAML frontmatter\n" +
+		// Labs tracks work in the queue, so a task block is a doc with an
+		// unknown doc_type, held to every doc rule.
+		"03 Runbooks/Task.md: missing required field: system\n" +
+		"03 Runbooks/Task.md: missing required field: sensitivity\n" +
+		"03 Runbooks/Task.md: doc_type 'task' not in ['architecture_note', 'decision_record', 'deployment_guide', 'public_article_draft', 'queue', 'recovery_procedure', 'report', 'runbook', 'troubleshooting_guide']\n" +
+		"03 Runbooks/Task.md: environment 'nowhere' not in ['adguard', 'cloudflare', 'homelab', 'local_mac', 'other', 'tailscale', 'unifi', 'vps', 'wordpress']\n"
 	if code != 1 || out != want {
 		t.Fatalf("%d\n%s", code, out)
 	}

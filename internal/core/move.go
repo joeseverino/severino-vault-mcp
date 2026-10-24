@@ -125,7 +125,7 @@ func moveSource(v *Vault, a MoveArgs) (*vault.Doc, string, []string) {
 	}
 	if d.ReadOnlyDir != "" {
 		return nil, fmt.Sprintf("%s is in %s, a read-only folder: its notes keep their own place and frontmatter", d.RelativePath, pystr.Repr(d.ReadOnlyDir)),
-			[]string{Call("task_write", "action", "promote", "note_path", d.RelativePath, "title", d.Title) + " to turn an inbox capture into a task"}
+			[]string{Call("queue", "action", "add", "project", "...", "kind", "next", "text", d.Title) + " to track an inbox capture as work"}
 	}
 	return d, "", nil
 }

@@ -1,5 +1,5 @@
 // Package brief is the doc-side vault state in one payload: recent commits,
-// docs overdue for review, inbox backlog, and the task summary.
+// docs overdue for review, and inbox backlog.
 package brief
 
 import (
@@ -10,7 +10,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/query"
-	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
 	"github.com/joeseverino/severino-vault-mcp/internal/vault"
 )
 
@@ -65,19 +64,6 @@ func Vault(l *vault.Loader, days, reviewAfterDays, recentLimit int) *jsonx.Obj {
 		}
 	}
 
-	board := tasks.List(l, tasks.Filter{})
-	counts, _ := board.Get("counts")
-	staleCount, _ := counts.(*jsonx.Obj).Get("stale")
-	taskList, _ := board.Get("tasks")
-	slugs := []string{}
-	for _, t := range taskList.([]*jsonx.Obj) {
-		if t.Bool("stale") && len(slugs) < 8 {
-			slugs = append(slugs, t.Str("slug"))
-		}
-	}
-	count, _ := board.Get("count")
-	total, _ := board.Get("total")
-
 	commitCount := 0
 	if c, ok := commits.([]*jsonx.Obj); ok {
 		commitCount = len(c)
@@ -92,6 +78,5 @@ func Vault(l *vault.Loader, days, reviewAfterDays, recentLimit int) *jsonx.Obj {
 		"recent_changes", recent,
 		"docs_to_review", jsonx.New("after_days", reviewAfterDays, "count", len(docs), "docs", docs),
 		"inbox", jsonx.New("count", inbox),
-		"tasks", jsonx.New("open", count, "total", total, "stale", staleCount, "stale_slugs", slugs),
 	)
 }
