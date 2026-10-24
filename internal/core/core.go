@@ -217,7 +217,26 @@ type FindArgs struct {
 	CaseSensitive bool
 	System        string
 	Project       string
+	View
 }
+
+// HitFields are the fields a find hit can carry.
+var HitFields = append(append(typed("score", tInt), metaFields...), append(typed(
+	"heading", tStr, "section", tStr, "heading_path", tStr, "section_summary", tStr, "section_score", tInt,
+	"match_count", tInt, "snippet", tStr),
+	list("snippets", typed("line_number", tInt, "kind", tStr, "text", tStr)), Field{Name: "advisory", Type: tStr})...)
+
+// metaFields are a doc's frontmatter as hits and read_doc carry it.
+var metaFields = typed("doc_id", tStr, "title", tStr, "doc_type", tStr, "system", tStr, "environment", tStr,
+	"status", tStr, "sensitivity", tStr, "obsidian_path", tStr, "tags", tList, "last_reviewed", tOptStr)
+
+// leanHit is a hit by default: enough to pick one and read its section.
+// heading is the last part of heading_path; section stays because
+// heading_path neither names the preamble nor tells repeated headings apart.
+var leanHit = mustMask(HitFields, "doc_id", "title", "heading_path", "section", "section_summary", "score")
+
+// findEnvelope is what a masked find keeps around its hits.
+var findEnvelope = []string{"ok", "error", "mode", "filters", "fallback", "match_count", "words", "recommended", "hits"}
 
 // keep is the doc filter System and Project describe; nil when neither is set.
 func (a FindArgs) keep() query.Keep {
@@ -250,6 +269,10 @@ func (a FindArgs) filters() *jsonx.Obj {
 
 // Find searches one vault in the requested mode.
 func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
+	m, err := a.selection(HitFields, leanHit)
+	if err != nil {
+		return fail(err.Error())
+	}
 	keep := a.keep()
 	var resp *jsonx.Obj
 	switch a.By {
@@ -292,7 +315,18 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 	if f := a.filters(); len(f.Keys()) > 0 {
 		out.Set("filters", f)
 	}
-	return out.Merge(resp)
+	out.Merge(resp)
+	if m == nil {
+		return out
+	}
+	out = keepOnly(out, findEnvelope...)
+	if rec, ok := out.Get("recommended"); ok {
+		// The quick index's row: what to run, and the doc it points at.
+		out.Set("recommended", keepOnly(rec.(*jsonx.Obj), "intent", "command", "target_doc_id"))
+	}
+	// A sensitive hit's advisory travels with it whatever the mask.
+	cutEach(out, "hits", m.with("advisory"))
+	return out
 }
 
 func lookupDoc(v *Vault, identifier string) (*vault.Doc, *jsonx.Obj) {
@@ -356,33 +390,80 @@ func unlock(v *Vault, _, _ string) (bool, string, string) {
 	return true, "approved", unlockMessages["approved"]
 }
 
-func narrow(base *jsonx.Obj, d *vault.Doc, section string) *jsonx.Obj {
-	sec := sections.Resolve(d.Sections, section)
-	if sec == nil {
-		base.Delete("body")
+// narrow replaces the body with the sections refs name, or, when one names
+// no section, with the doc's section list and no text at all.
+func narrow(base *jsonx.Obj, d *vault.Doc, refs []string) *jsonx.Obj {
+	base.Delete("body")
+	var found []*jsonx.Obj
+	var missing []string
+	for _, ref := range refs {
+		sec := sections.Resolve(d.Sections, ref)
+		if sec == nil {
+			missing = append(missing, ref)
+			continue
+		}
+		found = append(found, jsonx.New("section", sec.Slug, "heading_path", sec.HeadingPath, "body", sec.Body))
+	}
+	if len(missing) > 0 {
 		base.Set("body_released", false)
-		base.Set("section_error", fmt.Sprintf("no section %s in %s", pystr.Repr(section), d.DocID))
+		base.Set("section_error", fmt.Sprintf("no section %s in %s", strings.Join(reprs(missing), ", "), d.DocID))
 		base.Set("available_sections", query.AvailableSections(d))
 		return base
 	}
-	heading := sec.Heading
-	if heading == "" {
-		heading = d.Title
-	}
-	base.Set("body", sec.Body)
-	base.Set("heading", heading)
-	base.Set("section", sec.Slug)
-	base.Set("heading_path", sec.HeadingPath)
-	base.Set("body_scope", "section")
+	base.Set("sections", found)
 	return base
 }
 
-// ReadDoc reads a doc's body behind the sensitivity gate.
-func ReadDoc(v *Vault, docID, section string, includeRestricted bool) *jsonx.Obj {
-	return jsonx.New("vault", v.Name).Merge(readDoc(v, docID, section, includeRestricted))
+func reprs(ss []string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, pystr.Repr(s))
+	}
+	return out
 }
 
-func readDoc(v *Vault, docID, section string, includeRestricted bool) *jsonx.Obj {
+// ReadArgs are read_doc's options. Sections, when set, returns those
+// sections' text in place of the whole body.
+type ReadArgs struct {
+	Sections          []string
+	IncludeRestricted bool
+	View
+}
+
+// DocFields are the fields read_doc can return. outline is the doc's
+// sections, slug and heading path, without their text.
+var DocFields = append(append(typed("vault", tStr), metaFields...),
+	Field{Name: "body", Type: tStr}, list("outline", typed("section", tStr, "heading_path", tStr)))
+
+// leanDoc is read_doc by default: the body, and the frontmatter an agent acts
+// on (whether the doc is current and how old its review is).
+var leanDoc = mustMask(DocFields, "doc_id", "title", "status", "last_reviewed", "body")
+
+// gateKeys always survive a mask: the sensitivity gate's answer, how the doc
+// was resolved, and the requested sections.
+var gateKeys = []string{"found", "resolved_from_alias", "body_released", "advisory", "unlock", "override_used",
+	"section_error", "available_sections", "sections"}
+
+// ReadDoc reads a doc's body behind the sensitivity gate.
+func ReadDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
+	m, err := a.selection(DocFields, leanDoc)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if a.Sections != nil && len(a.Sections) == 0 {
+		return fail("sections: give at least one section slug or heading path, or omit sections for the whole body")
+	}
+	o := jsonx.New("vault", v.Name).Merge(readDoc(v, docID, a))
+	if m == nil || !o.Bool("found") {
+		return o
+	}
+	if _, wantsOutline := m["outline"]; !wantsOutline {
+		o.Delete("outline")
+	}
+	return cut(o, m.with(gateKeys...)).(*jsonx.Obj)
+}
+
+func readDoc(v *Vault, docID string, a ReadArgs) *jsonx.Obj {
 	d, alias := lookupDoc(v, docID)
 	if d == nil {
 		return notFound(v, docID)
@@ -392,7 +473,7 @@ func readDoc(v *Vault, docID, section string, includeRestricted bool) *jsonx.Obj
 		base.Set("resolved_from_alias", alias)
 	}
 	if d.Sensitivity == gate.Restricted {
-		if !includeRestricted {
+		if !a.IncludeRestricted {
 			return withheld(base, "not_requested", unlockMessages["not_requested"])
 		}
 		allowed, result, msg := unlock(v, d.DocID, d.Title)
@@ -401,22 +482,28 @@ func readDoc(v *Vault, docID, section string, includeRestricted bool) *jsonx.Obj
 		if !allowed {
 			return withheld(base, result, msg)
 		}
-		base.Set("body", d.Body)
-		base.Set("body_released", true)
 		base.Set("override_used", true)
-		base.Set("advisory", gate.Advisory(d.Sensitivity, true))
-		if section != "" {
-			return narrow(base, d, section)
-		}
-		return base
+		return release(base, d, a.Sections, gate.Advisory(d.Sensitivity, true))
 	}
-	base.Set("body", d.Body)
-	base.Set("body_released", true)
+	advisory := ""
 	if d.Sensitivity == gate.Sensitive {
-		base.Set("advisory", gate.Advisory(d.Sensitivity, false))
+		advisory = gate.Advisory(d.Sensitivity, false)
 	}
-	if section != "" {
-		return narrow(base, d, section)
+	return release(base, d, a.Sections, advisory)
+}
+
+// release adds what the gate let through: the body (or the requested
+// sections) and the outline. A withheld doc gets neither, since headings can
+// say as much as the text under them.
+func release(base *jsonx.Obj, d *vault.Doc, refs []string, advisory string) *jsonx.Obj {
+	base.Set("body", d.Body)
+	base.Set("outline", query.AvailableSections(d))
+	base.Set("body_released", true)
+	if advisory != "" {
+		base.Set("advisory", advisory)
+	}
+	if refs != nil {
+		return narrow(base, d, refs)
 	}
 	return base
 }
@@ -467,7 +554,6 @@ type WriteDocArgs struct {
 // WriteDoc creates a registered doc, or edits one section of its body, with
 // the frontmatter validated against v's profile either way.
 func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
-	fail := func(msg string) *jsonx.Obj { return jsonx.New("ok", false, "error", msg) }
 	if v.Profile == nil {
 		return fail("vault " + pystr.Repr(v.Name) + " has no schema profile")
 	}
@@ -563,11 +649,46 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 	return rel, v.Profile.Check(fm), true
 }
 
-// TaskBoard is a vault's board plus its projects.
-func TaskBoard(v *Vault, f tasks.Filter) *jsonx.Obj {
+// BoardArgs are task_board's options beyond the filter. Limit caps the tasks
+// returned, after ranking; count still says how many matched.
+type BoardArgs struct {
+	Limit int
+	View
+}
+
+// TaskFields are the fields a task on the board carries.
+var TaskFields = typed("doc_id", tStr, "slug", tStr, "title", tStr, "status", tStr, "project", tStr,
+	"related_projects", tList, "effort", tStr, "priority", tStr, "created", tStr, "closed", tStr, "tags", tList,
+	"relative_path", tStr, "age_days", tInt, "stale", tBool)
+
+var leanTask = mustMask(TaskFields, "doc_id", "title", "status", "project", "priority")
+
+// TaskBoard is a vault's board plus the projects a task can go in. Masked,
+// it keeps the matching count, the tasks and the recently shipped ones (both
+// cut to the mask), and the projects as bare slugs.
+func TaskBoard(v *Vault, f tasks.Filter, a BoardArgs) *jsonx.Obj {
+	m, err := a.selection(TaskFields, leanTask)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if a.Limit < 0 {
+		return fail("limit: give a positive number, or 0 for no limit")
+	}
 	board := tasks.List(v.Loader, f)
+	if all, _ := board.Get("tasks"); a.Limit > 0 && len(all.([]*jsonx.Obj)) > a.Limit {
+		board.Set("tasks", all.([]*jsonx.Obj)[:a.Limit])
+	}
 	projects, _ := tasks.Projects(v.Loader).Get("projects")
-	board.Set("projects", projects)
+	if m == nil {
+		return board.Set("projects", projects)
+	}
+	slugs := []string{}
+	for _, p := range projects.([]*jsonx.Obj) {
+		slugs = append(slugs, p.Str("slug"))
+	}
+	board = keepOnly(board, "ok", "count", "total", "tasks", "shipped").Set("projects", slugs)
+	cutEach(board, "tasks", m)
+	cutEach(board, "shipped", m)
 	return board
 }
 
@@ -629,7 +750,39 @@ func TaskWrite(v *Vault, a TaskWriteArgs) *jsonx.Obj {
 		}
 		return tasks.Delete(v.Loader, a.DocID)
 	}
-	return jsonx.New("ok", false, "error", fmt.Sprintf("unknown action %s; one of add, status, promote, delete", pystr.Repr(a.Action)))
+	return jsonx.New("ok", false, "error", fmt.Sprintf("unknown action %s; one of %s", pystr.Repr(a.Action), strings.Join(TaskActions, ", ")))
+}
+
+// TaskActions are task_write's actions.
+var TaskActions = []string{"add", "status", "promote", "delete"}
+
+// MaxTaskItems caps one batch, so a runaway caller can't rewrite the board in
+// one call.
+const MaxTaskItems = 50
+
+// TaskWrites applies items in order, each through TaskWrite, and goes on past
+// a failure: earlier items are not rolled back. ok is true only when every
+// item applied; failed lists the indexes of the ones that didn't.
+func TaskWrites(v *Vault, items []TaskWriteArgs) *jsonx.Obj {
+	if len(items) == 0 {
+		return fail("items: give at least one item, or call with a single action instead")
+	}
+	if len(items) > MaxTaskItems {
+		return fail(fmt.Sprintf("items: at most %d per call; split the batch", MaxTaskItems))
+	}
+	results := make([]*jsonx.Obj, 0, len(items))
+	failed := []int{}
+	for i, item := range items {
+		r := TaskWrite(v, item)
+		if !r.Bool("ok") {
+			failed = append(failed, i)
+		}
+		// A receipt is for a projection replaying one write; a batch's
+		// caller needs only what happened to each item.
+		r.Delete("receipt")
+		results = append(results, jsonx.New("index", i, "action", item.Action).Merge(r))
+	}
+	return jsonx.New("ok", len(failed) == 0, "applied", len(items)-len(failed), "failed", failed, "results", results)
 }
 
 // RelStem is used by tests to name a doc by its path stem.

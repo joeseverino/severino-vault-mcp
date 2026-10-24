@@ -18,10 +18,7 @@ import (
 )
 
 // mcpText is the text an MCP client receives for a tool result.
-func mcpText(o *jsonx.Obj) string {
-	b, _ := jsonx.Encode(o, jsonx.Options{Indent: 2})
-	return string(b)
-}
+func mcpText(o *jsonx.Obj) string { return core.Text(o) }
 
 // ours is core.Find and core.ReadDoc, as the MCP server calls them.
 type ours struct{ v *core.Vault }
@@ -42,12 +39,21 @@ func (b ours) Find(query, mode string, limit int) (Found, error) {
 	f := Found{Tokens: Tokens(mcpText(resp))}
 	for _, h := range hits.([]*jsonx.Obj) {
 		f.IDs = append(f.IDs, h.Str("doc_id"))
+		f.Sections = append(f.Sections, h.Str("section"))
 	}
 	return f, nil
 }
 
-func (b ours) Read(docID string) (int, error) {
-	return Tokens(mcpText(core.ReadDoc(b.v, docID, "", false))), nil
+func (b ours) Read(docID, section string) (int, error) {
+	a := core.ReadArgs{}
+	if section != "" {
+		a.Sections = []string{section}
+	}
+	r := core.ReadDoc(b.v, docID, a)
+	if msg := r.Str("section_error"); msg != "" {
+		return 0, errors.New(msg)
+	}
+	return Tokens(mcpText(r)), nil
 }
 
 // grep is what an agent with only Grep and Read gets: every markdown file in
@@ -144,7 +150,7 @@ func (g *grep) Find(query, _ string, limit int) (Found, error) {
 	return f, nil
 }
 
-func (g *grep) Read(docID string) (int, error) {
+func (g *grep) Read(docID, _ string) (int, error) {
 	for _, f := range g.files {
 		if f.id == docID {
 			return Tokens(f.text), nil

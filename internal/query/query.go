@@ -1,6 +1,6 @@
 // Package query holds the read services the MCP tools and the CLI share:
-// the slim hit projection, the ranked section menu, section reads behind the
-// sensitivity gate, recent commits, and full-text body search.
+// the slim hit projection, the ranked section menu, a doc's section list,
+// recent commits, and full-text body search.
 package query
 
 import (
@@ -101,54 +101,6 @@ func AvailableSections(d *vault.Doc) []*jsonx.Obj {
 		out = append(out, jsonx.New("section", s.Slug, "heading_path", s.HeadingPath))
 	}
 	return out
-}
-
-// ReadSection reads one section (or the whole body) by doc_id. Restricted
-// bodies are withheld with no interactive unlock.
-func ReadSection(l *vault.Loader, docID, section string) *jsonx.Obj {
-	idx := l.Index(false)
-	d, ok := idx.ByDocID[docID]
-	if !ok {
-		if dups, ok := idx.DuplicateDocIDs[docID]; ok {
-			return jsonx.New("ok", false, "doc_id", docID, "found", false, "ambiguous", true,
-				"error", "duplicate doc_id "+pystr.Repr(docID), "paths", slices.Clone(dups))
-		}
-		return jsonx.New("ok", false, "doc_id", docID, "found", false,
-			"error", "no indexed doc with doc_id "+pystr.Repr(docID))
-	}
-	base := jsonx.New("ok", true, "doc_id", d.DocID, "found", true).Merge(Hit(d))
-	if !gate.Releasable(d.Sensitivity) {
-		base.Set("body_released", false)
-		base.Set("advisory", gate.Advisory(d.Sensitivity, false))
-		return base
-	}
-	if section != "" {
-		sec := sections.Resolve(d.Sections, section)
-		if sec == nil {
-			base.Set("ok", false)
-			base.Set("body_released", false)
-			base.Set("section_error", fmt.Sprintf("no section %s in %s", pystr.Repr(section), d.DocID))
-			base.Set("available_sections", AvailableSections(d))
-			return base
-		}
-		heading := sec.Heading
-		if heading == "" {
-			heading = d.Title
-		}
-		base.Set("body", sec.Body)
-		base.Set("heading", heading)
-		base.Set("section", sec.Slug)
-		base.Set("heading_path", sec.HeadingPath)
-		base.Set("body_scope", "section")
-	} else {
-		base.Set("body", d.Body)
-		base.Set("body_scope", "doc")
-	}
-	base.Set("body_released", true)
-	if d.Sensitivity == gate.Sensitive {
-		base.Set("advisory", gate.Advisory(d.Sensitivity, false))
-	}
-	return base
 }
 
 // RecentChanges lists commits touching the indexed and read-only dirs (metadata only).
@@ -360,7 +312,16 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 		if len(inBody) == 0 || count == 0 {
 			continue
 		}
-		hit := Hit(d).Set("match_count", count).Set("snippets", inBody)
+		hit := Hit(d).Set("match_count", count)
+		if sec := sectionAt(d, firstMatch(inBody)); sec != nil {
+			heading := sec.Heading
+			if heading == "" {
+				heading = d.Title
+			}
+			hit.Set("heading", heading).Set("section", sec.Slug).Set("heading_path", sec.HeadingPath).
+				Set("section_summary", sections.Summary(*sec))
+		}
+		hit.Set("snippets", inBody).Set("snippet", firstMatchText(inBody))
 		if d.Sensitivity == gate.Sensitive {
 			hit.Set("advisory", gate.Advisory(d.Sensitivity, false))
 		}
@@ -392,6 +353,38 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 }
 
 const maxWordSnippets = 5
+
+// firstMatch is the line number of the first match among snippets.
+func firstMatch(snippets []*jsonx.Obj) int {
+	for _, s := range snippets {
+		if s.Str("kind") == "match" {
+			n, _ := s.Get("line_number")
+			line, _ := n.(int)
+			return line
+		}
+	}
+	return 0
+}
+
+func firstMatchText(snippets []*jsonx.Obj) string {
+	for _, s := range snippets {
+		if s.Str("kind") == "match" {
+			return s.Str("text")
+		}
+	}
+	return ""
+}
+
+// sectionAt is the section of d holding file line n.
+func sectionAt(d *vault.Doc, n int) *sections.Section {
+	var at *sections.Section
+	for i := range d.Sections {
+		if d.Sections[i].StartLine <= n {
+			at = &d.Sections[i]
+		}
+	}
+	return at
+}
 
 // searchWords ranks the docs whose body holds every word, in any order. A
 // doc's score is its best section's: the words that section covers, then
@@ -437,8 +430,12 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 			if heading == "" {
 				heading = d.Title
 			}
+			snippets := wordSnippets(sec, words, fold)
 			hit.Set("heading", heading).Set("section", sec.Slug).Set("heading_path", sec.HeadingPath).
-				Set("snippets", wordSnippets(sec, words, fold))
+				Set("section_summary", sections.Summary(*sec)).Set("snippets", snippets)
+			if len(snippets) > 0 {
+				hit.Set("snippet", snippets[0].Str("text"))
+			}
 		}
 		if d.Sensitivity == gate.Sensitive {
 			hit.Set("advisory", gate.Advisory(d.Sensitivity, false))

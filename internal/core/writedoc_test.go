@@ -46,7 +46,7 @@ func TestWriteDocCreatesAValidRegisteredDoc(t *testing.T) {
 	if rel, problems, ok := core.CheckDoc(v, rotateRel); !ok || rel != rotateRel || len(problems) != 0 {
 		t.Fatal(ok, problems)
 	}
-	if hit := core.ReadDoc(v, "rb-rotate-example-token", "", false); !hit.Bool("found") {
+	if hit := core.ReadDoc(v, "rb-rotate-example-token", core.ReadArgs{}); !hit.Bool("found") {
 		t.Fatal(jsonx.Compact(hit))
 	}
 	// A second create of the same path refuses and leaves the file alone.

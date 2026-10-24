@@ -177,7 +177,7 @@ func TestToolCallsRouteAndValidate(t *testing.T) {
 	reg, _ := labsOnly(t)
 	s := connect(t, reg)
 	r, isErr := call(t, s, "find", map[string]any{"query": "nginx proxy"})
-	if isErr || tk.Get(r, "hits.0.doc_id") != "rb-add-nginx-proxy-host" || r.Str("vault") != "labs" {
+	if isErr || tk.Get(r, "hits.0.doc_id") != "rb-add-nginx-proxy-host" {
 		t.Fatal(jsonx.Compact(r))
 	}
 	if r, isErr := call(t, s, "find", map[string]any{"query": "x", "vault": "example"}); !isErr || !strings.Contains(r.Str("error"), "unknown vault 'example'") {

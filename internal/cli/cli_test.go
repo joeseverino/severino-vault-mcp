@@ -80,7 +80,7 @@ func TestDescribeIsTheCommandTable(t *testing.T) {
 		t.Fatal("effects")
 	}
 	args := tk.Hits(byName["find"], "args")
-	if args[0].Str("name") != "query" || !args[0].Bool("positional") || !args[1].Bool("takes_value") || args[2].Bool("takes_value") {
+	if args[0].Str("name") != "query" || !args[0].Bool("positional") || !args[1].Bool("takes_value") || args[len(args)-1].Bool("takes_value") {
 		t.Fatal(jsonx.Compact(args))
 	}
 }
@@ -96,9 +96,29 @@ func TestFindAndReadEmitTheMenu(t *testing.T) {
 	if hit["doc_id"] != "rb-add-nginx-proxy-host" {
 		t.Fatal(out)
 	}
-	code, out, _ = run(t, root, "", "read", "rb-add-nginx-proxy-host", "--section", hit["section"].(string))
-	if code != 0 || !strings.Contains(out, `"body_scope":"section"`) || !strings.Contains(out, "Expose an internal service") {
+	code, out, _ = run(t, root, "", "read", "rb-add-nginx-proxy-host", "--sections", hit["section"].(string))
+	if code != 0 || !strings.Contains(out, `"sections":[{"section":"goal"`) || !strings.Contains(out, "Expose an internal service") {
 		t.Fatal(out)
+	}
+}
+
+// The CLI prints whole results for the scripts that read them; --fields is
+// the same mask the MCP tools take.
+func TestFieldsNarrowTheCLIThroughTheSameMask(t *testing.T) {
+	root := tk.FakeVault(t)
+	code, out, _ := run(t, root, "", "find", "nginx proxy", "--fields", "doc_id", "tags")
+	if code != 0 || !strings.Contains(out, `"hits":[{"doc_id":"rb-add-nginx-proxy-host","tags":["nginx","network-operations"]}`) {
+		t.Fatal(out)
+	}
+	code, out, _ = run(t, root, "", "read", "rb-add-nginx-proxy-host", "--fields", "outline")
+	if code != 0 || strings.Contains(out, `"body"`) || !strings.Contains(out, `"outline":[{"section":"goal","heading_path":"Goal"}]`) {
+		t.Fatal(out)
+	}
+	if code, out, _ = run(t, root, "", "find", "nginx", "--fields", "zzcanary"); code != 1 || strings.Contains(out, "zzcanary") {
+		t.Fatal(code, out)
+	}
+	if code, out, _ = run(t, root, "", "task-list"); code != 0 || !strings.Contains(out, `"counts":`) {
+		t.Fatal("task-list must keep printing the whole board", out)
 	}
 }
 

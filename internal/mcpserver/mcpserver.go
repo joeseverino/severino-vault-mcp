@@ -325,8 +325,7 @@ func (a args) choice(name string, choices []string, def string) (string, error) 
 // ----- results ------------------------------------------------------------------
 
 func result(o *jsonx.Obj) *mcp.CallToolResult {
-	text, _ := jsonx.Encode(o, jsonx.Options{Indent: 2})
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}, StructuredContent: o}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: core.Text(o)}}, StructuredContent: o}
 }
 
 func toolError(name string, err error) *mcp.CallToolResult {
@@ -355,7 +354,7 @@ func (h *handlers) vault(a args) (*core.Vault, string, error) {
 type toolFunc func(a args) (*jsonx.Obj, error)
 
 func (h *handlers) add(s *mcp.Server, name, desc string, schema json.RawMessage, fn toolFunc) {
-	addTool(s, &mcp.Tool{Name: name, Description: desc, InputSchema: schema},
+	addTool(s, &mcp.Tool{Name: name, Description: desc, InputSchema: schema, Annotations: annotations[name], OutputSchema: outputSchemas[name]},
 		func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			a, err := parseArgs(req.Params.Arguments)
 			if err != nil {
@@ -379,6 +378,8 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"limit", integer(10, "Maximum hits (documents for `text`)."),
 		"context_lines", integer(1, "Lines of context per match, `text` only."),
 		"case_sensitive", boolean("Case-sensitive match, `text` only."),
+		"fields", strList("Hit fields to return, as dotted paths (`tags`, `snippets.text`). "+
+			"Default: doc_id, title, heading_path, section, section_summary, score."),
 	), []string{"query"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -412,13 +413,20 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		return core.Find(v, q, core.FindArgs{By: by, Limit: limit, ContextLines: ctxLines, CaseSensitive: cs, System: system, Project: project}), nil
+		fields, _, err := a.list("fields")
+		if err != nil {
+			return nil, err
+		}
+		return core.Find(v, q, core.FindArgs{By: by, Limit: limit, ContextLines: ctxLines, CaseSensitive: cs,
+			System: system, Project: project, Fields: fields}), nil
 	})
 
 	h.add(s, "read_doc", descReadDoc, object(jsonx.New(
 		"doc_id", str("The doc's stable id from a `find` hit (exact titles and vault-relative paths also resolve)."),
 		"vault", h.vaultProp("Which vault the doc lives in."),
-		"section", optStr("A section slug or heading path from a `find` hit, to return just that section."),
+		"sections", strList("Section slugs or heading paths (from a `find` hit or the outline): return just their text."),
+		"fields", strList("Doc fields to return. `outline` lists the sections without their text; frontmatter fields "+
+			"such as `tags`, `system` or `obsidian_path` ask for more. Default: doc_id, title, status, last_reviewed, body."),
 		"include_restricted", boolean("Request a restricted body; local policy still decides."),
 	), []string{"doc_id"}), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
@@ -429,15 +437,17 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		section, err := a.str("section", false, "")
-		if err != nil {
+		var r core.ReadArgs
+		if r.Sections, _, err = a.list("sections"); err != nil {
 			return nil, err
 		}
-		inc, err := a.boolean("include_restricted")
-		if err != nil {
+		if r.Fields, _, err = a.list("fields"); err != nil {
 			return nil, err
 		}
-		return core.ReadDoc(v, id, section, inc), nil
+		if r.IncludeRestricted, err = a.boolean("include_restricted"); err != nil {
+			return nil, err
+		}
+		return core.ReadDoc(v, id, r), nil
 	})
 
 	setProps := jsonx.New(
@@ -557,6 +567,9 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		"stale_only", boolean("Only open or active tasks untouched past stale_days."),
 		"include_all", boolean("Include parked, done and wontfix."),
 		"stale_days", integer(14, "Stale window in days."),
+		"limit", integer(boardLimit, "Most tasks to return, best first; 0 for all. `count` says how many matched."),
+		"fields", strList("Task fields to return. Default: doc_id, title, status, project, priority; "+
+			"also slug, related_projects, effort, created, closed, tags, relative_path, age_days, stale."),
 	), nil), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
@@ -578,53 +591,116 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if f.StaleDays, err = a.integer("stale_days", 14); err != nil {
 			return nil, err
 		}
-		return core.TaskBoard(v, f), nil
+		var b core.BoardArgs
+		if b.Limit, err = a.integer("limit", boardLimit); err != nil {
+			return nil, err
+		}
+		if b.Fields, _, err = a.list("fields"); err != nil {
+			return nil, err
+		}
+		return core.TaskBoard(v, f, b), nil
 	})
 
+	item := taskItemProps()
 	taskProps := jsonx.New(
-		"action", jsonx.New("type", "string", "enum", []string{"add", "status", "promote", "delete"}, "description", "add, status, promote or delete."),
 		"vault", h.vaultProp("Which vault."),
-	)
-	for _, f := range []string{"title", "project"} {
-		taskProps.Set(f, optStr(""))
-	}
-	taskProps.Set("related_projects", strList(""))
-	taskProps.Set("effort", jsonx.New("type", "string", "default", "S", "description", "S, M or L."))
-	taskProps.Set("priority", jsonx.New("type", "string", "default", "med", "description", "high, med or low."))
-	taskProps.Set("tags", strList(""))
-	for _, f := range []string{"problem", "fix", "principle", "source", "doc_id", "status", "note_path"} {
-		taskProps.Set(f, optStr(""))
-	}
-	h.add(s, "task_write", descTaskWrite, object(taskProps, []string{"action"}), func(a args) (*jsonx.Obj, error) {
+		"items", jsonx.New("type", []string{"array", "null"}, "default", nil, "maxItems", core.MaxTaskItems,
+			"items", jsonx.New("type", "object", "properties", item, "required", []string{"action"}, "additionalProperties", false),
+			"description", "Several changes in one call, each with the fields below; leave the top-level ones unset."),
+	).Merge(item)
+	taskProps.Set("action", jsonx.New("type", "string", "enum", core.TaskActions, "description", "add, status, promote or delete; omit with items."))
+	h.add(s, "task_write", descTaskWrite, object(taskProps, nil), func(a args) (*jsonx.Obj, error) {
 		v, _, err := h.vault(a)
 		if err != nil {
 			return nil, err
 		}
-		var t core.TaskWriteArgs
-		if t.Action, err = a.str("action", true, ""); err != nil {
-			return nil, err
-		}
-		for _, f := range []struct {
-			name string
-			dst  *string
-			def  string
-		}{{"title", &t.Title, ""}, {"project", &t.Project, ""}, {"effort", &t.Effort, "S"}, {"priority", &t.Priority, "med"},
-			{"problem", &t.Problem, ""}, {"fix", &t.Fix, ""}, {"principle", &t.Principle, ""}, {"source", &t.Source, ""},
-			{"doc_id", &t.DocID, ""}, {"status", &t.Status, ""}, {"note_path", &t.NotePath, ""}} {
-			if *f.dst, err = a.str(f.name, false, f.def); err != nil {
+		raw, ok := a.value("items")
+		if !ok {
+			t, err := taskItem(a)
+			if err != nil {
 				return nil, err
 			}
+			return core.TaskWrite(v, t), nil
 		}
-		if t.RelatedProjects, _, err = a.list("related_projects"); err != nil {
-			return nil, err
+		for _, k := range a.o.Keys() {
+			if k != "vault" && k != "items" && !isNull(a.o, k) {
+				return nil, argError{"items: give each change's fields inside its item, not beside items (got " + pystr.Repr(k) + ")"}
+			}
 		}
-		if t.Tags, _, err = a.list("tags"); err != nil {
-			return nil, err
+		list, isList := raw.([]any)
+		if !isList {
+			return nil, argError{"items: input should be a valid list"}
 		}
-		return core.TaskWrite(v, t), nil
+		valid := item.Keys()
+		var batch []core.TaskWriteArgs
+		for i, entry := range list {
+			o, isObj := entry.(*jsonx.Obj)
+			if !isObj {
+				return nil, argError{fmt.Sprintf("items[%d]: input should be an object", i)}
+			}
+			if err := unknownArgs(json.RawMessage(jsonx.Compact(o)), valid); err != nil {
+				return nil, argError{fmt.Sprintf("items[%d]: %s", i, err)}
+			}
+			t, err := taskItem(args{o})
+			if err != nil {
+				return nil, argError{fmt.Sprintf("items[%d]: %s", i, err)}
+			}
+			batch = append(batch, t)
+		}
+		return core.TaskWrites(v, batch), nil
 	})
 
 	h.addResources(s)
+}
+
+// boardLimit is task_board's default cap: the top of the ranked board.
+const boardLimit = 25
+
+// taskItemProps are one task change's arguments, top-level or in items.
+func taskItemProps() *jsonx.Obj {
+	p := jsonx.New("action", jsonx.New("type", "string", "enum", core.TaskActions, "description", "add, status, promote or delete."))
+	for _, f := range []string{"title", "project"} {
+		p.Set(f, optStr(""))
+	}
+	p.Set("related_projects", strList(""))
+	p.Set("effort", jsonx.New("type", "string", "default", "S", "description", "S, M or L."))
+	p.Set("priority", jsonx.New("type", "string", "default", "med", "description", "high, med or low."))
+	p.Set("tags", strList(""))
+	for _, f := range []string{"problem", "fix", "principle", "source", "doc_id", "status", "note_path"} {
+		p.Set(f, optStr(""))
+	}
+	return p
+}
+
+func taskItem(a args) (core.TaskWriteArgs, error) {
+	var t core.TaskWriteArgs
+	var err error
+	if t.Action, err = a.str("action", true, ""); err != nil {
+		return t, err
+	}
+	for _, f := range []struct {
+		name string
+		dst  *string
+		def  string
+	}{{"title", &t.Title, ""}, {"project", &t.Project, ""}, {"effort", &t.Effort, "S"}, {"priority", &t.Priority, "med"},
+		{"problem", &t.Problem, ""}, {"fix", &t.Fix, ""}, {"principle", &t.Principle, ""}, {"source", &t.Source, ""},
+		{"doc_id", &t.DocID, ""}, {"status", &t.Status, ""}, {"note_path", &t.NotePath, ""}} {
+		if *f.dst, err = a.str(f.name, false, f.def); err != nil {
+			return t, err
+		}
+	}
+	if t.RelatedProjects, _, err = a.list("related_projects"); err != nil {
+		return t, err
+	}
+	if t.Tags, _, err = a.list("tags"); err != nil {
+		return t, err
+	}
+	return t, nil
+}
+
+func isNull(o *jsonx.Obj, k string) bool {
+	v, _ := o.Get(k)
+	return v == nil
 }
 
 func (h *handlers) addResources(s *mcp.Server) {
@@ -676,7 +752,10 @@ const descReadDoc = `Read a vault doc's markdown body, gated by its sensitivity.
 
 public, internal and sensitive bodies are released (sensitive ones carry an
 ` + "`advisory`" + ` to pass along). restricted bodies are withheld unless
-` + "`include_restricted=True`" + ` and a Touch ID approval through 1Password succeeds.`
+` + "`include_restricted=True`" + ` and a Touch ID approval through 1Password succeeds.
+
+sections returns just those sections (the hit's ` + "`section`" + ` is the cheap read);
+fields=["outline"] lists the doc's sections without any text.`
 
 const descSet = `Create or update a doc's frontmatter, validated against the vault's schema.
 
@@ -711,4 +790,7 @@ status: move doc_id to status (open, active, parked, done, wontfix);
 promote: turn the inbox note at note_path into a task titled title,
     keeping its body and removing the note.
 delete: remove doc_id permanently (mistakes only; finished work is
-    status done or wontfix).`
+    status done or wontfix).
+items: a list of these changes, each with its own action, applied in
+    order in one call; each reports its own result, and a failure doesn't
+    stop the rest or undo the earlier ones.`
