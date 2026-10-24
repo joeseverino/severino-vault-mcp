@@ -104,7 +104,14 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server { return newServer(reg
 func newServer(reg *vaults.Registry, log io.Writer, bin *binaryWatch) *mcp.Server {
 	instructions := strings.Join(append([]string{Instructions}, reg.Instructions...), "\n")
 	s := mcp.NewServer(&mcp.Implementation{Name: "severino-vault-mcp", Version: Version()},
-		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{}})
+		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{},
+			// Each vault's index builds once the client is connected, so the
+			// first search finds it ready and the handshake never waits on it.
+			InitializedHandler: func(context.Context, *mcp.InitializedRequest) {
+				for _, v := range reg.Vaults {
+					go v.Loader.Index(false)
+				}
+			}})
 	h := &handlers{reg: reg, bin: bin}
 	taken := h.registerCore(s)
 	for _, p := range reg.Providers {

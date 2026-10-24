@@ -203,7 +203,7 @@ override the labs config:
 | `SVMC_INDEXED_DIRS` | `01 Projects:02 Infrastructure:03 Runbooks:07 Backlog` | Folders the loader indexes |
 | `SVMC_ARCHIVE_DIR` | `99 Archive` with the default indexed dirs, else unset | The archive: indexed apart, left out of `find` unless `include_archived` |
 | `SVMC_ALIASES_PATH` | `<vault>/.svmc/aliases.toml` | Phrase to `doc_id` aliases |
-| `SVMC_CACHE_SECONDS` | `30` | How long the index stays warm |
+| `SVMC_CACHE_SECONDS` | `30` | How long the index is trusted before a stat of every note checks it for changes |
 | `SVMC_RESTRICTED_UNLOCK_REF` | unset | `op://` reference to the 1Password unlock item; unset keeps restricted bodies withheld (macOS only, see Sensitivity) |
 | `SVMC_RESTRICTED_UNLOCK_AUDIT_LOG` | `~/.local/state/severino-vault-mcp/audit.log` | Unlock attempts; never bodies |
 

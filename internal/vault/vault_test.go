@@ -229,3 +229,31 @@ func TestLoaderIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// Past cache_seconds the index is rebuilt only when the vault changed: an
+// unchanged vault keeps the same index, and an edited, added or removed note
+// gives a new one.
+func TestIndexRebuildsOnlyWhenTheVaultChanged(t *testing.T) {
+	root := tk.FakeVault(t)
+	l := tk.Loader(root)
+	first := l.Index(false)
+	if l.Index(false) != first {
+		t.Fatal("an unchanged vault was indexed again")
+	}
+	note := filepath.Join(root, "03 Runbooks", "Signature Probe.md")
+	tk.Write(t, note, "---\ndoc_id: rb-signature-probe\ntitle: Signature Probe\ndoc_type: runbook\nstatus: active\n---\nBody.\n")
+	added := l.Index(false)
+	if added == first || added.ByDocID["rb-signature-probe"] == nil {
+		t.Fatal("an added note was not indexed")
+	}
+	tk.Write(t, note, "---\ndoc_id: rb-signature-probe\ntitle: Signature Probe Renamed\ndoc_type: runbook\nstatus: active\n---\nBody, longer now.\n")
+	if edited := l.Index(false); edited == added || edited.ByDocID["rb-signature-probe"].Title != "Signature Probe Renamed" {
+		t.Fatal("an edited note was not indexed again")
+	}
+	if err := os.Remove(note); err != nil {
+		t.Fatal(err)
+	}
+	if l.Index(false).ByDocID["rb-signature-probe"] != nil {
+		t.Fatal("a removed note stayed in the index")
+	}
+}
