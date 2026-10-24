@@ -943,3 +943,42 @@ func TestUnknownModeIsRefused(t *testing.T) {
 		t.Fatal(jsonx.Compact(r))
 	}
 }
+
+func TestSetFrontmatterUnsetsAFieldAndItsListItems(t *testing.T) {
+	root := tk.FakeVault(t)
+	path := filepath.Join(root, "03 Runbooks", "Leftover.md")
+	tk.Doc(t, path, `
+doc_id: rb-leftover
+title: Leftover
+doc_type: runbook
+system: misc
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-01-01
+stray_key:
+  - one
+  - two
+tags: [keep]
+`, "## Goal\n\nBody.\n")
+	v := tk.Vault(root)
+	rel := "03 Runbooks/Leftover.md"
+
+	if r := core.SetFrontmatter(v, rel, write.Changes{}.Unsetting("title")); r.Bool("ok") || !strings.Contains(r.Str("error"), "title is required") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if r := core.SetFrontmatter(v, rel, write.With("tags", []string{"x"}).Unsetting("tags")); r.Bool("ok") || !strings.Contains(r.Str("error"), "both set and unset") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	r := mustOK(t, core.SetFrontmatter(v, rel, write.Changes{}.Unsetting("stray_key")))
+	if cf, _ := r.Get("changed_fields"); !slices.Equal(cf.([]string), []string{"stray_key"}) {
+		t.Fatal(jsonx.Compact(r))
+	}
+	note := tk.Read(t, path)
+	if strings.Contains(note, "stray_key") || strings.Contains(note, "- two") || !strings.Contains(note, "tags:") || !strings.Contains(note, "Body.") {
+		t.Fatal(note)
+	}
+	if r := mustOK(t, core.SetFrontmatter(v, rel, write.Changes{}.Unsetting("stray_key"))); !r.Bool("no_op") {
+		t.Fatal(jsonx.Compact(r))
+	}
+}

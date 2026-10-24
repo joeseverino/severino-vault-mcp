@@ -168,6 +168,21 @@ func TestUpdateFrontmatterEmptySetClears(t *testing.T) {
 	}
 }
 
+func TestUpdateFrontmatterUnsetRemovesAFieldAndRefusesARequiredOne(t *testing.T) {
+	root := tk.FakeVault(t)
+	rel := "03 Runbooks/Add Nginx Proxy Host.md"
+	if code, out, _ := run(t, root, "", "update-frontmatter", rel, "--unset", "title"); code != 1 || !strings.Contains(out, "title is required") {
+		t.Fatal(code, out)
+	}
+	code, out, _ := run(t, root, "", "update-frontmatter", rel, "--unset", "tags")
+	if code != 0 || !strings.Contains(out, `"changed_fields":["tags"]`) {
+		t.Fatal(code, out)
+	}
+	if fm := frontmatter.NewNote(tk.Read(t, filepath.Join(root, rel))).FM; fm.Has("tags") || !fm.Has("title") {
+		t.Fatal("tags not removed")
+	}
+}
+
 func TestDailyWriteReadsStdin(t *testing.T) {
 	root := tk.Dir(t)
 	code, out, _ := run(t, root, "brief body", "daily-write", "--date", "2026-06-25")

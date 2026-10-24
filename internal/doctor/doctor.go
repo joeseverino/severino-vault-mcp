@@ -6,7 +6,6 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -55,9 +54,8 @@ func relative(p, root string) string {
 // are schema.Profile.Check and RefProblems; doctor adds the whole-vault ones
 // (unreadable files, a missing block, duplicate doc_ids, a path wikilink to
 // no file) and warns on a superseded report the vault can't follow to a
-// live successor, on a mention of structure the profile lists as retired
-// in a living part of a doc (living), and on code a living doc names that
-// its project's checkout does not have (references).
+// live successor, and on code a living doc names that its project's
+// checkout does not have (references).
 // The archive and the read-only folders are not indexed dirs, so only live
 // docs are checked.
 func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
@@ -75,7 +73,7 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 			continue
 		}
 		fm := note.FM
-		r.body(rel, note.Text[note.Offset:], fm, p, files)
+		r.body(rel, note.Text[note.Offset:], files)
 		refs.check(r, rel, note.Text[note.Offset:], fm)
 		if fm == nil || fm.Len() == 0 {
 			proposal := ""
@@ -104,17 +102,9 @@ func Validate(cfg config.Config, p *schema.Profile, propose bool) *Report {
 	return r
 }
 
-// body adds the findings in a doc's body: each retired structure a living
-// part of it mentions, and each path wikilink that names no file.
-func (r *Report) body(rel, body string, fm *jsonx.Obj, p *schema.Profile, files *links.Files) {
-	for _, m := range p.RetiredIn(living(body, fm)) {
-		lines := make([]string, len(m.Lines))
-		for i, n := range m.Lines {
-			lines[i] = strconv.Itoa(n)
-		}
-		r.add(Finding{rel, "warning", fmt.Sprintf("mentions retired structure %s (body line %s): %s",
-			pystr.Repr(m.Match), strings.Join(lines, ", "), m.Help), ""})
-	}
+// body adds the findings in a doc's body: each path wikilink that names no
+// file.
+func (r *Report) body(rel, body string, files *links.Files) {
 	for _, target := range links.Dangling(body, filepath.ToSlash(rel), files) {
 		r.add(Finding{rel, "error", fmt.Sprintf("path wikilink %s names no file in the vault; point it at the note's current path",
 			pystr.Repr("[["+target+"]]")), ""})

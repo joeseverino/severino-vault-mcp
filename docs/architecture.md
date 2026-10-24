@@ -1,7 +1,6 @@
 # Architecture
 
-`severino-vault-mcp` is one local stdio MCP server for every Obsidian vault I
-keep. It indexes each vault's configured folders, answers from the docs instead
+`severino-vault-mcp` is one local stdio MCP server for Obsidian vaults. It indexes each vault's configured folders, answers from the docs instead
 of model memory, withholds `restricted` bodies unless they're unlocked locally,
 and validates writes against each vault's schema. No HTTP listener, no database,
 no shell bridge.
@@ -15,7 +14,7 @@ MCP client / host
       v
 severino-vault-mcp (one Go binary)
   vaults.Build(): one core.Vault per vault (labs, edu, each provider's)
-  mcpserver.New(): 6 shared tools, each with a `vault` argument,
+  mcpserver.New(): the shared tools, each with a `vault` argument,
                    plus each provider's tools
       |                                   |
       v                                   v
@@ -78,13 +77,13 @@ writes, path validation, the task ledger, daily notes and `doctor`. On top:
 - `internal/vaults`, `internal/provider`: composition.
 - `internal/mcpserver`: the MCP adapter and the instructions block.
 - `internal/education`: the edu dataset, shared by the tool and `export education`.
-- `internal/hqmanifest`: the HQ docs manifest, until HQ owns it.
+- `internal/hqmanifest`: the docs manifest HQ reads (see [`integrations.md`](integrations.md)).
 - `internal/cli`: subcommands over the labs vault. Every result goes through one
   emitter (compact or `--pretty`, `ok` to exit code), and `describe` projects
-  the command table to a Cordon contract.
+  the command table to a contract.
 
-Site work (writeups, the technology catalog, D1, CSP, contact, headers) is
-owned by the jseverino.com repo's `site` CLI, not this server.
+Programs that read this server's output (HQ, the site, Cordon) are listed in
+[`integrations.md`](integrations.md).
 
 ## Data contract
 
@@ -148,13 +147,9 @@ server's instructions only point to it.
 
 ## Sensitivity
 
-| Sensitivity | Body behavior |
-|---|---|
-| `public`, `internal` | Released. |
-| `sensitive` | Released with an advisory. |
-| `restricted` | Withheld. `read_doc(..., include_restricted=True)` asks for one Touch ID approval through 1Password. |
-
-Details: [`ai-safety-security.md`](ai-safety-security.md).
+`public`, `internal` and `sensitive` bodies are released; `restricted` is
+withheld unless a local approval succeeds. The table and the unlock flow are in
+[`ai-safety-security.md`](ai-safety-security.md#sensitivity-levels).
 
 ## Write model
 

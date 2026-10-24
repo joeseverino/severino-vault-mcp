@@ -19,7 +19,6 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
-	"github.com/joeseverino/severino-vault-mcp/internal/sections"
 )
 
 // Field kinds.
@@ -302,9 +301,6 @@ type Profile struct {
 	// profile shares (Settable lists both).
 	Fields          []Field
 	DocumentSchemas map[string]DocumentSchema
-	// Retired is structure the vault has given up; doctor warns on a live
-	// doc that mentions any of it.
-	Retired []Retired
 	// DocTypeFolders name, for a doc_type, the folder its docs live in: a doc
 	// of the type sits under a folder of that name, and a doc under one is of
 	// the type. Check holds live docs to it; the archive keeps docs where
@@ -331,45 +327,6 @@ func (p *Profile) PlacementProblems(docType, rel string) []string {
 		}
 	}
 	return errs
-}
-
-// Retired is one piece of retired structure: Pattern, a regular expression,
-// matches a mention of it in a doc's text, and Help says what to do instead.
-type Retired struct{ Pattern, Help string }
-
-// RetiredIn are the retired structure text mentions, each with the 1-based
-// lines it appears on, in the profile's order.
-func (p *Profile) RetiredIn(text string) []RetiredMention {
-	var out []RetiredMention
-	lines := sections.Lines(text)
-	for _, r := range p.Retired {
-		re, err := regexp.Compile(r.Pattern)
-		if err != nil {
-			continue
-		}
-		var at []int
-		var first string
-		for i, line := range lines {
-			if m := re.FindString(line); m != "" {
-				if first == "" {
-					first = m
-				}
-				at = append(at, i+1)
-			}
-		}
-		if len(at) > 0 {
-			out = append(out, RetiredMention{Retired: r, Match: first, Lines: at})
-		}
-	}
-	return out
-}
-
-// RetiredMention is one Retired pattern found in a text: the first match and
-// every line it is on.
-type RetiredMention struct {
-	Retired
-	Match string
-	Lines []int
 }
 
 // HasDocType and friends test membership.
@@ -750,13 +707,6 @@ func (p *Profile) ContractDict() *jsonx.Obj {
 		}
 		o.Set("doc_type_required_fields", required)
 	}
-	if len(p.Retired) > 0 {
-		retired := make([]any, 0, len(p.Retired))
-		for _, r := range p.Retired {
-			retired = append(retired, jsonx.New("pattern", r.Pattern, "help", r.Help))
-		}
-		o.Set("retired", retired)
-	}
 	if len(p.DocTypeFolders) > 0 {
 		folders := jsonx.New()
 		for _, t := range slices.Sorted(mapKeys(p.DocTypeFolders)) {
@@ -925,12 +875,6 @@ var Labs = &Profile{
 		},
 	},
 	DocTypeFolders: map[string]string{ReportDocType: "Reports"},
-	Retired: []Retired{
-		{Pattern: `00 Reporting`, Help: "the 00 Reporting folder is retired; a report lives in the folder of the project it belongs to"},
-		{Pattern: `\btasks/`, Help: "task folders are retired; a project's work lives in its Queue.md"},
-		{Pattern: `Backlog\.base`, Help: "Backlog.base is retired; work no project owns lives in 07 Backlog/Queue.md"},
-		{Pattern: `\[\[task-`, Help: "task notes are retired; name the queue item by its id instead"},
-	},
 }
 
 // QueueDocType and QueueDocIDPrefix mark a work queue note in the labs
@@ -1150,23 +1094,6 @@ func FromContract(c *jsonx.Obj) (*Profile, error) {
 			ds := p.DocumentSchemas[docType]
 			ds.RequiredFields = names
 			p.DocumentSchemas[docType] = ds
-		}
-	}
-	if rv, ok := c.Get("retired"); ok {
-		items, isList := rv.([]any)
-		if !isList {
-			return nil, fmt.Errorf("profile contract retired must be a list")
-		}
-		for i, item := range items {
-			ro, isObj := item.(*jsonx.Obj)
-			if !isObj {
-				return nil, fmt.Errorf("retired[%d] must be an object", i)
-			}
-			r := Retired{Pattern: ro.Str("pattern"), Help: ro.Str("help")}
-			if _, err := regexp.Compile(r.Pattern); err != nil || r.Pattern == "" {
-				return nil, fmt.Errorf("retired[%d].pattern must be a regular expression", i)
-			}
-			p.Retired = append(p.Retired, r)
 		}
 	}
 	if rv, ok := c.Get("doc_type_folders"); ok {

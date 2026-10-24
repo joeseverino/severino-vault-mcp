@@ -44,6 +44,15 @@ them too. An argument the schema refuses (an unknown name, a wrong type, a
 value outside its enum, a missing required one) fails the same way. Take a
 next step before guessing.
 
+A vault this process cannot read (its path is missing, not a directory, or
+denied, or an indexed folder under it is denied) fails every tool that loads
+the index, and `doctor`, `validate` and the CLI commands over the labs vault,
+with `{"ok": false, "error": "vault 'x' is unreadable ...: <OS error naming
+the path>"}`. Its `next_steps` say what to check (the configured vault path
+exists, this process may read it) instead of calling a tool. Never read it as
+"no such doc": an empty vault that can be read stays `ok`, a configured
+indexed folder that does not exist is simply absent.
+
 ## Sensitivity
 
 | Sensitivity | AI behavior |
@@ -202,7 +211,7 @@ base, owns, transcript, created, resolution` when set; `--fields` narrows
 them. `describe` lists every flag.
 
 - A hook that records an agent type as the owner passes the part after its
-  last `:` (`worker` for `severino-ops:worker`).
+  last `:` (`worker` for `plugin:worker`).
 - A brief that starts from a queued item (an `Item: <id>` line) launches
   its worker with `queue set <id> --claim --owner <type> --agent <agent id>
   --kind delegated --branch <branch>`, one locked edit. The claim is
@@ -232,7 +241,10 @@ date to today), the CLI's `update-frontmatter` and `write-doc` take one flag
 per field (`--set-<field>` replaces a list), and `validate` checks every
 declared field present in a block. Declaring a field in the profile is the
 whole change that makes it settable; a field the chosen vault does not
-declare is refused. `schema --contract` carries the declarations under
+declare is refused. `unset` (`--unset` on the CLI) takes field names to
+remove from an existing block with any list items, including a leftover key
+the profile no longer declares; a field the doc's type requires is refused,
+and the result passes the same introduced-problems check as any update. `schema --contract` carries the declarations under
 `fields`. A list left empty is not written: every writer leaves the key
 out, which every reader takes as no value.
 
@@ -303,24 +315,32 @@ shape.
 
 ## Section edits
 
-`write_doc` modes `replace_section` and `append_section` (CLI `write-doc
---mode`) edit one section of a registered doc, and a section is what
+`write_doc` modes `replace_section`, `append_section` and `delete_section` (CLI
+`write-doc --mode`) edit one section of a registered doc, and a section is what
 `read_doc` returns for it: `heading` takes a section slug, a `heading_path`
 as `find` and the outline give it (`Parent > Child`), or a heading's text,
 resolved the way `read_doc`'s `sections` resolves them.
 
-- `replace_section` replaces exactly the lines `read_doc` returns for that
-  section, after its heading line, which stays. An H2 small enough to stay
-  whole holds its H3s, so they are replaced with it; an H2 split at its H3s
-  is only the text above the first. A heading that is no section of its own
-  (an H3 inside a whole H2, an H4) runs to the next heading of any level. A
-  heading hard-wrapped into parts is one section by its text or path; a
-  part's slug names only that part.
-- `append_section` adds the body at the end of the text under the heading,
-  before its first subheading.
+- A heading, by its text, heading path or section slug, names its whole
+  block: the heading and everything up to the next heading of the same or a
+  higher level, its subheadings included. The token cap that splits a long
+  H2 into outline entries for `find` is no boundary for a read or an edit.
+  A part's slug (an outline entry ending in `-part-N`) names only that part.
+- `replace_section` replaces the block after its heading line, which stays.
+  It refuses a body that would drop a subheading the block holds now (same
+  level and text, as many times as the block has it); the error and
+  `subsections` name each one's heading path, and `next_steps` read the whole
+  block or replace one subsection on its own.
+- `append_section` adds the body at the end of the block, after its last
+  subsection.
+- `delete_section` removes the whole block, heading line included, and takes
+  no body (the CLI reads no stdin). It refuses `""` (the preamble is no
+  section; empty it with `replace_section`), a part's slug, and a block whose
+  removal leaves the doc without a heading. Same lock, same `last_reviewed`
+  rule and result shape as `replace_section`.
 - `heading: ""` is the text before the first heading.
 
-Refused, with `next_steps`: a heading text several headings share (the
+Also refused, with `next_steps`: a heading text several headings share (the
 error and `candidates` list each one's heading path, or its slug where two
 paths are the same, and a step per candidate), and a body whose first
 non-blank line is the section's own heading line, same level and text (send
@@ -428,15 +448,10 @@ write one. `doctor` warns on a deprecated report (`doc_type: report`) with no
 ## Drift
 
 `doctor` reads the body of every live doc (the indexed dirs; not the archive
-or the read-only folders) for structure the vault has left behind and code
-its repositories no longer have. A report, a deprecated doc and a closed log
-entry record the past, so their text is checked for neither:
+or the read-only folders) for links and code the vault no longer has. A
+report, a deprecated doc and a closed log entry record the past, so their
+text is checked for neither:
 
-- a mention of retired structure is a warning, one per term per doc with the
-  body lines it is on. The terms are the profile's `retired` list (`schema
-  --contract`), each a regular expression with the help doctor prints; the
-  labs profile lists `00 Reporting`, a `tasks/` path segment, `Backlog.base`
-  and `[[task-` links.
 - a path wikilink (`[[folder/note]]`, `![[folder/file.png]]`) that names no
   file in the vault, from the root, from the note's folder, or as the end of
   a file's path, is an error. A link by file name alone, and links in code,

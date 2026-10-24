@@ -36,6 +36,9 @@ type FolderArgs struct {
 // related_projects entries naming the old one name the new one, and the
 // project's queue note is retitled. doc_ids never change.
 func MoveFolder(v *Vault, a FolderArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}

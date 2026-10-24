@@ -108,6 +108,9 @@ func changesFrom(p Parsed, args []write.Arg) write.Changes {
 		}
 		c.Apply(a, value)
 	}
+	if p.Has(write.UnsetKey) {
+		c = c.Unsetting(p.List(write.UnsetKey)...)
+	}
 	return c
 }
 
@@ -130,7 +133,7 @@ func init() {
 			Run:  runTouchReviewed},
 		{Name: "backfill-aliases", Effect: "vault_write",
 			Summary: "Set each folder-note's (`<folder>/index.md`) Obsidian `aliases` to its `title`, so `[[Title]]` resolves " +
-				"and autocompletes for notes whose filename is the non-unique `index`. Derived from `title`, so idempotent — " +
+				"and autocompletes for notes whose filename is the non-unique `index`. Derived from `title`, so idempotent, " +
 				"safe to re-run to repair drift. Writeups are left alone.",
 			Args: []Arg{pretty(prettyHelp)},
 			Run:  runBackfillAliases},
@@ -146,7 +149,7 @@ func init() {
 			Run: runFind},
 		{Name: "read", Effect: "read",
 			Summary: "Read one vault doc by doc_id and print JSON. With --sections, return just those sections (the token-minimal path); " +
-				"without it, the whole body. Honors the sensitivity gate — restricted bodies are withheld (no interactive unlock on the CLI path).",
+				"without it, the whole body. Honors the sensitivity gate: restricted bodies are withheld (no interactive unlock on the CLI path).",
 			Args: []Arg{
 				{Name: "doc_id", Help: "Stable doc_id, e.g. 'rb-add-nginx-proxy-host'."},
 				{Name: "--sections", Help: "Section slugs or heading paths from a `find` hit or the outline. Omit for the whole body.", TakesValue: true, Multi: true},
@@ -157,7 +160,7 @@ func init() {
 		{Name: "task-list", Effect: "read",
 			Summary: "The backlog board: every `doc_type: task` doc, derived from the index (project tasks under 01 Projects/<project>/tasks/ + " +
 				"the 07 Backlog/ cross-cutting bucket), filtered and ranked. Default shows live work (open + active); the thin `backlog` CLI " +
-				"and the Obsidian cockpit render this — the MCP is the one task brain.",
+				"and the Obsidian cockpit render this; the MCP is the one task brain.",
 			Args: []Arg{
 				{Name: "--status", Help: "Only this status.", TakesValue: true},
 				{Name: "--project", Help: "Only this project (folder or related_projects).", TakesValue: true},
@@ -186,14 +189,14 @@ func init() {
 			Summary: "Set fields in a vault doc's frontmatter: the MCP set_frontmatter tool, one flag per field the labs profile " +
 				"declares, each validated against it (doc_id never changes once set). Used by the Obsidian relation editor so author-time edits can't dangle.",
 			Args: append(append([]Arg{{Name: "relative_path", Help: "Vault-relative path to the doc."}},
-				frontmatterFlags(updateArgs)...), pretty(prettyHelp)),
+				frontmatterFlags(updateArgs)...), Arg{Name: "--" + write.UnsetKey, Help: write.UnsetHelp, TakesValue: true, Multi: true}, pretty(prettyHelp)),
 			Run: runUpdateFrontmatter},
 		{Name: "write-doc", Effect: "vault_write",
-			Summary: "Create a registered doc, or replace or append to one section of its body, with the markdown body on stdin " +
+			Summary: "Create a registered doc, or replace, append to or delete one section of its body, with the markdown body on stdin (none for delete_section) " +
 				"(no frontmatter). The MCP write_doc tool: create validates the new frontmatter with the rules validate checks; " +
 				"section modes keep the frontmatter except last_reviewed, which becomes today. Restricted docs are refused.",
 			Args: append(append([]Arg{
-				{Name: "--mode", Help: "create (default), replace_section or append_section.", TakesValue: true, Default: "create"},
+				{Name: "--mode", Help: "create (default), replace_section, append_section or delete_section (no stdin).", TakesValue: true, Default: "create"},
 				{Name: "--relative-path", Help: "Vault-relative path; required to create.", TakesValue: true},
 				{Name: "--doc-id", Help: "The new doc's id on create; the doc to edit otherwise.", TakesValue: true},
 				{Name: "--heading", Help: "The section to edit (section modes): a heading path or section slug as find and the read_doc outline give them, or a unique heading text; \"\" for the text before the first heading.", TakesValue: true},
@@ -278,13 +281,13 @@ func init() {
 			},
 			Run: runQueue},
 		{Name: "task-reconcile", Effect: "read",
-			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status — the idempotent tidy sweep for statuses " +
+			Summary: "Re-home tasks into tasks/ (live) or tasks/done/ (closed) per their status, the idempotent tidy sweep for statuses " +
 				"edited by hand (a Base/Properties edit) that didn't move through task-move.",
 			Args: []Arg{pretty(prettyHelp)},
 			Run:  runTaskReconcile},
 		{Name: "task-projects", Effect: "read",
 			Summary: "The task-project universe: every 01 Projects/<project>/ folder a task can be filed in, with its open-task count. " +
-				"The one owner of where a task can go — pickers (the Obsidian modal, the cockpit) derive from this instead of re-walking the vault layout.",
+				"The one owner of where a task can go; pickers (the Obsidian modal, the cockpit) derive from this instead of re-walking the vault layout.",
 			Args: []Arg{pretty(prettyHelp)},
 			Run:  runTaskProjects},
 		{Name: "task-add", Effect: "read",
@@ -301,7 +304,7 @@ func init() {
 			},
 			Run: runTaskAdd},
 		{Name: "task-delete", Effect: "read",
-			Summary: "Permanently delete a task file (for mistakes / junk only — finished or abandoned work should be task-move'd to " +
+			Summary: "Permanently delete a task file (for mistakes / junk only; finished or abandoned work should be task-move'd to " +
 				"done/wontfix, which keeps it queryable). Resolves a bare slug or the full id; refuses non-tasks.",
 			Args: []Arg{{Name: "doc_id", Help: "Task id or slug (task-foo or foo)."}, pretty(prettyHelp)},
 			Run:  runTaskDelete},
@@ -319,7 +322,7 @@ func init() {
 			Args: []Arg{
 				{Name: "vault", Help: "Vault root path."},
 				{Name: "subdirs", Optional: true, Help: "Colon-separated vault subdirectories to index. Default: derived from the MCP config's " +
-					"indexed_dirs plus the slim content dirs (05 Writeups, 06 Pages) — one list, one owner."},
+					"indexed_dirs plus the slim content dirs (05 Writeups, 06 Pages), one list, one owner."},
 				{Name: "--report", Help: "Print the full result (missing_frontmatter, duplicates, counts) as JSON instead of the manifest entries. Backs `hq doctor`."},
 			},
 			Run: runHQManifest},
@@ -337,7 +340,7 @@ func init() {
 				"so the two systems share one definition.",
 			Args: []Arg{
 				{Name: "--json", Help: "Emit the schema as JSON (the default)."},
-				{Name: "--contract", Help: "Emit the complete versioned profile contract, including task and per-document rules. The legacy default remains HQ-compatible."},
+				{Name: "--contract", Help: "Emit the complete versioned profile contract, including task and per-document rules. Without it, only the enum sets are emitted."},
 				{Name: "--fingerprint", Help: "Emit the stable SHA-256 fingerprint of the complete profile contract.", Dest: "schema_fingerprint"},
 				{Name: "--json-schema", Help: "Emit a vault's frontmatter rules as a JSON Schema (draft 2020-12) for off-the-shelf validators " +
 					"and editors, derived from the profile set_frontmatter and validate use."},

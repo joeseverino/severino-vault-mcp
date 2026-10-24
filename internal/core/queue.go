@@ -99,6 +99,9 @@ func qcall(args ...any) string { return Call("queue", args...) }
 
 // Queue runs one queue action against v.
 func Queue(v *Vault, a QueueArgs) *jsonx.Obj {
+	if f := v.Unreadable(); f != nil {
+		return f
+	}
 	if v.Profile == nil {
 		return failNext("vault "+pystr.Repr(v.Name)+" has no schema profile", noProfile)
 	}

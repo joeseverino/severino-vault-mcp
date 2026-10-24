@@ -96,6 +96,15 @@ docs/                    architecture, safety model, tool contract, testing and 
   an append-only hook, takes an exclusive `flock` on
   `<vault>/.locks/<vault-relative path, "/" as "%">.lock` for the whole write.
   Changing the path rule is a contract change for every such writer.
+- The session handoff (`internal/mcpserver/binary.go`): a server whose binary
+  was replaced, between messages with every call answered, first runs the new
+  binary with `SVMC_SESSION_HANDOFF=probe`, which must print exactly
+  `handoffReady` (`severino-vault-mcp session handoff 1`) and exit 0. It then
+  execs it with `SVMC_SESSION_HANDOFF` set to the JSON `handoff`:
+  `{"state": <mcp.ServerSessionState>, "next": <the first byte of the waiting
+  message>}`. A build that changes that format either still accepts the
+  previous one and keeps answering its ready line, or bumps the version in
+  `handoffReady`, so an older process refuses the takeover and keeps serving.
 - The work queue (`queue` tool and CLI, `docs/ai-tool-contract.md#work-queue`):
   the item line grammar in `internal/queue`, the `queue_prefix` and `repos`
   keys of a project's `index.md`, and the CLI's flags and compact JSON are
