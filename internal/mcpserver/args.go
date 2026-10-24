@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,30 +76,11 @@ func addTool(s *mcp.Server, tool *mcp.Tool, next mcp.ToolHandler) {
 // declaredArgs reads a schema's property names. A schema that declares no
 // properties, or allows additional ones, is open.
 func declaredArgs(schema any) ([]string, bool) {
-	raw, isRaw := schema.(json.RawMessage)
-	if !isRaw {
-		b, err := json.Marshal(schema)
-		if err != nil {
-			return nil, false
-		}
-		raw = b
-	}
-	var s struct {
-		Properties           map[string]json.RawMessage `json:"properties"`
-		AdditionalProperties *json.RawMessage           `json:"additionalProperties"`
-	}
-	if json.Unmarshal(raw, &s) != nil || s.Properties == nil {
+	s := readSchema(schema)
+	if s.Properties == nil || s.AdditionalProperties != nil && strings.TrimSpace(string(*s.AdditionalProperties)) != "false" {
 		return nil, false
 	}
-	if s.AdditionalProperties != nil && strings.TrimSpace(string(*s.AdditionalProperties)) != "false" {
-		return nil, false
-	}
-	names := make([]string, 0, len(s.Properties))
-	for k := range s.Properties {
-		names = append(names, k)
-	}
-	slices.Sort(names)
-	return names, true
+	return slices.Sorted(maps.Keys(s.Properties)), true
 }
 
 func unknownArgs(raw json.RawMessage, valid []string) error {
@@ -237,8 +219,7 @@ func (p *params) integer(name string, def int) int {
 			return int(f)
 		}
 	case string:
-		var n int
-		if _, err := fmt.Sscanf(strings.TrimSpace(x), "%d", &n); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(x)); err == nil {
 			return n
 		}
 	}

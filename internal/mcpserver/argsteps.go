@@ -52,23 +52,30 @@ func (p prop) takes(t string) bool {
 	return false
 }
 
-func schemaProps(schema any) (map[string]prop, []string) {
+// inputSchema is the part of a tool's input schema the argument checks read.
+type inputSchema struct {
+	Properties           map[string]prop  `json:"properties"`
+	Required             []string         `json:"required"`
+	AdditionalProperties *json.RawMessage `json:"additionalProperties"`
+}
+
+// readSchema is the one reader of a tool's input schema, which the SDK holds
+// as raw JSON or as a value; an unreadable schema reads as empty.
+func readSchema(schema any) inputSchema {
 	raw, isRaw := schema.(json.RawMessage)
 	if !isRaw {
 		raw, _ = json.Marshal(schema)
 	}
-	var s struct {
-		Properties map[string]prop `json:"properties"`
-		Required   []string        `json:"required"`
-	}
+	var s inputSchema
 	_ = json.Unmarshal(raw, &s)
-	return s.Properties, s.Required
+	return s
 }
 
 // argSteps is the call to make instead: the same call with the argument at
 // fault renamed, replaced or left out.
 func argSteps(tool *mcp.Tool, raw json.RawMessage, e argError) []string {
-	props, required := schemaProps(tool.InputSchema)
+	in := readSchema(tool.InputSchema)
+	props, required := in.Properties, in.Required
 	given := jsonx.New()
 	if v, err := jsonx.Decode(raw); err == nil {
 		if o, ok := v.(*jsonx.Obj); ok {
