@@ -137,8 +137,8 @@ Call tool: read_doc("infra-offline-ca", include_restricted=True)
 Expected behavior:
 
 ```text
-The MCP only releases the body if SVMC_ALLOW_RESTRICTED_UNLOCK=1 is set,
-a local unlock hash is configured, and the hidden-input prompt on the Mac
-succeeds. Otherwise it returns metadata, advisory text, and the unlock failure
-reason. The unlock phrase is never entered into chat.
+The MCP only releases the body if restricted.unlock_ref names a 1Password
+item and the Touch ID prompt for reading it is approved on the Mac. Otherwise
+it returns metadata, advisory text, and the unlock result with the next step.
+Nothing secret is entered into chat.
 ```

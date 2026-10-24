@@ -39,8 +39,7 @@ files only.
 
 ## Fuzzing and Benchmarks
 
-Fuzz targets cover the frontmatter parser, section chunking, the argon2 hash
-string parser, the daily-note brief region and path ordering. Run one with:
+Fuzz targets cover the frontmatter parser, section chunking, the daily-note brief region and path ordering. Run one with:
 
 ```bash
 go test ./internal/frontmatter -run '^$' -fuzz FuzzSplit -fuzztime 20s
@@ -54,21 +53,6 @@ go test ./internal/vault -run '^$' -bench IndexBuild
 ```
 
 `find(by="text")` tests need `rg` on `PATH`.
-
-## Parity Harness
-
-`internal/parity` runs the Python reference CLI and this binary side by side
-and diffs them: read commands on fixture vaults, writes on twin vaults compared
-file by file, and MCP tool calls (writes included) against both servers over
-stdio. It skips unless `SVMC_PARITY_PY` names the reference command:
-
-```bash
-SVMC_PARITY_PY="uv run --quiet --project /path/to/python-checkout severino-vault-mcp" \
-  go test ./internal/parity/ -v
-```
-
-Known, deliberate differences are listed in the harness (`describe` metadata,
-and `update_link`, which no longer drops a doc's frontmatter).
 
 ## Golden Contracts
 
@@ -112,7 +96,8 @@ versioned by tag).
 - Indexing, the lenient frontmatter parse, duplicate `doc_id` exclusion, aliases.
 - Section chunking, ranking, the section menu, section reads.
 - `read_doc` release for `public`, `internal`, `sensitive`; default withholding
-  for `restricted`; the one-request local unlock and its audit log.
+  for `restricted`; the one-request 1Password unlock (approved, withheld,
+  unconfigured, refused under a service account) and its audit log.
 - `find(by="text")` skipping frontmatter and never searching restricted bodies.
 - Frontmatter creation and update against each profile; multiline values;
   a failed atomic replace leaving the original intact; `..` traversal and
@@ -139,7 +124,7 @@ Expected:
 - `vault://labs/doc/rb-generate-internal-cert` returns the sample certificate runbook.
 - `find("generate internal certificate")` ranks `rb-generate-internal-cert` first.
 - `vault://labs/doc/infra-offline-ca` withholds the body because the doc is `restricted`.
-- `read_doc("infra-offline-ca", include_restricted=True)` still requires local unlock.
+- `read_doc("infra-offline-ca", include_restricted=True)` still requires a Touch ID approval.
 
 ## CI Security Signal
 

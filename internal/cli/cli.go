@@ -6,7 +6,6 @@ package cli
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"io"
 	"os"
@@ -16,8 +15,6 @@ import (
 	"strings"
 	"syscall"
 
-	"golang.org/x/term"
-
 	vaultmcp "github.com/joeseverino/severino-vault-mcp"
 	"github.com/joeseverino/severino-vault-mcp/internal/brief"
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
@@ -25,7 +22,6 @@ import (
 	"github.com/joeseverino/severino-vault-mcp/internal/daily"
 	"github.com/joeseverino/severino-vault-mcp/internal/doctor"
 	"github.com/joeseverino/severino-vault-mcp/internal/education"
-	"github.com/joeseverino/severino-vault-mcp/internal/gate"
 	"github.com/joeseverino/severino-vault-mcp/internal/hqmanifest"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/mcpserver"
@@ -429,10 +425,6 @@ func runDoctor(c *Ctx, p Parsed) int {
 	return doctor.Run(c.Stdout, config.Load("", c.Env), schema.Labs, p.Bool("propose"))
 }
 
-func runUpdateDocLink(c *Ctx, p Parsed) int {
-	return c.emit(write.UpdateLink(c.labs(), p.Str("doc_id"), p.Str("label"), p.Str("expected_href"), p.Str("replacement_href")), p.Bool("pretty"))
-}
-
 func runTouchReviewed(c *Ctx, p Parsed) int {
 	return c.emit(write.TouchReviewed(c.labs(), p.Str("relative_path")), p.Bool("pretty"))
 }
@@ -442,7 +434,7 @@ func runBackfillAliases(c *Ctx, p Parsed) int {
 }
 
 func runFind(c *Ctx, p Parsed) int {
-	return c.emit(jsonx.New("ok", true).Merge(query.FindSections(c.labs(), p.Str("query"), p.Int("limit"))), p.Bool("pretty"))
+	return c.emit(jsonx.New("ok", true).Merge(query.FindSections(c.labs(), p.Str("query"), p.Int("limit"), nil)), p.Bool("pretty"))
 }
 
 func runRead(c *Ctx, p Parsed) int {
@@ -643,50 +635,5 @@ func runServe(c *Ctx, _ Parsed) int {
 		fmt.Fprintf(c.Stderr, "%s: %v\n", toolName, err)
 		return 1
 	}
-	return 0
-}
-
-// Terminal seams; tests replace them.
-var (
-	isTerminal   = term.IsTerminal
-	readPassword = term.ReadPassword
-)
-
-func runUnlockHash(c *Ctx, _ Parsed) int {
-	f, ok := c.Stdin.(*os.File)
-	if !ok || !isTerminal(int(f.Fd())) {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: stdin is not a terminal; run it interactively\n", toolName)
-		return 2
-	}
-	read := func(prompt string) (string, error) {
-		fmt.Fprint(c.Stderr, prompt)
-		b, err := readPassword(int(f.Fd()))
-		fmt.Fprintln(c.Stderr)
-		return string(b), err
-	}
-	first, err := read("Unlock phrase: ")
-	if err != nil {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: %v\n", toolName, err)
-		return 1
-	}
-	if first == "" {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: empty phrase\n", toolName)
-		return 1
-	}
-	second, err := read("Again: ")
-	if err != nil {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: %v\n", toolName, err)
-		return 1
-	}
-	if subtle.ConstantTimeCompare([]byte(first), []byte(second)) != 1 {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: the phrases don't match\n", toolName)
-		return 1
-	}
-	hash, err := gate.HashPhrase(first, gate.DefaultParams)
-	if err != nil {
-		fmt.Fprintf(c.Stderr, "%s unlock-hash: %v\n", toolName, err)
-		return 1
-	}
-	fmt.Fprintln(c.Stdout, hash)
 	return 0
 }

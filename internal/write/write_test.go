@@ -22,64 +22,6 @@ func linkDoc(t *testing.T, sensitivity string) (string, string) {
 	return root, p
 }
 
-func TestUpdateLinkReplacesOneExactLinkAtomically(t *testing.T) {
-	root, p := linkDoc(t, "internal")
-	r := write.UpdateLink(tk.Loader(root), "report-link-test", "Dashboard", "https://old.example", "https://github.com/example/dashboard")
-	if !r.Bool("ok") || r.Str("old_href") != "https://old.example" {
-		t.Fatal(jsonx.Compact(r))
-	}
-	text := tk.Read(t, p)
-	if !strings.Contains(text, "[Dashboard](https://github.com/example/dashboard)") || strings.Contains(text, "legacy note") {
-		t.Fatal(text)
-	}
-}
-
-// The Python writer rebuilt the file as text[:body_start] + body, slicing
-// characters by a line number, which destroyed the frontmatter.
-func TestUpdateLinkPreservesTheFrontmatterByteForByte(t *testing.T) {
-	root, p := linkDoc(t, "internal")
-	before := tk.Read(t, p)
-	write.UpdateLink(tk.Loader(root), "report-link-test", "Dashboard", "https://old.example", "https://new.example")
-	after := tk.Read(t, p)
-	head, _, _ := strings.Cut(before, "Open [")
-	if !strings.HasPrefix(after, head) {
-		t.Fatalf("frontmatter changed:\n%s", after)
-	}
-	if after != head+"Open [Dashboard](https://new.example).\n" {
-		t.Fatalf("unexpected body:\n%q", after)
-	}
-	fm, err := frontmatter.Read(p)
-	if err != nil || fm.Str("doc_id") != "report-link-test" {
-		t.Fatal("frontmatter no longer parses")
-	}
-}
-
-func TestUpdateLinkFailsClosedOnNoMatch(t *testing.T) {
-	root, p := linkDoc(t, "internal")
-	before := tk.Read(t, p)
-	r := write.UpdateLink(tk.Loader(root), "report-link-test", "Other", "https://old.example", "https://new.example")
-	if jsonx.Compact(r) != `{"ok":false,"error":"expected exactly one matching link; found 0"}` || tk.Read(t, p) != before {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
-
-func TestUpdateLinkRefusesRestrictedBodies(t *testing.T) {
-	root, p := linkDoc(t, "restricted")
-	before := tk.Read(t, p)
-	r := write.UpdateLink(tk.Loader(root), "report-link-test", "Dashboard", "https://old.example", "https://new.example")
-	if jsonx.Compact(r) != `{"ok":false,"error":"restricted document bodies cannot be mutated"}` || tk.Read(t, p) != before {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
-
-func TestUpdateLinkRequiresAbsoluteHTTPURLs(t *testing.T) {
-	root, _ := linkDoc(t, "internal")
-	r := write.UpdateLink(tk.Loader(root), "report-link-test", "Dashboard", "https://old.example", "javascript:alert(1)")
-	if r.Bool("ok") || !strings.Contains(r.Str("error"), "replacement_href must be an absolute HTTP(S) URL") {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
-
 func addFM(root, rel, docID, title, docType, status, env, sens string, p *schema.Profile) *jsonx.Obj {
 	return write.AddFrontmatter(tk.Loader(root), rel, docID, title, docType, "gt", env, status, sens, nil, nil, nil, false, false, false, "", p)
 }
@@ -154,7 +96,6 @@ func TestEveryWriterRefusesTheReadOnlyFolders(t *testing.T) {
 	refused("create", write.CreateDoc(l, "00 Inbox/new.md", "body\n",
 		write.NewDoc{DocID: "note-new", Title: "New", DocType: "architecture_note", System: "example"}, schema.Labs))
 	refused("edit_section", write.EditSection(l, "05 Writeups/example-article/index.md", "Body", "new\n", false, schema.Labs))
-	refused("update_link", write.UpdateLink(l, "writeup-example-article", "site", "https://old.example", "https://new.example"))
 	if r := write.BackfillAliases(l); !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}

@@ -1,6 +1,6 @@
 // Package mcpserver is the MCP face: one server for every vault. Shared tools
-// register once with a `vault` argument; edu adds education_dataset; each
-// provider's tools are re-exported as they are.
+// register once with a `vault` argument; each provider's tools are
+// re-exported as they are.
 package mcpserver
 
 import (
@@ -16,7 +16,6 @@ import (
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
 	"github.com/joeseverino/severino-vault-mcp/internal/core"
-	"github.com/joeseverino/severino-vault-mcp/internal/education"
 	"github.com/joeseverino/severino-vault-mcp/internal/jsonx"
 	"github.com/joeseverino/severino-vault-mcp/internal/pystr"
 	"github.com/joeseverino/severino-vault-mcp/internal/tasks"
@@ -28,31 +27,7 @@ import (
 const Instructions = `Joe's Obsidian vaults: labs (homelab infrastructure, runbooks, projects),
 edu (Georgia Tech coursework and certifications), and any vault a provider
 adds below. Every shared tool takes ` + "`vault`" + ` (default labs).
-
-1. Operational questions ("how do I X", "what's the runbook for Y"): call
-   ` + "`find`" + ` before writing any prose, then ` + "`read_doc`" + ` on the best hit, and
-   answer in the doc's own words at the doc's length. Quote commands
-   verbatim. Never substitute a generic tutorial for an existing doc.
-2. No relevant hit: say so, then offer to write the doc, and create it
-   with ` + "`write_doc`" + ` (body plus frontmatter fields in one validated call).
-3. Broad questions: start from the ` + "`vault://labs/quick-index`" + ` resource (or
-   ` + "`read_doc`" + ` on the Quick Index doc), then read the target doc.
-4. Progress or log questions ("what did I do Friday?"): ` + "`daily_progress`" + `.
-5. ` + "`find(by=...)`" + `: relevance (default), system (the ` + "`system:`" + ` field),
-   project (` + "`related_projects`" + `), text (body search: all words, any order).
-
-Sensitivity: public, internal and sensitive bodies come back from
-` + "`read_doc`" + ` (sensitive adds an ` + "`advisory`" + ` to pass along). restricted bodies
-are withheld unless the user explicitly needs one; pass
-` + "`include_restricted=True`" + `, which also needs a local unlock.
-
-Writes: ` + "`set_frontmatter`" + ` creates or updates a doc's frontmatter against that
-vault's schema; ` + "`task_write`" + ` adds, moves, promotes or deletes tasks. Body
-edits to a registered doc go through ` + "`write_doc`" + `'s section modes, never the
-file directly. After a write, remind the user to run their vault sync.
-
-edu: ` + "`education_dataset`" + ` returns the publishable institutions and courses
-the site and resume read.
+Load the vault skill for how to use these tools.
 `
 
 // Version is the module version from build info.
@@ -77,22 +52,10 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{}})
 	h := &handlers{reg: reg}
 	h.registerCore(s)
-	if edu := reg.Lookup("edu"); edu != nil {
-		addTool(s, &mcp.Tool{
-			Name: "education_dataset",
-			Description: "The edu vault's publishable dataset: institutions and their courses (row facts from frontmatter, " +
-				"public bullets from each course's `## Site` section). The same JSON `severino-vault-mcp export education` " +
-				"emits for the site and the resume.",
-			InputSchema: object(jsonx.New(), nil),
-		}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return result(education.Dataset(edu.Loader, edu.Profile.Statuses)), nil
-		})
-	}
 	taken := map[string]bool{}
 	for _, name := range coreToolNames {
 		taken[name] = true
 	}
-	taken["education_dataset"] = true
 	for _, p := range reg.Providers {
 		for _, tool := range p.Tools {
 			if taken[tool.Name] {
@@ -110,7 +73,7 @@ func New(reg *vaults.Registry, log io.Writer) *mcp.Server {
 	return s
 }
 
-var coreToolNames = []string{"find", "read_doc", "recent_changes", "daily_progress", "set_frontmatter", "write_doc", "update_link", "task_board", "task_write"}
+var coreToolNames = []string{"find", "read_doc", "set_frontmatter", "write_doc", "task_board", "task_write"}
 
 // ----- schemas ------------------------------------------------------------------
 
@@ -410,7 +373,9 @@ func (h *handlers) registerCore(s *mcp.Server) {
 	h.add(s, "find", descFind, object(jsonx.New(
 		"query", str("What to look for."),
 		"vault", h.vaultProp("Which vault to search."),
-		"by", enum([]string{"relevance", "system", "project", "text"}, "relevance", "How to match; see the tool description."),
+		"by", enum(core.FindModes, core.FindModes[0], "How to match; see the tool description."),
+		"system", optStr("Only docs whose `system` field contains this (case-insensitive)."),
+		"project", optStr("Only docs with a `related_projects` entry containing this (case-insensitive)."),
 		"limit", integer(10, "Maximum hits (documents for `text`)."),
 		"context_lines", integer(1, "Lines of context per match, `text` only."),
 		"case_sensitive", boolean("Case-sensitive match, `text` only."),
@@ -423,7 +388,15 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		by, err := a.choice("by", []string{"relevance", "system", "project", "text"}, "relevance")
+		by, err := a.choice("by", core.FindModes, core.FindModes[0])
+		if err != nil {
+			return nil, err
+		}
+		system, err := a.str("system", false, "")
+		if err != nil {
+			return nil, err
+		}
+		project, err := a.str("project", false, "")
 		if err != nil {
 			return nil, err
 		}
@@ -439,7 +412,7 @@ func (h *handlers) registerCore(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		return core.Find(v, q, core.FindArgs{By: by, Limit: limit, ContextLines: ctxLines, CaseSensitive: cs}), nil
+		return core.Find(v, q, core.FindArgs{By: by, Limit: limit, ContextLines: ctxLines, CaseSensitive: cs, System: system, Project: project}), nil
 	})
 
 	h.add(s, "read_doc", descReadDoc, object(jsonx.New(
@@ -465,46 +438,6 @@ func (h *handlers) registerCore(s *mcp.Server) {
 			return nil, err
 		}
 		return core.ReadDoc(v, id, section, inc), nil
-	})
-
-	h.add(s, "recent_changes", descRecent, object(jsonx.New(
-		"vault", h.vaultProp("Which vault."),
-		"days", integer(7, "Look-back window in days."),
-		"limit", integer(50, "Maximum commits."),
-	), nil), func(a args) (*jsonx.Obj, error) {
-		v, _, err := h.vault(a)
-		if err != nil {
-			return nil, err
-		}
-		days, err := a.integer("days", 7)
-		if err != nil {
-			return nil, err
-		}
-		limit, err := a.integer("limit", 50)
-		if err != nil {
-			return nil, err
-		}
-		return core.RecentChanges(v, days, limit), nil
-	})
-
-	h.add(s, "daily_progress", descDaily, object(jsonx.New(
-		"query", str("The natural-language progress question."),
-		"vault", h.vaultProp("Which vault's daily notes."),
-		"today", optStr("ISO anchor date for relative terms; omit in normal use."),
-	), []string{"query"}), func(a args) (*jsonx.Obj, error) {
-		v, _, err := h.vault(a)
-		if err != nil {
-			return nil, err
-		}
-		q, err := a.str("query", true, "")
-		if err != nil {
-			return nil, err
-		}
-		today, err := a.str("today", false, "")
-		if err != nil {
-			return nil, err
-		}
-		return core.DailyProgress(v, q, today), nil
 	})
 
 	setProps := jsonx.New(
@@ -615,26 +548,6 @@ func (h *handlers) registerCore(s *mcp.Server) {
 			return nil, err
 		}
 		return core.WriteDoc(v, w), nil
-	})
-
-	h.add(s, "update_link", descLink, object(jsonx.New(
-		"doc_id", str("The doc's stable id."),
-		"label", str("The link's exact visible label."),
-		"expected_href", str("The exact current URL."),
-		"replacement_href", str("The new URL."),
-		"vault", h.vaultProp("Which vault."),
-	), []string{"doc_id", "label", "expected_href", "replacement_href"}), func(a args) (*jsonx.Obj, error) {
-		v, _, err := h.vault(a)
-		if err != nil {
-			return nil, err
-		}
-		vals := make([]string, 4)
-		for i, name := range []string{"doc_id", "label", "expected_href", "replacement_href"} {
-			if vals[i], err = a.str(name, true, ""); err != nil {
-				return nil, err
-			}
-		}
-		return core.UpdateLink(v, vals[0], vals[1], vals[2], vals[3]), nil
 	})
 
 	h.add(s, "task_board", descBoard, object(jsonx.New(
@@ -750,26 +663,20 @@ const descFind = `Find docs in a vault. Use this first for any question the vaul
 Returns ` + "`match_count`" + ` and ` + "`hits`" + ` (each with a doc_id) in every mode. Then
 call ` + "`read_doc`" + ` on the best hit and answer from the doc's own text.
 
-by: relevance (ranked title/system/tag/section match, the default),
-system (docs whose system, title or doc_id contains the query),
-project (docs listing the query in related_projects), or
+by: relevance (ranked title/system/tag/section match, the default) or
 text (body search: several words match docs holding all of them in any
 order, ranked by doc with the best section as the hit; a single token or a
 regex is a ripgrep pattern; zero hits fall back to relevance and say
-"fallback": "relevance"; restricted bodies are never searched).`
+"fallback": "relevance"; restricted bodies are never searched).
+
+system and project narrow either mode to docs whose ` + "`system`" + ` field, or one
+of whose ` + "`related_projects`" + ` entries, contains the value (case-insensitive).`
 
 const descReadDoc = `Read a vault doc's markdown body, gated by its sensitivity.
 
 public, internal and sensitive bodies are released (sensitive ones carry an
 ` + "`advisory`" + ` to pass along). restricted bodies are withheld unless
-` + "`include_restricted=True`" + ` and the local unlock on the Mac succeeds.`
-
-const descRecent = `Recent commits touching a vault's indexed and read-only folders (metadata only, no diffs).`
-
-const descDaily = `Read the daily note a progress question refers to ("what did I do Friday?").
-
-Resolves today, yesterday, weekday names, ` + "`last Friday`" + `, ` + "`YYYY-MM-DD`" + ` and
-` + "`MM/DD/YYYY`" + `, and returns the note body plus its progress lines.`
+` + "`include_restricted=True`" + ` and a Touch ID approval through 1Password succeeds.`
 
 const descSet = `Create or update a doc's frontmatter, validated against the vault's schema.
 
@@ -790,12 +697,7 @@ replace_section: replace the content under heading (doc_id or
     higher level; the heading line stays.
 append_section: add body to the end of that section.
 Section modes keep the frontmatter as it is except last_reviewed, which
-becomes today. Restricted docs need include_restricted and a local unlock.`
-
-const descLink = `Replace one exact Markdown link in a doc, atomically.
-
-Exactly one link with this label and href must match, both URLs must be
-absolute http(s), and restricted docs are refused.`
+becomes today. Restricted docs need include_restricted and a Touch ID approval through 1Password.`
 
 const descBoard = `A vault's task board: open work, counts, recently shipped, and the projects tasks can go in.`
 

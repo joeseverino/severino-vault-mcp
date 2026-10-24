@@ -11,10 +11,10 @@ TOML parser; nothing else.
 ```
 cmd/severino-vault-mcp   main: cli.Main
 internal/cli             command table -> parsing, --help, describe; one runner per subcommand
-internal/mcpserver       the server: core tools, resources, education_dataset, provider passthrough
+internal/mcpserver       the server: core tools, resources, provider passthrough
 internal/vaults          composes vaults: labs, edu (config present), providers
 internal/provider        connects a provider: profile resource, tools, instructions
-internal/core            the 9 shared tools, transport-free (the MCP adapter and tests both call these)
+internal/core            the 6 shared tools, transport-free (the MCP adapter and tests both call these)
 internal/{vault,sections,search,query,frontmatter,schema,gate,write,tasks,daily,brief,doctor,education,hqmanifest}
                          the governance engine
 internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
@@ -45,6 +45,10 @@ internal/{config,fsx,jsonx,pystr,clock,contracts,tabular}  shared plumbing
   edited path: `<relative_path>: <problem>` lines and exit 1, silent exit 0 for paths
   no local vault indexes, exit 2 on usage. Its problems are `schema.Profile.Check`,
   the rules set_frontmatter writes by.
+- `skills/vault/SKILL.md` is how agents use the tools; the server's
+  instructions only point to it. Adding or cutting a tool changes the skill
+  too (`TestTheVaultSkillNamesEveryRegisteredTool`). The repo root is a Claude
+  Code plugin (`.claude-plugin/plugin.json`, `.mcp.json`).
 - `tests/golden/`: `schema.json`, `cli-describe.json`, `mcp-tools.txt`. A diff
   there is a deliberate contract change; regenerate with the binary.
 
@@ -82,7 +86,8 @@ scripts/evals.sh --misses   # retrieval eval; SVMC_EVAL_VAULT=<vault> scores the
   and declares no providers, so no test reads this machine's real vaults.
 - `mcpserver` tests drive the real server through an in-memory client; the
   provider seam is tested against the test binary re-executed as a provider.
-- Seams: `gate.PromptPhrase` (unlock prompt), `clock.Now`. A failed atomic
+- Seams: `gate.Approve` (the 1Password read behind the restricted unlock;
+  no test runs the real `op`), `clock.Now`. A failed atomic
   write is simulated with a read-only directory.
 - Compare a written body byte for byte as `text[frontmatter.BodyOffset(text):]`;
   `frontmatter.Split` trims the trailing newline.

@@ -15,8 +15,8 @@ MCP client / host
       v
 severino-vault-mcp (one Go binary)
   vaults.Build(): one core.Vault per vault (labs, edu, each provider's)
-  mcpserver.New(): 8 shared tools, each with a `vault` argument,
-                   plus education_dataset and each provider's tools
+  mcpserver.New(): 6 shared tools, each with a `vault` argument,
+                   plus each provider's tools
       |                                   |
       v                                   v
 local markdown vaults            provider processes over stdio
@@ -31,7 +31,7 @@ vault's root and indexed folders.
 | Vault | When present | Config | Profile | Own tools |
 |---|---|---|---|---|
 | `labs` | always (default) | `SVMC_CONFIG`, else `~/.config/severino-vault-mcp/config.toml`, plus `SVMC_*` overrides | labs | none |
-| `edu` | its config file exists | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml` | education | `education_dataset` |
+| `edu` | its config file exists | `SVMC_EDU_CONFIG`, else `~/.config/severino-edu-mcp/config.toml` | education | none |
 | provider's | the provider connects | its `[[providers]]` entry's `config` | from the provider | from the provider |
 
 `vaults.Build()` loads labs first with the process environment. edu loads from
@@ -71,7 +71,7 @@ already exists are each logged and skipped; the rest of the server comes up.
 
 The governance engine is `internal/`: indexing, alias resolution and
 duplicate-ID exclusion, section chunking and ranking, the sensitivity gate and
-local unlock, schema profiles, frontmatter parsing and serialization, atomic
+the 1Password unlock, schema profiles, frontmatter parsing and serialization, atomic
 writes, path validation, the task ledger, daily notes and `doctor`. On top:
 
 - `internal/core`: the shared tools, transport-free.
@@ -113,7 +113,7 @@ sensitivity: internal
 | `doc_id` | Stable identifier for `read_doc`, `vault://{vault}/doc/{doc_id}`, aliases and related refs. Immutable. |
 | `title` | Label in search and read responses. |
 | `doc_type` | Validated against the vault's profile. |
-| `system` | The system or service the doc covers (`find(by="system")`). |
+| `system` | The system or service the doc covers (`find(system=...)` filters on it). |
 | `environment`, `status`, `tags` | Context, lifecycle and discovery. |
 | `sensitivity` | Body release behavior. |
 
@@ -131,15 +131,17 @@ search, direct reads return every conflicting path, and `doctor` reports them.
 |---|---|
 | `vault://{vault}/quick-index` | The vault's navigation hub (`doc_id: report-playbook-mcp-index`). |
 | `vault://{vault}/doc/{doc_id}` | One doc body, subject to sensitivity. |
-| `find` | `by`: `relevance` (ranked sections plus Quick Index hints), `system`, `project`, `text` (several words match docs holding all of them, any order; one token or a regex goes to ripgrep; zero hits fall back to relevance; restricted never searched). |
+| `find` | `by`: `relevance` (ranked sections plus Quick Index hints) or `text` (several words match docs holding all of them, any order; one token or a regex goes to ripgrep; zero hits fall back to relevance; restricted never searched). `system` and `project` filter either mode by a case-insensitive substring of the `system` field or a `related_projects` entry; a filtered search skips the Quick Index hints. |
 | `read_doc` | One doc or one section, by `doc_id` or alias, with sensitivity enforced. |
 | `set_frontmatter` | Create or update frontmatter, validated against the vault's profile. |
-| `update_link` | Replace one exact Markdown link. |
+| `write_doc` | Create a registered doc, or edit one section of its body, validated against the vault's profile. |
 | `task_board`, `task_write` | The task ledger. |
-| `recent_changes`, `daily_progress` | Recent commits; daily notes. |
 
 Broad questions start at the Quick Index; specific ones use `find`, then
-`read_doc`; answers come from the doc. See [`demo.md`](demo.md).
+`read_doc`; answers come from the doc. See [`demo.md`](demo.md). The
+procedure is the `vault` skill (`skills/vault/SKILL.md`), which the repo ships
+as a Claude Code plugin with `.claude-plugin/plugin.json` and `.mcp.json`; the
+server's instructions only point to it.
 
 ## Sensitivity
 
@@ -147,7 +149,7 @@ Broad questions start at the Quick Index; specific ones use `find`, then
 |---|---|
 | `public`, `internal` | Released. |
 | `sensitive` | Released with an advisory. |
-| `restricted` | Withheld. `read_doc(..., include_restricted=True)` can request one local unlock. |
+| `restricted` | Withheld. `read_doc(..., include_restricted=True)` asks for one Touch ID approval through 1Password. |
 
 Details: [`ai-safety-security.md`](ai-safety-security.md).
 

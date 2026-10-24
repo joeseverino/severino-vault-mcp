@@ -38,7 +38,7 @@ vaults:
 
 The local-model path is still not a hard sandbox. A trusted local MCP host is
 required, and a compromised host can request allowed tools. `restricted`
-docs therefore remain withheld unless the explicit local unlock flow succeeds.
+docs therefore remain withheld unless a Touch ID approval through 1Password succeeds.
 
 ## Sensitivity Levels
 
@@ -47,7 +47,7 @@ docs therefore remain withheld unless the explicit local unlock flow succeeds.
 | `public` | Released. |
 | `internal` | Released. |
 | `sensitive` | Released with advisory text. |
-| `restricted` | Withheld by default. Released only through `read_doc` after explicit request and local unlock. |
+| `restricted` | Withheld by default. Released only through `read_doc` after explicit request and a Touch ID unlock through 1Password. |
 
 `restricted` is for docs near credentials, keys, CA procedures, rotation
 steps, or other material that should not casually enter an AI chat transcript.
@@ -63,13 +63,13 @@ read_doc(doc_id, include_restricted=True)
 doc is restricted?
         |
         v
-SVMC_ALLOW_RESTRICTED_UNLOCK=1?
+restricted.unlock_ref configured?
         |
         v
-unlock hash configured?
+no OP_SERVICE_ACCOUNT_TOKEN in the server's environment?
         |
         v
-hidden macOS local prompt succeeds?
+`op read` of unlock_ref approved with Touch ID?
         |
         v
 release body for this one request only
@@ -78,27 +78,29 @@ release body for this one request only
 All conditions must pass:
 
 - The caller explicitly sets `include_restricted=True`.
-- The local MCP environment has `SVMC_ALLOW_RESTRICTED_UNLOCK=1`.
-- An argon2id unlock hash (`severino-vault-mcp unlock-hash`) is configured
-  through Keychain, a local hash file, or `SVMC_RESTRICTED_UNLOCK_HASH`.
-  Parameters are read from the PHC string, bounded, and compared in constant
-  time; anything malformed fails closed.
-- The local hidden-input prompt succeeds.
+- `[restricted].unlock_ref` (or `SVMC_RESTRICTED_UNLOCK_REF`) names a
+  dedicated 1Password item, kept in a vault no service account can read.
+  Unset, restricted bodies are always withheld.
+- The server's environment has no `OP_SERVICE_ACCOUNT_TOKEN`. A service
+  account would approve its own unlock, so its presence refuses every unlock.
+- `op read --no-newline <unlock_ref>` exits 0 with a non-empty value. The
+  1Password desktop app integration asks for Touch ID on every read. The
+  child process gets no service-account or Connect credentials, the value is
+  discarded at once, and the read times out after 60 seconds.
 
-The unlock phrase must never be typed into AI chat.
+## Why the Approval Is Touch ID
 
-## Why the Prompt Is Local
-
-The MCP uses a local hidden-input prompt on macOS. This keeps the unlock phrase
-out of:
+The approval is a fingerprint on the Mac, so nothing secret passes through:
 
 - the chat transcript
 - MCP tool arguments
 - model context
 - audit logs
 
-If the prompt is unavailable, cancelled, or fails verification, the body stays
-withheld and the response includes metadata plus an unlock failure reason.
+An agent can ask for a restricted body, but only the person at the Mac can
+approve it. If 1Password is locked, the CLI is missing, the prompt is
+cancelled, or the read fails, the body stays withheld and the response
+includes metadata plus the reason and the next step.
 
 ## Audit Logging
 
@@ -113,8 +115,7 @@ timestamp action=csp_pii_access rows=<n> client=stdio
 The audit log never includes:
 
 - doc body content
-- unlock phrases
-- prompt text entered by the user
+- the value read from the unlock item
 - contact PII (only the row count of a release is recorded)
 
 The default audit path is:
@@ -139,7 +140,7 @@ file" or "run this command" capability.
 | Tool | Mutation boundary |
 |---|---|
 | `set_frontmatter` | One markdown file under the named vault's root and indexed folders. Creates a block when none exists (doc_id, title, doc_type, system required) or updates allowed fields in place. `doc_id` is immutable. |
-| `update_link` | One exact Markdown link in one indexed doc. |
+| `write_doc` | One registered doc under the named vault's root and indexed folders: create it (refuses an existing file), or replace or append one section. Frontmatter validates against that vault's schema; restricted docs need a Touch ID approval through 1Password. |
 | `task_write` | Task files in the named vault: add, status, promote an inbox note, delete. |
 | Provider tools | Governed by the provider process; the host forwards calls unchanged and never widens them. |
 
@@ -168,8 +169,8 @@ This is a local MCP. It assumes:
 - The local operating system account is trusted.
 - The MCP host process is trusted enough to invoke local tools.
 - The vault files are readable by the local user.
-- A compromised MCP host can still request tools; the local unlock prompt is
+- A compromised MCP host can still request tools; the Touch ID approval is
   the boundary for `restricted` body release.
 
 This project reduces accidental AI exposure. It is not a substitute for
-filesystem permissions, Keychain hygiene, or vault-level secret management.
+filesystem permissions, password manager hygiene, or vault-level secret management.

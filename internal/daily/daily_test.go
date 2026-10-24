@@ -60,25 +60,6 @@ func TestInvalidDateIsAnError(t *testing.T) {
 	}
 }
 
-func TestResolveDate(t *testing.T) {
-	cases := map[string][2]string{
-		"what did I do on 2026-05-04": {"2026-05-04", "iso_date"},
-		"notes from 5/4/2026":         {"2026-05-04", "us_date"},
-		"yesterday please":            {"2026-06-19", "yesterday"},
-		"today":                       {"2026-06-20", "today"},
-		"friday":                      {"2026-06-19", "weekday"},
-		"last saturday":               {"2026-06-13", "weekday"},
-		"saturday":                    {"2026-06-20", "weekday"},
-		"anything":                    {"2026-06-20", "default_today"},
-	}
-	for q, want := range cases {
-		d, how, err := daily.ResolveDate(q, "2026-06-20")
-		if err != nil || d.Format("2006-01-02") != want[0] || how != want[1] {
-			t.Errorf("%q: %s %s %v", q, d.Format("2006-01-02"), how, err)
-		}
-	}
-}
-
 func TestWriteRefusesADailyDirSymlinkedOutside(t *testing.T) {
 	c := cfg(t)
 	outside := t.TempDir()

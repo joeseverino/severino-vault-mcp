@@ -428,7 +428,7 @@ func create(l *vault.Loader, n New) *jsonx.Obj {
 		EntityID:            docID,
 		ChangedFields:       fm.Keys(),
 		AfterFingerprint:    contracts.Fingerprint(fm),
-		AffectedProjections: []string{"task_board", "daily_progress", "brief"},
+		AffectedProjections: []string{"task_board", "brief"},
 		Metadata:            jsonx.New("relative_path", rel),
 	}.AsDict())
 	return result

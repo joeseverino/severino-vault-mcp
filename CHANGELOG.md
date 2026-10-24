@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Breaking:** the MCP tools `daily_progress`, `update_link`, `recent_changes`
+  and `education_dataset` are gone. The CLI keeps `export education` and
+  `daily-write`; the uncalled `update-doc-link` command is gone too.
+- **Breaking:** `find` modes are `relevance` and `text`. The optional `system`
+  and `project` arguments replace `by=system|project` and narrow either mode
+  (case-insensitive substring of the `system` field or a `related_projects`
+  entry).
+- The usage procedure moved from the server instructions to the `vault` skill
+  (`skills/vault/SKILL.md`), and the repo installs as a Claude Code plugin
+  (`.claude-plugin/plugin.json`, `.mcp.json`).
+- Breaking: the restricted unlock is a 1Password read of `[restricted].unlock_ref`
+  (`SVMC_RESTRICTED_UNLOCK_REF`), approved with Touch ID through the desktop
+  app. No `unlock_ref` keeps restricted bodies withheld, and a server with
+  `OP_SERVICE_ACCOUNT_TOKEN` set refuses every unlock. The phrase prompt, the
+  argon2 hash and its file/Keychain/env lookup, `allow_unlock`,
+  `SVMC_ALLOW_RESTRICTED_UNLOCK`, the `unlock-hash` command, the
+  `[secret_adjacent]` section, `SVMC_SECRET_ADJACENT_*`, the
+  `secret_adjacent`/`credential_adjacent` labels and the duplicate
+  `secret_adjacent_skipped` key are removed.
+
 - Vault file access is confined to the vault root with `os.Root`: reads, atomic
   writes, creates, moves and deletes reject `..` traversal and symlinks that
   leave the vault, including for `promote-note` sources and task project names.
@@ -11,8 +31,7 @@
   component-wise path ordering without allocation.
 - The gate runs `go test -race`, `govulncheck` as a `go.mod` tool, and
   `golangci-lint` (`.golangci.yml`). `deadcode` is available as a tool.
-- Fuzz targets for the frontmatter parser, section chunking, the argon2 hash
-  string parser, the daily brief region and path ordering; a benchmark for the
+- Fuzz targets for the frontmatter parser, section chunking, the daily brief region and path ordering; a benchmark for the
   vault index build.
 - An empty block-list item (`- ` with no value) parses as null.
 - Indirect dependencies updated.

@@ -66,11 +66,28 @@ func SectionMenu(d *vault.Doc, query string) *jsonx.Obj {
 // Clamp bounds n to [lo, hi].
 func Clamp(n, lo, hi int) int { return max(lo, min(n, hi)) }
 
-// FindSections is the ranked section menu over the vault.
-func FindSections(l *vault.Loader, query string, limit int) *jsonx.Obj {
+// Keep narrows a search to the docs it returns true for; nil keeps every doc.
+type Keep func(*vault.Doc) bool
+
+func (k Keep) docs(all []*vault.Doc) []*vault.Doc {
+	if k == nil {
+		return all
+	}
+	var out []*vault.Doc
+	for _, d := range all {
+		if k(d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// FindSections is the ranked section menu over the vault's docs that keep
+// accepts.
+func FindSections(l *vault.Loader, query string, limit int, keep Keep) *jsonx.Obj {
 	idx := l.Index(false)
 	hits := []*jsonx.Obj{}
-	for _, h := range search.Rank(idx.Docs, query, Clamp(limit, 1, maxLimit)) {
+	for _, h := range search.Rank(keep.docs(idx.Docs), query, Clamp(limit, 1, maxLimit)) {
 		o := jsonx.New("score", h.Score).Merge(Hit(h.Doc)).Merge(SectionMenu(h.Doc, query))
 		hits = append(hits, o)
 	}
@@ -171,7 +188,7 @@ func RecentChanges(l *vault.Loader, days, limit int) *jsonx.Obj {
 
 func emptySearch(query string) *jsonx.Obj {
 	return jsonx.New("query", query, "doc_count", 0, "total_match_count", 0,
-		"excluded", jsonx.New("restricted_skipped", 0, "secret_adjacent_skipped", 0, "unindexed_skipped", 0),
+		"excluded", jsonx.New("restricted_skipped", 0, "unindexed_skipped", 0),
 		"hits_by_doc", []*jsonx.Obj{})
 }
 
@@ -205,14 +222,15 @@ func QueryWords(query string, caseSensitive bool) []string {
 
 // SearchBody searches indexed doc bodies: a multi-word query matches docs
 // whose body holds every word, anything else is a ripgrep pattern. Matches
-// inside frontmatter are dropped and restricted bodies are never searched.
-func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSensitive bool) *jsonx.Obj {
+// inside frontmatter are dropped, restricted bodies are never searched, and
+// only the docs keep accepts are returned or counted.
+func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSensitive bool, keep Keep) *jsonx.Obj {
 	query = pystr.Strip(query)
 	if query == "" {
 		return emptySearch(query)
 	}
 	if words := QueryWords(query, caseSensitive); len(words) > 0 {
-		return searchWords(l, query, words, limit, caseSensitive)
+		return searchWords(l, query, words, limit, caseSensitive, keep)
 	}
 	rg, err := exec.LookPath("rg")
 	if err != nil {
@@ -321,6 +339,9 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 			unindexed++
 			continue
 		}
+		if keep != nil && !keep(d) {
+			continue
+		}
 		if d.Sensitivity == gate.Restricted {
 			restricted++
 			continue
@@ -365,7 +386,7 @@ func SearchBody(l *vault.Loader, query string, limit, contextLines int, caseSens
 		"query", query,
 		"doc_count", len(out2),
 		"total_match_count", total,
-		"excluded", jsonx.New("restricted_skipped", restricted, "secret_adjacent_skipped", restricted, "unindexed_skipped", unindexed),
+		"excluded", jsonx.New("restricted_skipped", restricted, "unindexed_skipped", unindexed),
 		"hits_by_doc", out2,
 	)
 }
@@ -376,7 +397,7 @@ const maxWordSnippets = 5
 // doc's score is its best section's: the words that section covers, then
 // their occurrences per thousand words, so a short section about the query
 // beats a long doc that mentions each word once.
-func searchWords(l *vault.Loader, query string, words []string, limit int, caseSensitive bool) *jsonx.Obj {
+func searchWords(l *vault.Loader, query string, words []string, limit int, caseSensitive bool, keep Keep) *jsonx.Obj {
 	fold := func(s string) string {
 		if caseSensitive {
 			return s
@@ -390,7 +411,7 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 	}
 	var hits []docHits
 	restricted := 0
-	for _, d := range l.Index(false).Docs {
+	for _, d := range keep.docs(l.Index(false).Docs) {
 		if !search.Searchable(d) {
 			restricted++
 			continue
@@ -447,7 +468,7 @@ func searchWords(l *vault.Loader, query string, words []string, limit int, caseS
 		"words", slices.Clone(words),
 		"doc_count", len(out),
 		"total_match_count", total,
-		"excluded", jsonx.New("restricted_skipped", restricted, "secret_adjacent_skipped", restricted, "unindexed_skipped", 0),
+		"excluded", jsonx.New("restricted_skipped", restricted, "unindexed_skipped", 0),
 		"hits_by_doc", out,
 	)
 }

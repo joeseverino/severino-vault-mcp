@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,17 +97,89 @@ func TestFindRoutesToTheNamedVault(t *testing.T) {
 	}
 }
 
-func TestFindSystemAndProjectModes(t *testing.T) {
+func findWith(v *core.Vault, q string, a core.FindArgs) *jsonx.Obj {
+	if a.By == "" {
+		a.By = "relevance"
+	}
+	a.Limit, a.ContextLines = 10, 1
+	return core.Find(v, q, a)
+}
+
+func TestFindFiltersNarrowEitherModeAndKeepTheRanking(t *testing.T) {
 	v := newTwoVaults(t)
-	bySystem := findBy(v.labs, "nginx", "system")
-	if tk.Get(bySystem, "match_count") != 1 || tk.Get(bySystem, "hits.0.doc_id") != "rb-add-proxy-host" {
-		t.Fatal(jsonx.Compact(bySystem))
+	labs := v.labs.Config.VaultPath
+	tk.Doc(t, filepath.Join(labs, "03 Runbooks", "Proxy Logs.md"), `
+doc_id: rb-proxy-logs
+title: Proxy Logs
+doc_type: runbook
+system: Caddy
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-01-01
+related_projects: [edge-dns]
+`, "## Goal\n\nRead the proxy logs.\n")
+	tk.Doc(t, filepath.Join(labs, "03 Runbooks", "Rotate Certs.md"), `
+doc_id: rb-rotate-certs
+title: Rotate Certs
+doc_type: runbook
+system: Nginx Proxy Manager
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-01-01
+related_projects: [homelab-apps]
+`, "## Goal\n\nRenew the certificate the proxy serves.\n")
+
+	if got := tk.IDs(tk.Hits(find(v.labs, "proxy"), "hits")); !slices.Contains(got, "rb-proxy-logs") {
+		t.Fatalf("unfiltered find should see every proxy doc: %v", got)
 	}
-	if got := tk.IDs(tk.Hits(findBy(v.labs, "homelab-apps", "project"), "hits")); !slices.Equal(got, []string{"rb-add-proxy-host"}) {
-		t.Fatal(got)
+	r := findWith(v.labs, "proxy", core.FindArgs{Project: "homelab-apps"})
+	if got := tk.IDs(tk.Hits(r, "hits")); !slices.Equal(got, []string{"rb-add-proxy-host", "rb-rotate-certs"}) {
+		t.Fatalf("project filter, ranked by relevance: %v", got)
 	}
-	if tk.Get(findBy(v.edu, "homelab-apps", "project"), "match_count") != 0 {
-		t.Fatal("edu project search crossed vaults")
+	if tk.Get(r, "filters.project") != "homelab-apps" || r.Has("quick_index_matches") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if got := tk.IDs(tk.Hits(findWith(v.labs, "proxy", core.FindArgs{System: "nginx"}), "hits")); !slices.Equal(got, []string{"rb-add-proxy-host", "rb-rotate-certs"}) {
+		t.Fatalf("system filter is a case-insensitive substring: %v", got)
+	}
+	if got := tk.IDs(tk.Hits(findWith(v.labs, "proxy", core.FindArgs{System: "caddy", Project: "EDGE"}), "hits")); !slices.Equal(got, []string{"rb-proxy-logs"}) {
+		t.Fatalf("both filters apply together: %v", got)
+	}
+	if n := tk.Get(findWith(v.labs, "proxy", core.FindArgs{System: "caddy", Project: "homelab-apps"}), "match_count"); n != 0 {
+		t.Fatalf("filters must all hold: %v", n)
+	}
+	if n := tk.Get(findWith(v.edu, "proxy", core.FindArgs{Project: "homelab-apps"}), "match_count"); n != 0 {
+		t.Fatal("edu project filter crossed vaults")
+	}
+}
+
+func TestFindTextModeHonoursTheFilters(t *testing.T) {
+	requireRG(t)
+	root := tk.FakeVault(t)
+	v := tk.Vault(root)
+	const target = "rb-add-nginx-proxy-host"
+	tk.Doc(t, filepath.Join(root, "03 Runbooks", "NPM Backup.md"), `
+doc_id: rb-npm-backup
+title: NPM Backup
+doc_type: runbook
+system: Nginx Proxy Manager
+environment: homelab
+status: active
+sensitivity: internal
+last_reviewed: 2026-01-01
+`, "## Steps\n\nBack up NPM before enabling https.\n")
+	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.Set{RelatedProjects: write.ListOp{Add: []string{"client-edge-dns"}}})
+	// One query takes the all-words path, the other the ripgrep path.
+	for _, q := range []string{"npm https", "NPM"} {
+		if got := tk.IDs(tk.Hits(findBy(v, q, "text"), "hits")); !slices.Contains(got, "rb-npm-backup") || !slices.Contains(got, target) {
+			t.Fatalf("%s unfiltered: %v", q, got)
+		}
+		r := findWith(v, q, core.FindArgs{By: "text", Project: "client-edge"})
+		if got := tk.IDs(tk.Hits(r, "hits")); r.Has("fallback") || !slices.Equal(got, []string{target}) {
+			t.Fatalf("%s filtered: %s", q, jsonx.Compact(r))
+		}
 	}
 }
 
@@ -149,7 +222,7 @@ func TestRestrictedBodyStaysGatedPerVault(t *testing.T) {
 		t.Fatal(jsonx.Compact(withheld))
 	}
 	requested := core.ReadDoc(v.edu, "res-exam-answers", "", true)
-	if requested.Bool("body_released") || requested.Has("body") || tk.Get(requested, "unlock.result") != "disabled" {
+	if requested.Bool("body_released") || requested.Has("body") || tk.Get(requested, "unlock.result") != "unconfigured" {
 		t.Fatal(jsonx.Compact(requested))
 	}
 }
@@ -200,7 +273,7 @@ func TestSetFrontmatterCreateMergesAddLists(t *testing.T) {
 	if !r.Bool("ok") {
 		t.Fatal(jsonx.Compact(r))
 	}
-	hit := tk.Hits(findBy(v.labs, "untagged", "system"), "hits")[0]
+	hit := tk.Hits(find(v.labs, "untagged"), "hits")[0]
 	if tags, _ := hit.Get("tags"); !slices.Equal(tags.([]string), []string{"one", "two"}) {
 		t.Fatal(tags)
 	}
@@ -270,36 +343,6 @@ func TestTaskBoardListsTheProjectsTasksCanGoIn(t *testing.T) {
 }
 
 // ----- the fake_vault cases from test_search ------------------------------------
-
-func encodedUnlockHash(phrase string) string {
-	encoded, err := gate.HashPhrase(phrase, gate.Params{Memory: 64, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32})
-	if err != nil {
-		panic(err)
-	}
-	return encoded
-}
-
-func TestDailyProgressResolvesFridayFromAnchor(t *testing.T) {
-	v := tk.Vault(tk.FakeVault(t))
-	r := core.DailyProgress(v, "what progress did i make on friday?", "2026-06-20")
-	if !r.Bool("found") || r.Str("resolved_date") != "2026-06-19" || r.Str("date_resolution") != "weekday" ||
-		r.Str("doc_id") != "daily-20260619" || r.Str("obsidian_path") != "00 Inbox/Daily Note/2026-06-19.md" ||
-		!strings.Contains(r.Str("body"), "Daily Note template") {
-		t.Fatal(jsonx.Compact(r))
-	}
-	items, _ := r.Get("progress_items")
-	if !slices.ContainsFunc(items.([]string), func(s string) bool { return strings.Contains(s, "archive command") }) {
-		t.Fatal(items)
-	}
-}
-
-func TestDailyProgressReportsMissingNote(t *testing.T) {
-	v := tk.Vault(tk.FakeVault(t))
-	r := core.DailyProgress(v, "what happened yesterday?", "2026-06-19")
-	if r.Bool("found") || r.Str("resolved_date") != "2026-06-18" || r.Str("expected_path") != "00 Inbox/Daily Note/2026-06-18.md" {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
 
 func TestDuplicateDocIDIsExcludedAndReportedAtRuntime(t *testing.T) {
 	root := tk.FakeVault(t)
@@ -472,47 +515,84 @@ func TestReadDocWithholdsRestrictedBody(t *testing.T) {
 	}
 }
 
-func TestReadDocRestrictedRequestRequiresLocalUnlock(t *testing.T) {
-	r := core.ReadDoc(tk.Vault(tk.FakeVault(t)), "infra-local-pki", "", true)
-	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "disabled" ||
-		!strings.Contains(strings.ToLower(tk.Get(r, "unlock.message").(string)), "interactive unlock is disabled") {
-		t.Fatal(jsonx.Compact(r))
+const unlockRef = "op://Private-Vault/Unlock-Item/password"
+
+// withApprove replaces the 1Password read with one that answers err, clears
+// any service-account token this process carries, and counts the calls.
+func withApprove(t *testing.T, err error) *int {
+	t.Helper()
+	t.Setenv(gate.ServiceAccountToken, "")
+	if e := os.Unsetenv(gate.ServiceAccountToken); e != nil {
+		t.Fatal(e)
 	}
+	calls := 0
+	prev := gate.Approve
+	gate.Approve = func(ref string) error {
+		calls++
+		if ref != unlockRef {
+			t.Errorf("approve asked for %q", ref)
+		}
+		return err
+	}
+	t.Cleanup(func() { gate.Approve = prev })
+	return &calls
 }
 
-func withPrompt(t *testing.T, phrase string) {
-	prev := gate.PromptPhrase
-	gate.PromptPhrase = func(string, string) (string, bool) { return phrase, true }
-	t.Cleanup(func() { gate.PromptPhrase = prev })
-}
-
-func TestReadDocReleasesRestrictedAfterLocalUnlock(t *testing.T) {
+func unlockVault(t *testing.T, ref string) (*core.Vault, string) {
+	t.Helper()
 	root := tk.FakeVault(t)
 	audit := filepath.Join(root, "audit.log")
-	v := tk.Vault(root, "SVMC_ALLOW_RESTRICTED_UNLOCK", "1", "SVMC_RESTRICTED_UNLOCK_HASH", encodedUnlockHash("open sesame"),
-		"SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", audit)
-	withPrompt(t, "open sesame")
+	return tk.Vault(root, config.UnlockRefVar, ref, "SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", audit), audit
+}
+
+func TestReadDocRestrictedNeedsAnUnlockRef(t *testing.T) {
+	calls := withApprove(t, nil)
+	v, audit := unlockVault(t, "")
 	r := core.ReadDoc(v, "infra-local-pki", "", true)
-	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "CA private key") || !r.Bool("override_used") || tk.Get(r, "unlock.result") != "released" {
-		t.Fatal(jsonx.Compact(r))
+	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "unconfigured" ||
+		!strings.Contains(tk.Get(r, "unlock.message").(string), "set restricted.unlock_ref") || *calls != 0 {
+		t.Fatal(jsonx.Compact(r), *calls)
 	}
-	log := tk.Read(t, audit)
-	if !strings.Contains(log, "doc_id=infra-local-pki") || !strings.Contains(log, "result=released") {
+	if log := tk.Read(t, audit); !strings.Contains(log, "doc_id=infra-local-pki result=unconfigured") {
 		t.Fatal(log)
 	}
 }
 
-func TestReadDocKeepsRestrictedLockedAfterBadUnlock(t *testing.T) {
-	root := tk.FakeVault(t)
-	audit := filepath.Join(root, "audit.log")
-	v := tk.Vault(root, "SVMC_ALLOW_RESTRICTED_UNLOCK", "1", "SVMC_RESTRICTED_UNLOCK_HASH", encodedUnlockHash("open sesame"),
-		"SVMC_RESTRICTED_UNLOCK_AUDIT_LOG", audit)
-	withPrompt(t, "wrong")
+func TestReadDocReleasesRestrictedAfterApproval(t *testing.T) {
+	calls := withApprove(t, nil)
+	v, audit := unlockVault(t, unlockRef)
 	r := core.ReadDoc(v, "infra-local-pki", "", true)
-	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "failed" {
+	if !r.Bool("body_released") || !strings.Contains(r.Str("body"), "CA private key") || !r.Bool("override_used") ||
+		tk.Get(r, "unlock.result") != "approved" || *calls != 1 {
 		t.Fatal(jsonx.Compact(r))
 	}
-	if log := tk.Read(t, audit); !strings.Contains(log, "result=failed") {
+	if log := tk.Read(t, audit); !strings.Contains(log, "doc_id=infra-local-pki result=approved") {
+		t.Fatal(log)
+	}
+}
+
+func TestReadDocKeepsRestrictedLockedWhenApprovalFails(t *testing.T) {
+	withApprove(t, errors.New("op read failed: exit status 1"))
+	v, audit := unlockVault(t, unlockRef)
+	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "withheld" ||
+		!strings.Contains(tk.Get(r, "unlock.message").(string), "exit status 1") {
+		t.Fatal(jsonx.Compact(r))
+	}
+	if log := tk.Read(t, audit); !strings.Contains(log, "result=withheld") {
+		t.Fatal(log)
+	}
+}
+
+func TestReadDocRefusesUnlockUnderAServiceAccount(t *testing.T) {
+	calls := withApprove(t, nil)
+	t.Setenv(gate.ServiceAccountToken, "ops_x")
+	v, audit := unlockVault(t, unlockRef)
+	r := core.ReadDoc(v, "infra-local-pki", "", true)
+	if r.Bool("body_released") || r.Has("body") || tk.Get(r, "unlock.result") != "service-account-refused" || *calls != 0 {
+		t.Fatal(jsonx.Compact(r), *calls)
+	}
+	if log := tk.Read(t, audit); !strings.Contains(log, "result=service-account-refused") || strings.Contains(log, "ops_x") {
 		t.Fatal(log)
 	}
 }
@@ -765,15 +845,6 @@ func TestFindTextSkipsFrontmatterHits(t *testing.T) {
 	t.Fatal("nginx hit missing")
 }
 
-func TestFindProjectFiltersBySlug(t *testing.T) {
-	v := tk.Vault(tk.FakeVault(t))
-	core.SetFrontmatter(v, "03 Runbooks/Add Nginx Proxy Host.md", write.Set{RelatedProjects: write.ListOp{Add: []string{"client-edge-dns"}}})
-	r := findBy(v, "client-edge-dns", "project")
-	if tk.Get(r, "match_count") != 1 || tk.Get(r, "hits.0.doc_type") != "runbook" {
-		t.Fatal(jsonx.Compact(r))
-	}
-}
-
 func repoRoot(t *testing.T) string {
 	wd, _ := os.Getwd()
 	return filepath.Join(wd, "..", "..")
@@ -796,8 +867,8 @@ func TestSampleVaultIsReproducible(t *testing.T) {
 			t.Fatalf("%s: %s", id, jsonx.Compact(r))
 		}
 	}
-	if !slices.Contains(tk.IDs(tk.Hits(findBy(v, "Offline CA", "system"), "hits")), "infra-offline-ca") {
-		t.Fatal("system search")
+	if !slices.Contains(tk.IDs(tk.Hits(findWith(v, "offline ca", core.FindArgs{System: "local pki"}), "hits")), "infra-offline-ca") {
+		t.Fatal("system filter")
 	}
 }
 
@@ -851,7 +922,7 @@ func TestFindSectionsMatchesTheFindTool(t *testing.T) {
 	tk.MultisectionDoc(t, root)
 	v := tk.Vault(root)
 	q := "resolver latency troubleshooting"
-	service := query.FindSections(v.Loader, q, 10)
+	service := query.FindSections(v.Loader, q, 10, nil)
 	tool := find(v, q)
 	sh, _ := service.Get("hits")
 	th, _ := tool.Get("hits")

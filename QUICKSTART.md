@@ -197,42 +197,37 @@ command: severino-vault-mcp
 
 Rerun `go install -trimpath ./cmd/severino-vault-mcp` after pulling new repo changes.
 
-## 8. Optional: Enable Restricted Local Unlock
+## 8. Optional: Unlock Restricted Docs With Touch ID
 
 By default, `restricted` docs return metadata only.
 
-To allow one-request local unlocks on macOS, first store an unlock hash in
-Keychain. `unlock-hash` reads the phrase twice from the terminal without echo
-and prints an argon2id PHC string
-(`$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`):
+A restricted body is released for one request when a 1Password read of a
+dedicated unlock item succeeds. The read goes through the 1Password desktop
+app, so it asks for Touch ID every time.
 
-```bash
-security add-generic-password -U \
-  -s severino-vault-mcp \
-  -a restricted-unlock \
-  -w "$(severino-vault-mcp unlock-hash)"
-```
+1. In the 1Password app, turn on Settings > Developer > Integrate with
+   1Password CLI, and install the `op` CLI.
+2. Create a dedicated item (any password field will do) in a vault that no
+   service account can read. A service account that could read it would
+   approve its own unlock.
+3. Point the config at it:
 
-Or to a file instead of Keychain:
+   ```toml
+   [restricted]
+   unlock_ref = "op://Private-Vault/Unlock-Item/password"
+   ```
 
-```bash
-(umask 077; severino-vault-mcp unlock-hash > ~/.config/severino-vault-mcp/restricted-unlock.phc)
-```
+   or set `SVMC_RESTRICTED_UNLOCK_REF` in the MCP client's `env`.
 
-Then add this env var to the MCP client config:
+4. Check the read prompts for Touch ID:
 
-```json
-{
-  "env": {
-    "SVMC_ALLOW_RESTRICTED_UNLOCK": "1"
-  }
-}
-```
+   ```bash
+   op read --no-newline "op://Private-Vault/Unlock-Item/password" >/dev/null && echo ok
+   ```
 
-Never type the unlock phrase into AI chat. The prompt is local-only.
-
-Older `secret_adjacent` labels and `SVMC_ALLOW_SECRET_ADJACENT_UNLOCK` still
-work as compatibility aliases, but new vaults should use `restricted`.
+Start the MCP server without `OP_SERVICE_ACCOUNT_TOKEN` in its environment:
+while it is set, every unlock is refused. The value read is discarded at once
+and never logged; the audit log records each attempt and its result.
 
 ## 9. Common Adoption Checks
 

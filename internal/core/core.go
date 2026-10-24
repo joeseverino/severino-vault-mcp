@@ -1,6 +1,6 @@
 // Package core is the shared vault tool surface, transport-free: find,
-// read_doc, set_frontmatter, write_doc, update_link, task_board, task_write,
-// recent_changes and daily_progress, plus the two resource renderers. Each
+// read_doc, set_frontmatter, write_doc, task_board and task_write, plus the
+// two resource renderers. Each
 // call runs against one Vault, so search, the sensitivity gate and schema
 // validation never cross vaults. The MCP adapter and the tests both drive
 // these functions.
@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/joeseverino/severino-vault-mcp/internal/config"
-	"github.com/joeseverino/severino-vault-mcp/internal/daily"
 	"github.com/joeseverino/severino-vault-mcp/internal/frontmatter"
 	"github.com/joeseverino/severino-vault-mcp/internal/fsx"
 	"github.com/joeseverino/severino-vault-mcp/internal/gate"
@@ -47,13 +46,14 @@ func NewVault(name string, cfg config.Config, p *schema.Profile) *Vault {
 
 var unlockMessages = map[string]string{
 	"not_requested": "Body withheld. To request release, rerun with include_restricted=True; " +
-		"the local MCP will still require an interactive unlock on the Mac.",
-	"disabled": "Interactive unlock is disabled. Set SVMC_ALLOW_RESTRICTED_UNLOCK=1 " +
-		"in the local MCP environment to allow local unlock prompts.",
-	"no_unlock_hash": "No local unlock hash is configured. Store the output of " +
-		"`severino-vault-mcp unlock-hash` in Keychain, SVMC_RESTRICTED_UNLOCK_HASH_FILE, or SVMC_RESTRICTED_UNLOCK_HASH.",
-	"prompt_unavailable": "Local hidden-input prompt was unavailable or cancelled.",
-	"failed":             "Local unlock phrase verification failed.",
+		"the local MCP will still ask for Touch ID through 1Password.",
+	"unconfigured": "Restricted unlock is not configured: set restricted.unlock_ref (or " +
+		config.UnlockRefVar + ") to the op:// reference of a dedicated 1Password item.",
+	"service-account-refused": gate.ServiceAccountToken + " is set in the MCP server's environment, " +
+		"and a service account would approve its own unlock. Start the server without it to unlock with Touch ID.",
+	"withheld": "1Password did not approve the unlock. Check that the 1Password app is unlocked " +
+		"with CLI integration on, then retry and approve the Touch ID prompt.",
+	"approved": "Unlocked through 1Password for this request only.",
 }
 
 func wikiTargets(text string) []string {
@@ -182,8 +182,13 @@ func quickIndexMatches(idx *vault.Index, q string, limit int) []*jsonx.Obj {
 	return out
 }
 
-func findRelevance(v *Vault, q string, limit int) *jsonx.Obj {
-	resp := query.FindSections(v.Loader, q, limit)
+func findRelevance(v *Vault, q string, limit int, keep query.Keep) *jsonx.Obj {
+	resp := query.FindSections(v.Loader, q, limit, keep)
+	if keep != nil {
+		// The quick index points across the whole vault, so it has nothing
+		// to add to a filtered search.
+		return resp
+	}
 	hitsV, _ := resp.Get("hits")
 	hits := hitsV.([]*jsonx.Obj)
 	topDocID := ""
@@ -199,88 +204,61 @@ func findRelevance(v *Vault, q string, limit int) *jsonx.Obj {
 	return resp
 }
 
-func hitList(docs []*vault.Doc) []*jsonx.Obj {
-	out := []*jsonx.Obj{}
-	for _, d := range docs {
-		out = append(out, query.Hit(d))
-	}
-	return out
-}
+// FindModes are find's modes; the first is the default.
+var FindModes = []string{"relevance", "text"}
 
-func findSystem(v *Vault, q string) *jsonx.Obj {
-	needle := strings.ToLower(pystr.Strip(q))
-	if needle == "" {
-		return jsonx.New("query", q, "match_count", 0, "hits", []*jsonx.Obj{})
-	}
-	var matches []*vault.Doc
-	for _, d := range v.Loader.Index(false).Docs {
-		if strings.Contains(strings.ToLower(d.System), needle) || strings.Contains(strings.ToLower(d.Title), needle) ||
-			strings.Contains(strings.ToLower(d.DocID), needle) {
-			matches = append(matches, d)
-		}
-	}
-	slices.SortStableFunc(matches, func(a, b *vault.Doc) int {
-		ai, bi := boolInt(a.Status != "active"), boolInt(b.Status != "active")
-		if ai != bi {
-			return ai - bi
-		}
-		if c := strings.Compare(a.LastReviewed, b.LastReviewed); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Title, b.Title)
-	})
-	return jsonx.New("query", q, "match_count", len(matches), "hits", hitList(matches))
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func findProject(v *Vault, q string) *jsonx.Obj {
-	slug := pystr.Strip(q)
-	if slug == "" {
-		return jsonx.New("query", q, "match_count", 0, "hits", []*jsonx.Obj{})
-	}
-	var matches []*vault.Doc
-	for _, d := range v.Loader.Index(false).Docs {
-		if slices.Contains(d.RelatedProjects, slug) {
-			matches = append(matches, d)
-		}
-	}
-	slices.SortStableFunc(matches, func(a, b *vault.Doc) int {
-		if c := strings.Compare(a.DocType, b.DocType); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Title, b.Title)
-	})
-	return jsonx.New("query", q, "match_count", len(matches), "hits", hitList(matches))
-}
-
-// FindArgs are find's options.
+// FindArgs are find's options. System and Project, when set, narrow either
+// mode to docs whose `system` field, or one of whose `related_projects`
+// entries, contains them, case-insensitively.
 type FindArgs struct {
 	By            string
 	Limit         int
 	ContextLines  int
 	CaseSensitive bool
+	System        string
+	Project       string
+}
+
+// keep is the doc filter System and Project describe; nil when neither is set.
+func (a FindArgs) keep() query.Keep {
+	system := strings.ToLower(pystr.Strip(a.System))
+	project := strings.ToLower(pystr.Strip(a.Project))
+	if system == "" && project == "" {
+		return nil
+	}
+	return func(d *vault.Doc) bool {
+		if system != "" && !strings.Contains(strings.ToLower(d.System), system) {
+			return false
+		}
+		return project == "" || slices.ContainsFunc(d.RelatedProjects, func(p string) bool {
+			return strings.Contains(strings.ToLower(p), project)
+		})
+	}
+}
+
+// filters echoes the filters a search applied.
+func (a FindArgs) filters() *jsonx.Obj {
+	o := jsonx.New()
+	if s := pystr.Strip(a.System); s != "" {
+		o.Set("system", s)
+	}
+	if p := pystr.Strip(a.Project); p != "" {
+		o.Set("project", p)
+	}
+	return o
 }
 
 // Find searches one vault in the requested mode.
 func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
+	keep := a.keep()
 	var resp *jsonx.Obj
 	switch a.By {
 	case "relevance":
-		resp = findRelevance(v, q, a.Limit)
+		resp = findRelevance(v, q, a.Limit, keep)
 		hits, _ := resp.Get("hits")
 		resp.Set("match_count", len(hits.([]*jsonx.Obj)))
-	case "system":
-		resp = findSystem(v, q)
-	case "project":
-		resp = findProject(v, q)
 	case "text":
-		resp = query.SearchBody(v.Loader, q, a.Limit, a.ContextLines, a.CaseSensitive)
+		resp = query.SearchBody(v.Loader, q, a.Limit, a.ContextLines, a.CaseSensitive, keep)
 		if !resp.Has("error") {
 			// Rename in place, keeping the Python key order.
 			renamed := jsonx.New()
@@ -301,16 +279,20 @@ func Find(v *Vault, q string, a FindArgs) *jsonx.Obj {
 			resp = renamed
 			if count == 0 {
 				excluded, _ := resp.Get("excluded")
-				resp = jsonx.New("fallback", "relevance").Merge(findRelevance(v, q, a.Limit))
+				resp = jsonx.New("fallback", "relevance").Merge(findRelevance(v, q, a.Limit, keep))
 				hits, _ := resp.Get("hits")
 				resp.Set("match_count", len(hits.([]*jsonx.Obj)))
 				resp.Set("excluded", excluded)
 			}
 		}
 	default:
-		return jsonx.New("ok", false, "error", fmt.Sprintf("unknown mode %s; one of relevance, system, project, text", pystr.Repr(a.By)))
+		return jsonx.New("ok", false, "error", fmt.Sprintf("unknown mode %s; one of %s", pystr.Repr(a.By), strings.Join(FindModes, ", ")))
 	}
-	return jsonx.New("vault", v.Name, "mode", a.By).Merge(resp)
+	out := jsonx.New("vault", v.Name, "mode", a.By)
+	if f := a.filters(); len(f.Keys()) > 0 {
+		out.Set("filters", f)
+	}
+	return out.Merge(resp)
 }
 
 func lookupDoc(v *Vault, identifier string) (*vault.Doc, *jsonx.Obj) {
@@ -348,32 +330,30 @@ func notFound(v *Vault, identifier string) *jsonx.Obj {
 			"file configured by `SVMC_ALIASES_PATH` or `[aliases].path`.")
 }
 
-func withheld(base *jsonx.Obj, result string) *jsonx.Obj {
+func withheld(base *jsonx.Obj, result, message string) *jsonx.Obj {
 	base.Set("body_released", false)
 	base.Set("advisory", gate.Advisory(gate.Parse(base.Str("sensitivity")), false))
 	if result != "" {
-		base.Set("unlock", jsonx.New("allowed", false, "result", result, "message", unlockMessages[result]))
+		base.Set("unlock", jsonx.New("allowed", false, "result", result, "message", message))
 	}
 	return base
 }
 
-func unlock(v *Vault, docID, title string) (bool, string, string) {
-	c := v.Config
-	if !c.AllowRestrictedUnlock {
-		return false, "disabled", unlockMessages["disabled"]
+// unlock asks 1Password, and so Joe's Touch ID, to release one restricted
+// doc. The service-account check comes first: with a token in the
+// environment op would answer without a human.
+func unlock(v *Vault, _, _ string) (bool, string, string) {
+	ref := v.Config.RestrictedUnlockRef
+	if !strings.HasPrefix(ref, "op://") {
+		return false, "unconfigured", unlockMessages["unconfigured"]
 	}
-	hash := gate.LoadHash(c.RestrictedUnlockHash, c.RestrictedUnlockHashFile, c.RestrictedKeychainService, c.RestrictedKeychainAccount)
-	if hash == "" {
-		return false, "no_unlock_hash", unlockMessages["no_unlock_hash"]
+	if gate.ServiceAccountPresent() {
+		return false, "service-account-refused", unlockMessages["service-account-refused"]
 	}
-	phrase, ok := gate.PromptPhrase(docID, title)
-	if !ok {
-		return false, "prompt_unavailable", unlockMessages["prompt_unavailable"]
+	if err := gate.Approve(ref); err != nil {
+		return false, "withheld", unlockMessages["withheld"] + " (" + err.Error() + ")"
 	}
-	if !gate.VerifyPhrase(phrase, hash) {
-		return false, "failed", unlockMessages["failed"]
-	}
-	return true, "released", "Local unlock succeeded for this request only."
+	return true, "approved", unlockMessages["approved"]
 }
 
 func narrow(base *jsonx.Obj, d *vault.Doc, section string) *jsonx.Obj {
@@ -413,13 +393,13 @@ func readDoc(v *Vault, docID, section string, includeRestricted bool) *jsonx.Obj
 	}
 	if d.Sensitivity == gate.Restricted {
 		if !includeRestricted {
-			return withheld(base, "not_requested")
+			return withheld(base, "not_requested", unlockMessages["not_requested"])
 		}
 		allowed, result, msg := unlock(v, d.DocID, d.Title)
 		gate.AuditUnlock(v.Config.RestrictedAuditLog, d.DocID, result)
 		base.Set("unlock", jsonx.New("allowed", allowed, "result", result, "message", msg))
 		if !allowed {
-			return withheld(base, result)
+			return withheld(base, result, msg)
 		}
 		base.Set("body", d.Body)
 		base.Set("body_released", true)
@@ -460,16 +440,6 @@ func RenderDoc(v *Vault, docID string) string {
 			d.Title, gate.Advisory(d.Sensitivity, false), d.DocID, d.RelativePath, d.System, d.Sensitivity)
 	}
 	return d.Body
-}
-
-// RecentChanges lists a vault's recent commits.
-func RecentChanges(v *Vault, days, limit int) *jsonx.Obj {
-	return query.RecentChanges(v.Loader, days, limit)
-}
-
-// DailyProgress reads the daily note a progress question refers to.
-func DailyProgress(v *Vault, q, today string) *jsonx.Obj {
-	return daily.Progress(v.Config, q, today)
 }
 
 // SetFrontmatter creates or updates a doc's frontmatter.
@@ -528,7 +498,7 @@ func WriteDoc(v *Vault, a WriteDocArgs) *jsonx.Obj {
 	}
 	if d.Sensitivity == gate.Restricted {
 		if !a.IncludeRestricted {
-			return fail(d.DocID + " is restricted; rerun with include_restricted=True, which also needs a local unlock")
+			return fail(d.DocID + " is restricted; rerun with include_restricted=True, which also needs a Touch ID approval through 1Password")
 		}
 		allowed, result, msg := unlock(v, d.DocID, d.Title)
 		gate.AuditUnlock(v.Config.RestrictedAuditLog, d.DocID, result)
@@ -591,11 +561,6 @@ func CheckDoc(v *Vault, path string) (rel string, problems []string, ok bool) {
 		return rel, []string{"missing YAML frontmatter"}, true
 	}
 	return rel, v.Profile.Check(fm), true
-}
-
-// UpdateLink replaces one exact Markdown link in a doc.
-func UpdateLink(v *Vault, docID, label, expected, replacement string) *jsonx.Obj {
-	return write.UpdateLink(v.Loader, docID, label, expected, replacement)
 }
 
 // TaskBoard is a vault's board plus its projects.

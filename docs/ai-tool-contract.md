@@ -17,10 +17,10 @@ when a vault doc exists. Every shared tool takes `vault` (`labs` by default,
 | Broad process question | `vault://labs/quick-index` | Read the target `vault://labs/doc/{doc_id}`. |
 | Specific runbook question | `find` | `read_doc` on the top hit (with its `section` when the hit names one); quote commands exactly. |
 | Known doc ID | `read_doc` or `vault://{vault}/doc/{doc_id}` | Respect the sensitivity policy. |
-| System context | `find(by="system")` | Read the selected doc before summarizing. |
-| Docs for a project | `find(by="project")` | Read before summarizing. |
+| System context | `find(query, system="...")` | Read the selected doc before summarizing. |
+| Docs for a project | `find(query, project="...")` | Read before summarizing. |
 | Body search | `find(by="text")` | Snippets are for discovery; read the doc before final instructions. |
-| Daily progress or log | `daily_progress` | Summarize from the returned note. |
+| New doc, or a section edit | `write_doc` | Body plus frontmatter in one validated call; never edit the file directly. |
 | Missing or stale metadata | `set_frontmatter` | Report changed fields and the next sync step. |
 | Tasks | `task_board`, then `task_write` | `task_write(action=...)`: add, status, promote, delete. |
 | Duplicate doc ID response | `doctor` (CLI) | Report every conflicting path; don't pick one. |
