@@ -32,6 +32,15 @@ func steer(o *jsonx.Obj, steps ...string) *jsonx.Obj {
 	return o
 }
 
+// contended reports a write refused because another process held the note's
+// lock, or kept changing the note, through the rewrite; the same call again
+// is the recovery.
+func contended(msg string) bool {
+	return strings.Contains(msg, fsx.ErrChanged.Error()) || strings.Contains(msg, fsx.ErrLocked.Error())
+}
+
+const contendedWhy = "; another process was writing the note"
+
 // failNext is a failure with the calls that recover from it.
 func failNext(msg string, steps ...string) *jsonx.Obj { return steer(fail(msg), steps...) }
 
@@ -134,6 +143,8 @@ func unlockSteps(docID, result string) []string {
 func (v *Vault) setSteps(rel string, docID *string) func(string) []string {
 	return func(msg string) []string {
 		switch {
+		case contended(msg):
+			return []string{Call("set_frontmatter", "relative_path", rel) + " again with the same fields" + contendedWhy}
 		case v.outsideWritable(rel):
 			return []string{v.writable(rel)}
 		case !v.exists(rel):
@@ -178,6 +189,8 @@ func (v *Vault) createSteps(rel, docID string) func(string) []string {
 func (v *Vault) sectionSteps(d *vault.Doc, mode string) func(string) []string {
 	return func(msg string) []string {
 		switch {
+		case contended(msg):
+			return []string{Call("write_doc", "mode", mode, "doc_id", d.DocID) + " again with the same heading and body" + contendedWhy}
 		case v.outsideWritable(d.RelativePath):
 			return []string{Call("read_doc", "doc_id", d.DocID) + " to read it; docs in read-only folders are not edited here"}
 		case strings.Contains(msg, "set_frontmatter"):
@@ -195,6 +208,9 @@ func (v *Vault) sectionSteps(d *vault.Doc, mode string) func(string) []string {
 // taskSteps recovers a refused task change.
 func taskSteps(a TaskWriteArgs) func(string) []string {
 	return func(msg string) []string {
+		if contended(msg) {
+			return []string{Call("task_write", "action", a.Action, "doc_id", a.DocID) + " again" + contendedWhy}
+		}
 		switch a.Action {
 		case "add":
 			if strings.Contains(msg, "no such project") {

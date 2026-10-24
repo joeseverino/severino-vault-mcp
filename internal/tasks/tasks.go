@@ -528,35 +528,40 @@ func SetStatus(l *vault.Loader, docID, status string) *jsonx.Obj {
 		return fail("write failed: " + verr.Error())
 	}
 	defer v.Close()
-	text, rerr := v.ReadText(d.Path)
-	if rerr != nil {
-		return fail("write failed: " + rerr.Error())
-	}
-	fm, body, _ := frontmatter.Split(text)
-	if fm == nil {
-		return fail("task file has no frontmatter")
-	}
-	prevV, _ := fm.Get("status")
+	var refused *jsonx.Obj
 	previous := ""
-	if pystr.Truthy(prevV) {
-		previous = pystr.Str(prevV)
+	_, uerr := v.Update(d.Path, func(text string) string {
+		fm, body, _ := frontmatter.Split(text)
+		if fm == nil {
+			refused = fail("task file has no frontmatter")
+			return text
+		}
+		prevV, _ := fm.Get("status")
+		previous = ""
+		if pystr.Truthy(prevV) {
+			previous = pystr.Str(prevV)
+		}
+		fm.Set("status", status)
+		if status == "done" {
+			fm.Set("closed", write.Today())
+		} else {
+			fm.Delete("closed")
+		}
+		return frontmatter.Serialize(fm) + body
+	})
+	if uerr != nil {
+		return fail("write failed: " + uerr.Error())
 	}
-	fm.Set("status", status)
-	if status == "done" {
-		fm.Set("closed", write.Today())
-	} else {
-		fm.Delete("closed")
+	if refused != nil {
+		return refused
 	}
 	target := filedDir(filepath.Dir(d.Path), status)
 	final := filepath.Join(target, filepath.Base(d.Path))
-	if err := v.MkdirAll(target); err != nil {
-		return fail("write failed: " + err.Error())
-	}
-	if err := v.AtomicWrite(final, frontmatter.Serialize(fm)+body); err != nil {
-		return fail("write failed: " + err.Error())
-	}
 	if final != d.Path {
-		if err := v.Remove(d.Path); err != nil {
+		if err := v.MkdirAll(target); err != nil {
+			return fail("write failed: " + err.Error())
+		}
+		if err := v.Rename(d.Path, final); err != nil {
 			return fail("write failed: " + err.Error())
 		}
 	}

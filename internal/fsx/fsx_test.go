@@ -57,16 +57,13 @@ func TestEveryOperationRefusesASymlinkOutOfTheVault(t *testing.T) {
 	}
 }
 
-func TestALeafSymlinkOutIsReplacedNeverFollowed(t *testing.T) {
-	dir, outside, v := sandbox(t)
+func TestALeafSymlinkOutIsNeverFollowed(t *testing.T) {
+	_, outside, v := sandbox(t)
 	if _, err := v.ReadFile("link-file.md"); err == nil {
 		t.Fatal("read followed a symlink out of the vault")
 	}
-	if err := v.AtomicWrite("link-file.md", "replaced"); err != nil {
-		t.Fatal(err)
-	}
-	if got := tk.Read(t, filepath.Join(dir, "link-file.md")); got != "replaced" {
-		t.Fatalf("got %q", got)
+	if _, err := v.Update("link-file.md", func(string) string { return "replaced" }); err == nil {
+		t.Fatal("update followed a symlink out of the vault")
 	}
 	if got := tk.Read(t, filepath.Join(outside, "secret.md")); got != "outside\n" {
 		t.Fatalf("outside file changed: %q", got)
@@ -84,8 +81,8 @@ func checkRefused(t *testing.T, v *fsx.Vault, p string) {
 	if _, err := v.Stat(p); err == nil {
 		t.Errorf("Stat(%q) allowed", p)
 	}
-	if err := v.AtomicWrite(p, "x"); err == nil {
-		t.Errorf("AtomicWrite(%q) allowed", p)
+	if _, err := v.Update(p, func(string) string { return "x" }); err == nil {
+		t.Errorf("Update(%q) allowed", p)
 	}
 	if err := v.AtomicCreate(p, "x"); err == nil {
 		t.Errorf("AtomicCreate(%q) allowed", p)
@@ -104,11 +101,12 @@ func checkRefused(t *testing.T, v *fsx.Vault, p string) {
 	}
 }
 
-func TestAtomicWriteReplacesAndLeavesNoStagedFiles(t *testing.T) {
+func TestUpdateReplacesAndLeavesNoStagedFiles(t *testing.T) {
 	dir, _, v := sandbox(t)
 	p := filepath.Join(dir, "note.md")
+	tk.Write(t, p, "zero")
 	for _, text := range []string{"one", "two"} {
-		if err := v.AtomicWrite(p, text); err != nil {
+		if _, err := v.Update(p, func(string) string { return text }); err != nil {
 			t.Fatal(err)
 		}
 		if got := tk.Read(t, p); got != text {

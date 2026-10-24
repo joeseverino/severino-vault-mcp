@@ -129,37 +129,46 @@ func EditBody(l *vault.Loader, relativePath string, p *schema.Profile, edit func
 	}
 	defer v.Close()
 	rel, _ := filepath.Rel(fsx.Resolve(l.Config.VaultPath), full)
-	text, err := v.ReadText(full)
+	var out *jsonx.Obj
+	size := 0
+	wrote, err := v.Update(full, func(text string) string {
+		out, size = nil, 0
+		cut := frontmatter.BodyOffset(text)
+		if cut == 0 {
+			out = fail("file has no frontmatter; register it with set_frontmatter first.")
+			return text
+		}
+		head, old := text[:cut], text[cut:]
+		newBody, ferr := edit(old, rel)
+		if ferr != nil {
+			out = ferr
+			return text
+		}
+		newText := touchReviewed(head, Today()) + newBody
+		fm, _, _ := frontmatter.Split(newText)
+		if errs := p.Check(fm); len(errs) > 0 {
+			out = fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
+			return text
+		}
+		docID, _ := fm.Get("doc_id")
+		out = jsonx.New("ok", true, "doc_id", docID, "relative_path", rel)
+		for i := 0; i+1 < len(extra); i += 2 {
+			out.Set(extra[i].(string), extra[i+1])
+		}
+		size = len(newText)
+		return newText
+	})
 	if err != nil {
-		return fail("write failed: " + err.Error())
+		return writeFailed(err)
 	}
-	cut := frontmatter.BodyOffset(text)
-	if cut == 0 {
-		return fail("file has no frontmatter; register it with set_frontmatter first.")
-	}
-	head, old := text[:cut], text[cut:]
-	newBody, ferr := edit(old, rel)
-	if ferr != nil {
-		return ferr
-	}
-	newText := touchReviewed(head, Today()) + newBody
-	fm, _, _ := frontmatter.Split(newText)
-	if errs := p.Check(fm); len(errs) > 0 {
-		return fail("frontmatter does not validate: " + strings.Join(errs, "; ") + "; fix it with set_frontmatter, then retry")
-	}
-	docID, _ := fm.Get("doc_id")
-	out := jsonx.New("ok", true, "doc_id", docID, "relative_path", rel)
-	for i := 0; i+1 < len(extra); i += 2 {
-		out.Set(extra[i].(string), extra[i+1])
-	}
-	if newText == text {
+	if !wrote {
+		if failed(out) {
+			return out
+		}
 		return out.Set("no_op", true).Set("wrote_bytes", 0)
 	}
-	if err := v.AtomicWrite(full, newText); err != nil {
-		return fail("write failed: " + err.Error())
-	}
 	l.Index(true)
-	return out.Set("wrote_bytes", len(newText)).Set("next_step", nextStep)
+	return out.Set("wrote_bytes", size).Set("next_step", nextStep)
 }
 
 // spliceSection rewrites the content under heading in body.

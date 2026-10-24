@@ -35,6 +35,28 @@ func TestReportsMissingFrontmatterAndProposesAFix(t *testing.T) {
 	t.Fatal("no finding for the untagged file")
 }
 
+// The note locks under .locks/ are neither checked by validate nor indexed.
+func TestNoteLocksAreNotVaultFiles(t *testing.T) {
+	root := tk.FakeVault(t)
+	cfg := config.Load("", tk.Env(root))
+	before := doctor.Validate(cfg, schema.Labs, false)
+	docs := len(tk.Loader(root).Index(true).Docs)
+	for _, rel := range []string{"03 Runbooks/Duplicate.md", "01 Projects/untagged.md", "Root note.md"} {
+		tk.HoldLock(t, root, rel)()
+	}
+	if _, err := os.Stat(filepath.Join(root, ".locks")); err != nil {
+		t.Fatal(err)
+	}
+	after := doctor.Validate(cfg, schema.Labs, false)
+	if after.CheckedFiles != before.CheckedFiles || len(after.Findings) != len(before.Findings) {
+		t.Fatalf("validate saw the locks: %d files, %d findings before; %d, %d after",
+			before.CheckedFiles, len(before.Findings), after.CheckedFiles, len(after.Findings))
+	}
+	if got := len(tk.Loader(root).Index(true).Docs); got != docs {
+		t.Fatalf("the index saw the locks: %d docs, then %d", docs, got)
+	}
+}
+
 func TestReportsInvalidFrontmatterAndDuplicates(t *testing.T) {
 	root := tk.FakeVault(t)
 	tk.Write(t, filepath.Join(root, "03 Runbooks", "Bad.md"), "---\ndoc_id: nope\ntitle: Bad\ndoc_type: made_up\nsystem: Bad\n"+
