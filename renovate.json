@@ -60,6 +60,12 @@
         "github/codeql-action"
       ],
       "groupName": "codeql-action"
+    },
+    {
+      "description": "Renovate's mise manager runs `mise lock` on every dependency a branch moves in mise.toml, this file's regex dependencies included, and mise refuses to lock min_version's jdx/mise, which is no tool; no Renovate option keeps another manager's dependency out of that command, so min_version moves on a branch where no mise tool does.",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["jdx/mise"],
+      "groupName": "mise"
     }
   ],
   "description": "Routine updates arrive together weekly; majors separately, security fixes immediately. No automatic merges.",
